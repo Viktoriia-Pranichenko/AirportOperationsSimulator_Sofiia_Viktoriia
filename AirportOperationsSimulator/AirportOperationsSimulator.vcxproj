@@ -301,11 +301,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\airport_terminal.h" />
     <ClInclude Include="src\camera_controller.h" />
     <ClInclude Include="src\airplane.h" />
     <ClInclude Include="src\resource_dir.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\airport_terminal.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\airplane.cpp" />
   </ItemGroup>

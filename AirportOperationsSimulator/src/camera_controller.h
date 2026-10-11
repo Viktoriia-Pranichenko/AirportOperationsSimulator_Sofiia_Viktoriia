@@ -8,17 +8,17 @@ class CameraController
 {
 public:
     CameraController()
-        : camera{
+        : camera2D{
             {static_cast<float>(GetRenderWidth()) * 0.5f, static_cast<float>(GetRenderHeight()) * 0.5f},
             {0.0f, 0.0f},
             0.0f,
             1.0f
         },
         camera3D{
-            {260.0f, 360.0f, 480.0f},
-            {0.0f, 0.0f, 0.0f},
+            {0.0f, 132.0f, -230.0f},
+            {0.0f, 6.0f, -45.0f},
             {0.0f, 1.0f, 0.0f},
-            45.0f,
+            42.0f,
             CAMERA_PERSPECTIVE
         }
     {
@@ -27,42 +27,55 @@ public:
     void Update(float deltaTime)
     {
         const int screenWidth = GetScreenWidth();
-        const int screenHeight = GetScreenHeight();
         const int renderWidth = GetRenderWidth();
         const int renderHeight = GetRenderHeight();
-
-        camera.offset = {
+        camera2D.offset = {
             static_cast<float>(renderWidth) * 0.5f,
             static_cast<float>(renderHeight) * 0.5f
         };
-
         const float dpiScale = screenWidth > 0
             ? static_cast<float>(renderWidth) / static_cast<float>(screenWidth)
             : 1.0f;
-        camera.zoom = zoomLevel * dpiScale;
+        camera2D.zoom = zoomLevel * dpiScale;
 
-        float moveX = 0.0f;
-        float moveY = 0.0f;
+        float moveRight = 0.0f;
+        float moveForward = 0.0f;
+        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) moveRight -= 1.0f;
+        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) moveRight += 1.0f;
+        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) moveForward += 1.0f;
+        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) moveForward -= 1.0f;
 
-        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) moveX -= 1.0f;
-        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) moveX += 1.0f;
-        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) moveY -= 1.0f;
-        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) moveY += 1.0f;
-
-        if (moveX != 0.0f && moveY != 0.0f)
+        if (moveRight != 0.0f && moveForward != 0.0f)
         {
-            moveX *= 0.70710678f;
-            moveY *= 0.70710678f;
+            moveRight *= 0.70710678f;
+            moveForward *= 0.70710678f;
         }
 
-        const float panSpeed = 500.0f / zoomLevel;
-        camera.target.x += moveX * panSpeed * deltaTime;
-        camera.target.y += moveY * panSpeed * deltaTime;
-        const float worldPanSpeed = 220.0f * deltaTime;
-        camera3D.target.x += moveX * worldPanSpeed;
-        camera3D.target.z += moveY * worldPanSpeed;
-        camera3D.position.x += moveX * worldPanSpeed;
-        camera3D.position.z += moveY * worldPanSpeed;
+        float forwardX = camera3D.target.x - camera3D.position.x;
+        float forwardZ = camera3D.target.z - camera3D.position.z;
+        const float forwardLength = std::sqrt(forwardX * forwardX + forwardZ * forwardZ);
+        if (forwardLength > 0.0f)
+        {
+            forwardX /= forwardLength;
+            forwardZ /= forwardLength;
+            const float rightX = forwardZ;
+            const float rightZ = -forwardX;
+            const float panSpeed = 20.0f / zoomLevel;
+            const Vector3 shift{
+                (rightX * moveRight + forwardX * moveForward) * panSpeed * deltaTime,
+                0.0f,
+                (rightZ * moveRight + forwardZ * moveForward) * panSpeed * deltaTime
+            };
+            camera3D.target.x += shift.x;
+            camera3D.target.z += shift.z;
+            camera3D.position.x += shift.x;
+            camera3D.position.z += shift.z;
+        }
+
+        // Keep the screen-space camera state available for the existing 2D UI layer.
+        const float uiPanSpeed = 500.0f / zoomLevel * deltaTime;
+        camera2D.target.x += moveRight * uiPanSpeed;
+        camera2D.target.y -= moveForward * uiPanSpeed;
 
         const float wheelMove = GetMouseWheelMove();
         if (wheelMove != 0.0f)
@@ -70,47 +83,35 @@ public:
             zoomLevel *= std::pow(1.1f, wheelMove);
             if (zoomLevel < MinZoom) zoomLevel = MinZoom;
             if (zoomLevel > MaxZoom) zoomLevel = MaxZoom;
-            camera.zoom = zoomLevel * dpiScale;
+            camera2D.zoom = zoomLevel * dpiScale;
 
-            float offsetX = camera3D.position.x - camera3D.target.x;
-            float offsetY = camera3D.position.y - camera3D.target.y;
-            float offsetZ = camera3D.position.z - camera3D.target.z;
-            const float oldDistance = std::sqrt(offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ);
-            float distance = oldDistance * std::pow(0.9f, wheelMove);
-            if (distance < 150.0f) distance = 150.0f;
-            if (distance > 1000.0f) distance = 1000.0f;
-            if (oldDistance > 0.0f)
+            const float dx = camera3D.position.x - camera3D.target.x;
+            const float dy = camera3D.position.y - camera3D.target.y;
+            const float dz = camera3D.position.z - camera3D.target.z;
+            const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const float desiredDistance = InitialDistance / zoomLevel;
+            if (distance > 0.0f)
             {
-                const float ratio = distance / oldDistance;
+                const float ratio = desiredDistance / distance;
                 camera3D.position = {
-                    camera3D.target.x + offsetX * ratio,
-                    camera3D.target.y + offsetY * ratio,
-                    camera3D.target.z + offsetZ * ratio
+                    camera3D.target.x + dx * ratio,
+                    camera3D.target.y + dy * ratio,
+                    camera3D.target.z + dz * ratio
                 };
             }
         }
     }
 
-    const Camera2D& GetCamera() const
-    {
-        return camera;
-    }
-
-    const Camera3D& GetCamera3D() const
-    {
-        return camera3D;
-    }
-
-    float GetZoomLevel() const
-    {
-        return zoomLevel;
-    }
+    const Camera2D& GetCamera() const { return camera2D; }
+    const Camera3D& GetCamera3D() const { return camera3D; }
+    float GetZoomLevel() const { return zoomLevel; }
 
 private:
     static constexpr float MinZoom = 0.5f;
     static constexpr float MaxZoom = 2.5f;
+    static constexpr float InitialDistance = 223.8f;
 
-    Camera2D camera;
+    Camera2D camera2D;
     Camera3D camera3D;
     float zoomLevel = 1.0f;
 };
