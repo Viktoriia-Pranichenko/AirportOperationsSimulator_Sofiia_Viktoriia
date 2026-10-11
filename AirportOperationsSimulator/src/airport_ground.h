@@ -18,6 +18,16 @@ struct TaxiwayEdge
     std::string toNodeId;
     float width;
     bool drawSurface;
+    bool stopAtHoldLine;
+    float holdLineZ;
+};
+
+struct AirportRunway
+{
+    std::string id;
+    Vector3 center;
+    float length;
+    float width;
 };
 
 // Runway and taxiway geometry share their coordinates with the terminal's stands.
@@ -27,14 +37,17 @@ public:
     explicit AirportGround(const AirportTerminal& terminal);
 
     void Draw() const;
+    const std::vector<AirportRunway>& GetRunways() const { return runways; }
     const std::vector<TaxiwayNode>& GetTaxiwayNodes() const { return nodes; }
     const std::vector<TaxiwayEdge>& GetTaxiwayEdges() const { return edges; }
     const TaxiwayNode* FindNode(const std::string& id) const;
 
 private:
     void AddNode(const std::string& id, Vector3 position);
-    void Connect(const std::string& from, const std::string& to, float width, bool drawSurface = true);
+    void Connect(const std::string& from, const std::string& to, float width,
+        bool drawSurface = true, bool stopAtHoldLine = false, float holdLineZ = 0.0f);
 
     std::vector<TaxiwayNode> nodes;
     std::vector<TaxiwayEdge> edges;
+    std::vector<AirportRunway> runways;
 };

@@ -15,7 +15,7 @@ int main()
     AirportGround airportGround(terminal);
     Airplane airplane;
     airplane.flightId = "AO100";
-    airplane.position = {-220.0f, -590.0f};
+    airplane.position = {-220.0f, -515.0f};
     airplane.headingDegrees = 90.0f;
 
     while (!WindowShouldClose())
@@ -26,8 +26,10 @@ int main()
         ClearBackground(Color{142, 181, 199, 255});
 
         BeginMode3D(cameraController.GetCamera3D());
-        airportGround.Draw();
         terminal.Draw();
+        // Draw taxiways after the terminal apron so the connected pavement and
+        // centerlines remain visible where they cross the apron slab.
+        airportGround.Draw();
         airplane.Draw(0.65f);
         EndMode3D();
 
