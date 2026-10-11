@@ -4,13 +4,13 @@
 int main()
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
-    InitWindow(800, 600, "Airport Operations Simulator - 2D Camera Test");
+    InitWindow(1024, 768, "Airport Operations Simulator - 2D Camera Test");
 
     CameraController cameraController;
 
     while (!WindowShouldClose())
     {
-        cameraController.Update(GetFrameTime(), GetScreenWidth(), GetScreenHeight());
+        cameraController.Update(GetFrameTime());
 
         BeginDrawing();
         ClearBackground(Color{24, 34, 43, 255});
@@ -45,8 +45,12 @@ int main()
             TextFormat("Camera target: %.0f, %.0f   Zoom: %.2fx",
                 cameraController.GetCamera().target.x,
                 cameraController.GetCamera().target.y,
-                cameraController.GetCamera().zoom),
+                cameraController.GetZoomLevel()),
             18, 92, 16, Color{185, 201, 207, 255});
+        DrawText(
+            TextFormat("Screen: %d x %d   Render: %d x %d",
+                GetScreenWidth(), GetScreenHeight(), GetRenderWidth(), GetRenderHeight()),
+            18, 115, 16, Color{185, 201, 207, 255});
 
         EndDrawing();
     }

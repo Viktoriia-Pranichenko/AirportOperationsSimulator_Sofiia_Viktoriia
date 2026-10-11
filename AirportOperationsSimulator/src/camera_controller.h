@@ -8,16 +8,31 @@ class CameraController
 {
 public:
     CameraController()
-        : camera{{0.0f, 0.0f}, {0.0f, 0.0f}, 0.0f, 1.0f}
+        : camera{
+            {static_cast<float>(GetRenderWidth()) * 0.5f, static_cast<float>(GetRenderHeight()) * 0.5f},
+            {0.0f, 0.0f},
+            0.0f,
+            1.0f
+        }
     {
     }
 
-    void Update(float deltaTime, int screenWidth, int screenHeight)
+    void Update(float deltaTime)
     {
+        const int screenWidth = GetScreenWidth();
+        const int screenHeight = GetScreenHeight();
+        const int renderWidth = GetRenderWidth();
+        const int renderHeight = GetRenderHeight();
+
         camera.offset = {
-            static_cast<float>(screenWidth) * 0.5f,
-            static_cast<float>(screenHeight) * 0.5f
+            static_cast<float>(renderWidth) * 0.5f,
+            static_cast<float>(renderHeight) * 0.5f
         };
+
+        const float dpiScale = screenWidth > 0
+            ? static_cast<float>(renderWidth) / static_cast<float>(screenWidth)
+            : 1.0f;
+        camera.zoom = zoomLevel * dpiScale;
 
         float moveX = 0.0f;
         float moveY = 0.0f;
@@ -33,16 +48,17 @@ public:
             moveY *= 0.70710678f;
         }
 
-        const float panSpeed = 500.0f / camera.zoom;
+        const float panSpeed = 500.0f / zoomLevel;
         camera.target.x += moveX * panSpeed * deltaTime;
         camera.target.y += moveY * panSpeed * deltaTime;
 
         const float wheelMove = GetMouseWheelMove();
         if (wheelMove != 0.0f)
         {
-            camera.zoom *= std::pow(1.1f, wheelMove);
-            if (camera.zoom < MinZoom) camera.zoom = MinZoom;
-            if (camera.zoom > MaxZoom) camera.zoom = MaxZoom;
+            zoomLevel *= std::pow(1.1f, wheelMove);
+            if (zoomLevel < MinZoom) zoomLevel = MinZoom;
+            if (zoomLevel > MaxZoom) zoomLevel = MaxZoom;
+            camera.zoom = zoomLevel * dpiScale;
         }
     }
 
@@ -51,9 +67,15 @@ public:
         return camera;
     }
 
+    float GetZoomLevel() const
+    {
+        return zoomLevel;
+    }
+
 private:
     static constexpr float MinZoom = 0.5f;
     static constexpr float MaxZoom = 2.5f;
 
     Camera2D camera;
+    float zoomLevel = 1.0f;
 };
