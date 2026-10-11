@@ -1,54 +1,56 @@
-/*
-Raylib example file.
-This is an example main file for a simple raylib project.
-Use this as a starting point or replace it with your code.
-
-by Jeffery Myers is marked with CC0 1.0. To view a copy of this license, visit https://creativecommons.org/publicdomain/zero/1.0/
-
-*/
-
 #include "raylib.h"
+#include "camera_controller.h"
 
-#include "resource_dir.h"	// utility header for SearchAndSetResourceDir
-
-int main ()
+int main()
 {
-	// Tell the window to use vsync and work on high DPI displays
-	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
+    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
+    InitWindow(800, 600, "Airport Operations Simulator - 2D Camera Test");
 
-	// Create the window and OpenGL context
-	InitWindow(800, 600, "Hello Raylib");
+    CameraController cameraController;
 
-	// Utility function from resource_dir.h to find the resources folder and set it as the current working directory so we can load from it
-	SearchAndSetResourceDir("resources");
+    while (!WindowShouldClose())
+    {
+        cameraController.Update(GetFrameTime(), GetScreenWidth(), GetScreenHeight());
 
-	// Load a texture from the resources directory
-	Texture wabbit = LoadTexture("wabbit_alpha.png");
-	
-	// game loop
-	while (!WindowShouldClose())		// run the loop until the user presses ESCAPE or presses the Close button on the window
-	{
-		// drawing
-		BeginDrawing();
+        BeginDrawing();
+        ClearBackground(Color{24, 34, 43, 255});
 
-		// Setup the back buffer for drawing (clear color and depth buffers)
-		ClearBackground(BLACK);
+        BeginMode2D(cameraController.GetCamera());
 
-		// draw some text using the default font
-		DrawText("Hello Raylib", 200,200,20,WHITE);
+        for (int coordinate = -2000; coordinate <= 2000; coordinate += 100)
+        {
+            const Color gridColor = coordinate == 0 ? Color{92, 115, 126, 255} : Color{43, 58, 67, 255};
+            DrawLine(coordinate, -2000, coordinate, 2000, gridColor);
+            DrawLine(-2000, coordinate, 2000, coordinate, gridColor);
+        }
 
-		// draw our texture to the screen
-		DrawTexture(wabbit, 400, 200, WHITE);
-		
-		// end the frame and get ready for the next one  (display frame, poll input, etc...)
-		EndDrawing();
-	}
+        DrawRectangle(-150, -110, 180, 120, Color{65, 122, 132, 255});
+        DrawRectangleLines(-150, -110, 180, 120, Color{174, 220, 206, 255});
+        DrawCircle(110, -45, 55.0f, Color{219, 160, 83, 255});
+        DrawCircleLines(110, -45, 55.0f, Color{255, 225, 163, 255});
+        DrawTriangle(
+            Vector2{-150.0f, 90.0f},
+            Vector2{-90.0f, -5.0f},
+            Vector2{-30.0f, 90.0f},
+            Color{183, 111, 112, 255});
+        DrawRectangle(50, 70, 120, 90, Color{128, 117, 175, 255});
+        DrawRectangleLines(50, 70, 120, 90, Color{207, 194, 245, 255});
 
-	// cleanup
-	// unload our texture so it can be cleaned up
-	UnloadTexture(wabbit);
+        EndMode2D();
 
-	// destroy the window and cleanup the OpenGL context
-	CloseWindow();
-	return 0;
+        DrawText("2D camera test - temporary geometry", 18, 16, 20, RAYWHITE);
+        DrawText("Pan: WASD or arrow keys    Zoom: mouse wheel", 18, 44, 18, Color{185, 201, 207, 255});
+        DrawText("Zoom limits: 0.5x - 2.5x", 18, 69, 16, Color{185, 201, 207, 255});
+        DrawText(
+            TextFormat("Camera target: %.0f, %.0f   Zoom: %.2fx",
+                cameraController.GetCamera().target.x,
+                cameraController.GetCamera().target.y,
+                cameraController.GetCamera().zoom),
+            18, 92, 16, Color{185, 201, 207, 255});
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
 }
