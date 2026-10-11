@@ -222,16 +222,12 @@ namespace
         // The main row sits slightly closer to its boarding facade while leaving
         // a clear apron lane between the terminal canopy and stand markings.
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
-        for (float x : backStandXs) DrawStand(x, -23.5f, 5.5f, 8.0f);
-
-        // Leave the upper wing junctions open for manoeuvring. Continue each
-        // side row toward the far end of the wing with a third, evenly aligned
-        // position; all stands share the same footprint, rotated on the wings.
-        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
+        for (float x : backStandXs) DrawStand(x, -20.0f, 5.5f, 8.0f);
+        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
         for (float z : wingStandZs)
         {
-            DrawStand(-26.0f, z, 8.0f, 5.5f);
-            DrawStand(26.0f, z, 8.0f, 5.5f);
+            DrawStand(-30.0f, z, 10.0f, 8.0f);
+            DrawStand(30.0f, z, 10.0f, 8.0f);
         }
     }
 }
@@ -250,15 +246,15 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
         for (int i = 0; i < 4; ++i)
             result.push_back({"GATE_" + std::to_string(i + 1),
-                {backStandXs[i] * TerminalScale, 0.035f, -23.5f * TerminalScale}, 180.0f});
+                {backStandXs[i] * TerminalScale, 0.035f, -20.0f * TerminalScale}, 180.0f});
 
-        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
+        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
         for (int row = 0; row < 3; ++row)
         {
             result.push_back({"WEST_" + std::to_string(row + 1),
-                {-26.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
+                {-30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
             result.push_back({"EAST_" + std::to_string(row + 1),
-                {26.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
+                {30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
         }
         return result;
     }();

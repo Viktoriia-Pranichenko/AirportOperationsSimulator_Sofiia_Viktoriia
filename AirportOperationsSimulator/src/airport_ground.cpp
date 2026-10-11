@@ -18,6 +18,34 @@ namespace
     constexpr float RunwayLength = 880.0f;
     constexpr float RunwayWidth = 92.0f;
 
+    void DrawGroundAroundApron()
+    {
+        // Keep the terminal's original grey slab visible without a coplanar
+        // ground plane underneath it. The adjoining grass pieces meet its
+        // perimeter exactly and never overlap its footprint.
+        constexpr float groundY = -0.01f;
+        constexpr float groundMinX = -750.0f;
+        constexpr float groundMaxX = 750.0f;
+        constexpr float groundMinZ = -810.0f;
+        constexpr float groundMaxZ = 155.0f;
+        constexpr float slabMinX = -210.0f;
+        constexpr float slabMaxX = 210.0f;
+        constexpr float slabMinZ = -265.0f;
+
+        const float groundLength = groundMaxZ - groundMinZ;
+        const float sideWidth = slabMinX - groundMinX;
+        DrawPlane({(groundMinX + slabMinX) * 0.5f, groundY,
+                      (groundMinZ + groundMaxZ) * 0.5f},
+            {sideWidth, groundLength}, Grass);
+        DrawPlane({(slabMaxX + groundMaxX) * 0.5f, groundY,
+                      (groundMinZ + groundMaxZ) * 0.5f},
+            {sideWidth, groundLength}, Grass);
+
+        const float rearLength = slabMinZ - groundMinZ;
+        DrawPlane({0.0f, groundY, (groundMinZ + slabMinZ) * 0.5f},
+            {slabMaxX - slabMinX, rearLength}, Grass);
+    }
+
     void DrawRunway()
     {
         DrawCubeV({0.0f, -0.03f, RunwayCenterZ},
@@ -58,9 +86,9 @@ namespace
     }
 }
 
-AirportGround::AirportGround(const AirportTerminal& terminal)
+AirportGround::AirportGround(const AirportTerminal&)
 {
-    // Parallel taxiway, with three runway exits aligned to the runway edge.
+    // Keep the side taxiway and its runway exits connected to the main road.
     AddNode("A_WEST", {-450.0f, 0.08f, -465.0f});
     AddNode("A_EXIT_W", {-400.0f, 0.08f, -465.0f});
     AddNode("A_CENTER", {0.0f, 0.08f, -465.0f});
@@ -71,7 +99,6 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     Connect("A_CENTER", "A_EXIT_E", 22.0f);
     Connect("A_EXIT_E", "A_EAST", 22.0f);
 
-    // Runway exits cross the shoulder and join Taxiway A at right angles.
     AddNode("RWY_EXIT_W", {-400.0f, 0.08f, -540.0f});
     AddNode("RWY_EXIT_C", {0.0f, 0.08f, -540.0f});
     AddNode("RWY_EXIT_E", {400.0f, 0.08f, -540.0f});
@@ -79,9 +106,9 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     Connect("RWY_EXIT_C", "A_CENTER", 18.0f);
     Connect("RWY_EXIT_E", "A_EXIT_E", 18.0f);
 
-    // Explicit runway graph nodes let route planning continue across the runway.
-    AddNode("RUNWAY_W", {-400.0f, 0.08f, -590.0f});
+    // Preserve the runway route node, without drawing changes onto the runway.
     AddNode("RUNWAY_CENTER", {0.0f, 0.08f, -590.0f});
+    AddNode("RUNWAY_W", {-400.0f, 0.08f, -590.0f});
     AddNode("RUNWAY_E", {400.0f, 0.08f, -590.0f});
     Connect("RUNWAY_W", "RUNWAY_CENTER", 1.0f, false);
     Connect("RUNWAY_CENTER", "RUNWAY_E", 1.0f, false);
@@ -89,7 +116,7 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     Connect("RUNWAY_CENTER", "RWY_EXIT_C", 1.0f, false);
     Connect("RUNWAY_E", "RWY_EXIT_E", 1.0f, false);
 
-    // The main apron connector ends before the terminal's marked stand area.
+    // Continue the road centrally across the apron; no stand feeder lanes.
     AddNode("APRON_ENTRY", {0.0f, 0.08f, -220.0f});
     AddNode("APRON_NORTH", {0.0f, 0.08f, -205.0f});
     AddNode("APRON_MID", {0.0f, 0.08f, -180.0f});
@@ -104,38 +131,6 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     Connect("APRON_WING_NORTH", "APRON_WING_MIDDLE", 10.0f);
     Connect("APRON_WING_MIDDLE", "APRON_WING_SOUTH", 10.0f);
     Connect("APRON_WING_SOUTH", "APRON_BACK_ROW", 10.0f);
-
-    // Connect the six side stands to the center apron lane at their lead-in points.
-    const std::vector<AirportParkingStand>& stands = terminal.GetParkingStands();
-    for (const AirportParkingStand& stand : stands)
-    {
-        AddNode(stand.id, {stand.position.x, 0.08f, stand.position.z});
-        if (stand.id.rfind("WEST_", 0) == 0 || stand.id.rfind("EAST_", 0) == 0)
-        {
-            const std::string approachId = stand.position.z < -150.0f
-                ? "APRON_MID"
-                : "APRON_WING_" +
-                    (stand.position.z < -120.0f ? std::string("NORTH") :
-                     stand.position.z < -80.0f ? std::string("MIDDLE") : std::string("SOUTH"));
-            Connect(approachId, stand.id, 9.0f);
-        }
-    }
-
-    // A cross-apron lane feeds the four stands facing the terminal's main hall.
-    const float backRowX[] = {-33.75f, -11.25f, 11.25f, 33.75f};
-    const std::string backRowNodeIds[] = {"BACK_ACCESS_W2", "BACK_ACCESS_W1", "BACK_ACCESS_E1", "BACK_ACCESS_E2"};
-    for (int i = 0; i < 4; ++i)
-        AddNode(backRowNodeIds[i], {backRowX[i], 0.08f, -45.0f});
-    Connect("APRON_BACK_ROW", backRowNodeIds[1], 8.0f);
-    Connect(backRowNodeIds[1], backRowNodeIds[0], 8.0f);
-    Connect("APRON_BACK_ROW", backRowNodeIds[2], 8.0f);
-    Connect(backRowNodeIds[2], backRowNodeIds[3], 8.0f);
-
-    for (int i = 0; i < 4; ++i)
-    {
-        const AirportParkingStand& stand = stands[static_cast<std::size_t>(i)];
-        Connect(backRowNodeIds[i], stand.id, 7.0f);
-    }
 }
 
 void AirportGround::AddNode(const std::string& id, Vector3 position)
@@ -168,8 +163,7 @@ const TaxiwayNode* AirportGround::FindNode(const std::string& id) const
 
 void AirportGround::Draw() const
 {
-    // The terminal provides the apron slab. Add grass and hard surface around it.
-    DrawPlane({0.0f, -0.04f, -360.0f}, {1500.0f, 900.0f}, Grass);
+    DrawGroundAroundApron();
     DrawRunway();
 
     for (const TaxiwayEdge& edge : edges)
@@ -195,19 +189,19 @@ void AirportGround::Draw() const
             {to->position.x, 0.12f, to->position.z}, TaxiwayCenterline);
     }
 
-    // Intersections are visually distinct and are the route graph's decision points.
+    // Mark side and center taxiway junctions and their runway holding points.
     for (const TaxiwayNode& node : nodes)
     {
         if (node.id.rfind("RWY_EXIT_", 0) == 0 || node.id.rfind("A_EXIT_", 0) == 0 ||
-            node.id == "A_CENTER" || node.id == "APRON_ENTRY" || node.id == "APRON_BACK_ROW")
+            node.id == "A_CENTER" || node.id == "APRON_ENTRY")
             DrawCylinder({node.position.x, 0.11f, node.position.z}, 2.0f, 2.0f, 0.08f, 10, IntersectionMarking);
     }
 
-    // Hold-short bars at each runway access point.
     const float runwayHoldPositions[] = {-400.0f, 0.0f, 400.0f};
     for (float x : runwayHoldPositions)
     {
         DrawLine3D({x - 9.0f, 0.14f, -535.0f}, {x + 9.0f, 0.14f, -535.0f}, RunwayMarking);
         DrawLine3D({x - 9.0f, 0.14f, -531.0f}, {x + 9.0f, 0.14f, -531.0f}, RunwayMarking);
     }
+
 }
