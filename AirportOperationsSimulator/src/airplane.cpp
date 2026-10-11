@@ -18,7 +18,7 @@ namespace
     {
         return {
             position.x + (local.x * cosine - local.z * sine) * scale,
-            local.y * scale,
+            (local.y + 3.5f) * scale,
             position.y + (local.x * sine + local.z * cosine) * scale
         };
     }

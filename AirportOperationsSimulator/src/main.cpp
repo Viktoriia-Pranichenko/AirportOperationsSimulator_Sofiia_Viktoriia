@@ -1,6 +1,8 @@
 #include "raylib.h"
 
 #include "airport_terminal.h"
+#include "airport_ground.h"
+#include "airplane.h"
 #include "camera_controller.h"
 
 int main()
@@ -10,6 +12,11 @@ int main()
 
     CameraController cameraController;
     AirportTerminal terminal;
+    AirportGround airportGround(terminal);
+    Airplane airplane;
+    airplane.flightId = "AO100";
+    airplane.position = {-220.0f, -590.0f};
+    airplane.headingDegrees = 90.0f;
 
     while (!WindowShouldClose())
     {
@@ -19,7 +26,9 @@ int main()
         ClearBackground(Color{142, 181, 199, 255});
 
         BeginMode3D(cameraController.GetCamera3D());
+        airportGround.Draw();
         terminal.Draw();
+        airplane.Draw(0.65f);
         EndMode3D();
 
         DrawText("Pan: WASD or arrow keys    Zoom: mouse wheel", 18, 16, 18, RAYWHITE);

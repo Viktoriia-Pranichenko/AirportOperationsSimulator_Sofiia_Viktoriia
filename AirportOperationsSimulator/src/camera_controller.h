@@ -15,8 +15,8 @@ public:
             1.0f
         },
         camera3D{
-            {0.0f, 132.0f, -230.0f},
-            {0.0f, 6.0f, -45.0f},
+            {0.0f, 760.0f, -1220.0f},
+            {0.0f, 0.0f, -300.0f},
             {0.0f, 1.0f, 0.0f},
             42.0f,
             CAMERA_PERSPECTIVE
@@ -109,7 +109,7 @@ public:
 private:
     static constexpr float MinZoom = 0.5f;
     static constexpr float MaxZoom = 2.5f;
-    static constexpr float InitialDistance = 223.8f;
+    static constexpr float InitialDistance = 1193.2f;
 
     Camera2D camera2D;
     Camera3D camera3D;

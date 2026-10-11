@@ -155,8 +155,9 @@ namespace
 
     void DrawApronAndStands()
     {
-        DrawTriangle3D({-10000.0f, -0.01f, -10000.0f}, {-10000.0f, -0.01f, 10000.0f}, {10000.0f, -0.01f, 10000.0f}, Color{105, 121, 122, 255});
-        DrawTriangle3D({-10000.0f, -0.01f, -10000.0f}, {10000.0f, -0.01f, 10000.0f}, {10000.0f, -0.01f, -10000.0f}, Color{105, 121, 122, 255});
+        // Keep the apron around the terminal; AirportGround supplies grass beyond it.
+        DrawTriangle3D({-130.0f, -0.01f, -220.0f}, {-130.0f, -0.01f, 90.0f}, {130.0f, -0.01f, 90.0f}, Color{105, 121, 122, 255});
+        DrawTriangle3D({-130.0f, -0.01f, -220.0f}, {130.0f, -0.01f, 90.0f}, {130.0f, -0.01f, -220.0f}, Color{105, 121, 122, 255});
 
         // Four stands face the main section and three serve each wing (ten total).
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
@@ -174,4 +175,27 @@ void AirportTerminal::Draw() const
 {
     DrawApronAndStands();
     DrawTerminal();
+}
+
+const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() const
+{
+    static const std::vector<AirportParkingStand> stands = []
+    {
+        std::vector<AirportParkingStand> result;
+        constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
+        for (int i = 0; i < 4; ++i)
+            result.push_back({"GATE_" + std::to_string(i + 1),
+                {backStandXs[i] * TerminalScale, 0.035f, -20.0f * TerminalScale}, 180.0f});
+
+        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
+        for (int row = 0; row < 3; ++row)
+        {
+            result.push_back({"WEST_" + std::to_string(row + 1),
+                {-30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
+            result.push_back({"EAST_" + std::to_string(row + 1),
+                {30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
+        }
+        return result;
+    }();
+    return stands;
 }
