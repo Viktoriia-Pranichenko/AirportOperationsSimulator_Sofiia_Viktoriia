@@ -112,9 +112,11 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         AddNode(stand.id, {stand.position.x, 0.08f, stand.position.z});
         if (stand.id.rfind("WEST_", 0) == 0 || stand.id.rfind("EAST_", 0) == 0)
         {
-            const std::string approachId = "APRON_WING_" +
-                (stand.position.z < -120.0f ? std::string("NORTH") :
-                 stand.position.z < -80.0f ? std::string("MIDDLE") : std::string("SOUTH"));
+            const std::string approachId = stand.position.z < -150.0f
+                ? "APRON_MID"
+                : "APRON_WING_" +
+                    (stand.position.z < -120.0f ? std::string("NORTH") :
+                     stand.position.z < -80.0f ? std::string("MIDDLE") : std::string("SOUTH"));
             Connect(approachId, stand.id, 9.0f);
         }
     }

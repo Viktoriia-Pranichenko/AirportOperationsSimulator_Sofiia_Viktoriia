@@ -16,6 +16,8 @@ namespace
     constexpr float BackFacadeZ = -8.0f;
     constexpr float LeftInnerX = -42.0f;
     constexpr float RightInnerX = 42.0f;
+    constexpr float SideWingCenterZ = -70.0f;
+    constexpr float SideWingLength = 156.0f;
     constexpr float TerminalScale = 1.25f;
     constexpr Color BoardingDoorGlass{190, 105, 58, 255};
     constexpr Color BoardingDoorHighlight{239, 184, 119, 255};
@@ -81,21 +83,21 @@ namespace
     {
         // Three connected, two-storey blocks make a U around the open central apron.
         Box({0.0f, WallHeight * 0.5f, 0.0f}, {176.0f, WallHeight, 16.0f}, Wall);
-        Box({-51.0f, WallHeight * 0.5f, -58.0f}, {18.0f, WallHeight, 132.0f}, WallSide);
-        Box({51.0f, WallHeight * 0.5f, -58.0f}, {18.0f, WallHeight, 132.0f}, WallSide);
+        Box({-51.0f, WallHeight * 0.5f, SideWingCenterZ}, {18.0f, WallHeight, SideWingLength}, WallSide);
+        Box({51.0f, WallHeight * 0.5f, SideWingCenterZ}, {18.0f, WallHeight, SideWingLength}, WallSide);
         // A broader central terminal hall continues behind the U-shaped boarding concourse.
         Box({0.0f, WallHeight * 0.5f, 29.0f}, {176.0f, WallHeight, 48.0f}, WallSide);
 
         // Roof slabs and fascia read clearly above the upper-storey glazing.
         Box({0.0f, RoofY, 0.0f}, {178.0f, 1.3f, 18.0f}, Roof);
-        Box({-51.0f, RoofY, -58.0f}, {20.0f, 1.3f, 134.0f}, Roof);
-        Box({51.0f, RoofY, -58.0f}, {20.0f, 1.3f, 134.0f}, Roof);
+        Box({-51.0f, RoofY, SideWingCenterZ}, {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
+        Box({51.0f, RoofY, SideWingCenterZ}, {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
         Box({0.0f, RoofY, 29.0f}, {178.0f, 1.3f, 50.0f}, Roof);
 
         // The floor band wraps the apron-facing sides and makes the two levels distinct.
         Box({0.0f, 6.0f, BackFacadeZ - 0.12f}, {176.0f, 0.55f, 0.38f}, Trim);
-        Box({LeftInnerX + 0.14f, 6.0f, -58.0f}, {0.38f, 0.55f, 132.0f}, Trim);
-        Box({RightInnerX - 0.14f, 6.0f, -58.0f}, {0.38f, 0.55f, 132.0f}, Trim);
+        Box({LeftInnerX + 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
+        Box({RightInnerX - 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
 
         // Four evenly spaced boarding doors line the main apron-facing section.
         constexpr float backDoorXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
@@ -116,20 +118,25 @@ namespace
             DrawMainHallWindow(x, 9.0f);
         }
 
-        // Three ground-floor boarding doors on each longer inward-facing wing.
-        constexpr float wingDoorZs[] = {-48.0f, -80.0f, -112.0f};
+        // Three evenly spaced gates on each extended wing, aligned to the side stands.
+        constexpr float wingDoorZs[] = {-72.0f, -104.0f, -136.0f};
         for (float z : wingDoorZs)
         {
             DrawSideDoor(LeftInnerX + 0.16f, z);
             DrawSideDoor(RightInnerX - 0.16f, z);
         }
 
-        // Simple window rows above and between wing doors; no second-storey doors.
-        constexpr float wingWindowZs[] = {-24.0f, -64.0f, -96.0f};
-        for (float z : wingWindowZs)
+        // Ground-floor windows sit between gates; the extended upper row
+        // continues toward the wing ends without adding second-storey doors.
+        constexpr float wingGroundWindowZs[] = {-40.0f, -88.0f, -120.0f};
+        for (float z : wingGroundWindowZs)
         {
             DrawSideWindow(LeftInnerX + 0.13f, z, 2.55f, 8.0f, 3.2f);
             DrawSideWindow(RightInnerX - 0.13f, z, 2.55f, 8.0f, 3.2f);
+        }
+        constexpr float wingUpperWindowZs[] = {-24.0f, -56.0f, -88.0f, -120.0f, -136.0f};
+        for (float z : wingUpperWindowZs)
+        {
             DrawSideWindow(LeftInnerX + 0.13f, z, 9.0f, 7.0f, 3.2f);
             DrawSideWindow(RightInnerX - 0.13f, z, 9.0f, 7.0f, 3.2f);
         }
@@ -137,36 +144,94 @@ namespace
 
     void DrawStand(float centerX, float centerZ, float halfX, float halfZ)
     {
-        constexpr Color line{239, 236, 218, 255};
-        constexpr float y = 0.035f;
+        constexpr Color sideLine{218, 222, 211, 255};
+        constexpr Color centerLine{220, 174, 82, 255};
+        // These shallow 3D paint bars have world-space width, unlike GL line
+        // primitives, which remain one pixel wide and can flicker in perspective.
+        constexpr float paintY = 0.0275f;
+        constexpr float paintThickness = 0.025f;
+        constexpr float paintWidth = 0.36f;
+        constexpr float endInset = 0.75f;
+        constexpr float dashGap = 1.5f;
         centerX *= TerminalScale;
         centerZ *= TerminalScale;
         halfX *= TerminalScale;
         halfZ *= TerminalScale;
-        const float left = centerX - halfX;
-        const float right = centerX + halfX;
-        const float nearZ = centerZ + halfZ;
-        const float farZ = centerZ - halfZ;
-        DrawLine3D({left, y, nearZ}, {right, y, nearZ}, line);
-        DrawLine3D({left, y, farZ}, {right, y, farZ}, line);
-        DrawLine3D({left, y, nearZ}, {left, y, farZ}, line);
-        DrawLine3D({right, y, nearZ}, {right, y, farZ}, line);
+
+        const auto drawDashedLineZ = [&](float x, float lineLength)
+        {
+            const int dashCount = static_cast<int>((lineLength + 1.0f) / 6.0f);
+            const float dashLength = (lineLength - dashGap * (dashCount - 1)) / dashCount;
+            const float firstDashZ = centerZ - lineLength * 0.5f + dashLength * 0.5f;
+            for (int dash = 0; dash < dashCount; ++dash)
+            {
+                const float z = firstDashZ + dash * (dashLength + dashGap);
+                DrawCubeV({x, paintY, z}, {paintWidth, paintThickness, dashLength}, sideLine);
+            }
+        };
+
+        const auto drawDashedLineX = [&](float z, float lineLength)
+        {
+            const int dashCount = static_cast<int>((lineLength + 1.0f) / 6.0f);
+            const float dashLength = (lineLength - dashGap * (dashCount - 1)) / dashCount;
+            const float firstDashX = centerX - lineLength * 0.5f + dashLength * 0.5f;
+            for (int dash = 0; dash < dashCount; ++dash)
+            {
+                const float x = firstDashX + dash * (dashLength + dashGap);
+                DrawCubeV({x, paintY, z}, {dashLength, paintThickness, paintWidth}, sideLine);
+            }
+        };
+
+        // Mark each stand along its longer axis so the three lines follow the
+        // aircraft's direction: into the apron on the main facade, outward on
+        // the side wings. The short end margins keep paint inside each space.
+        if (halfZ >= halfX)
+        {
+            const float lineLength = 2.0f * halfZ - 2.0f * endInset;
+            const float leftX = centerX - halfX + paintWidth * 0.5f;
+            const float rightX = centerX + halfX - paintWidth * 0.5f;
+            drawDashedLineZ(leftX, lineLength);
+            drawDashedLineZ(rightX, lineLength);
+            DrawCubeV({centerX, paintY, centerZ}, {paintWidth, paintThickness, lineLength}, centerLine);
+        }
+        else
+        {
+            const float lineLength = 2.0f * halfX - 2.0f * endInset;
+            const float farZ = centerZ - halfZ + paintWidth * 0.5f;
+            const float nearZ = centerZ + halfZ - paintWidth * 0.5f;
+            drawDashedLineX(farZ, lineLength);
+            drawDashedLineX(nearZ, lineLength);
+            DrawCubeV({centerX, paintY, centerZ}, {lineLength, paintThickness, paintWidth}, centerLine);
+        }
     }
 
     void DrawApronAndStands()
     {
-        // Keep the apron around the terminal; AirportGround supplies grass beyond it.
-        DrawTriangle3D({-130.0f, -0.01f, -220.0f}, {-130.0f, -0.01f, 90.0f}, {130.0f, -0.01f, 90.0f}, Color{105, 121, 122, 255});
-        DrawTriangle3D({-130.0f, -0.01f, -220.0f}, {130.0f, -0.01f, 90.0f}, {130.0f, -0.01f, -220.0f}, Color{105, 121, 122, 255});
+        // A finite 420-unit slab covers the terminal and all ten stands with
+        // margin, replacing the previous 20,000-unit surface that had no useful
+        // relationship to the airport's actual bounds.
+        constexpr float platformSize = 420.0f;
+        constexpr float platformCenterZ = -55.0f;
+        constexpr float platformThickness = 1.0f;
+        DrawCubeV(
+            {0.0f, -0.01f - platformThickness * 0.5f, platformCenterZ},
+            {platformSize, platformThickness, platformSize},
+            Color{105, 121, 122, 255});
 
         // Four stands face the main section and three serve each wing (ten total).
+        // The main row sits slightly closer to its boarding facade while leaving
+        // a clear apron lane between the terminal canopy and stand markings.
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
-        for (float x : backStandXs) DrawStand(x, -20.0f, 5.5f, 8.0f);
-        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
+        for (float x : backStandXs) DrawStand(x, -23.5f, 5.5f, 8.0f);
+
+        // Leave the upper wing junctions open for manoeuvring. Continue each
+        // side row toward the far end of the wing with a third, evenly aligned
+        // position; all stands share the same footprint, rotated on the wings.
+        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
         for (float z : wingStandZs)
         {
-            DrawStand(-30.0f, z, 10.0f, 8.0f);
-            DrawStand(30.0f, z, 10.0f, 8.0f);
+            DrawStand(-26.0f, z, 8.0f, 5.5f);
+            DrawStand(26.0f, z, 8.0f, 5.5f);
         }
     }
 }
@@ -185,15 +250,15 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
         for (int i = 0; i < 4; ++i)
             result.push_back({"GATE_" + std::to_string(i + 1),
-                {backStandXs[i] * TerminalScale, 0.035f, -20.0f * TerminalScale}, 180.0f});
+                {backStandXs[i] * TerminalScale, 0.035f, -23.5f * TerminalScale}, 180.0f});
 
-        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
+        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
         for (int row = 0; row < 3; ++row)
         {
             result.push_back({"WEST_" + std::to_string(row + 1),
-                {-30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
+                {-26.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
             result.push_back({"EAST_" + std::to_string(row + 1),
-                {30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
+                {26.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
         }
         return result;
     }();
