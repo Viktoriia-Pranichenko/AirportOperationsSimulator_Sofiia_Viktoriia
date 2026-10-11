@@ -2,6 +2,55 @@
 
 #include <cmath>
 
+namespace
+{
+    constexpr Color WingTop{48, 125, 160, 255};
+    constexpr Color WingBottom{31, 82, 108, 255};
+    constexpr Color Fuselage{224, 231, 226, 255};
+    constexpr Color FuselageShade{170, 188, 190, 255};
+    constexpr Color WindowColor{39, 116, 148, 255};
+    constexpr Color EngineColor{55, 66, 72, 255};
+    constexpr Color EngineInner{29, 38, 43, 255};
+    constexpr Color AccentColor{224, 151, 57, 255};
+    constexpr Color GearColor{39, 46, 49, 255};
+
+    Vector3 TransformLocal(Vector3 local, Vector2 position, float cosine, float sine, float scale)
+    {
+        return {
+            position.x + (local.x * cosine - local.z * sine) * scale,
+            local.y * scale,
+            position.y + (local.x * sine + local.z * cosine) * scale
+        };
+    }
+
+    void Triangle(Vector3 a, Vector3 b, Vector3 c, Vector2 position,
+        float cosine, float sine, float scale, Color color)
+    {
+        DrawTriangle3D(TransformLocal(a, position, cosine, sine, scale),
+            TransformLocal(b, position, cosine, sine, scale),
+            TransformLocal(c, position, cosine, sine, scale), color);
+    }
+
+    void Wing(Vector3 rootFront, Vector3 tipFront, Vector3 tipBack, Vector3 rootBack,
+        Vector2 position, float cosine, float sine, float scale)
+    {
+        const float thickness = 0.7f;
+        const Vector3 rootFrontBottom{rootFront.x, rootFront.y - thickness, rootFront.z};
+        const Vector3 tipFrontBottom{tipFront.x, tipFront.y - thickness, tipFront.z};
+        const Vector3 tipBackBottom{tipBack.x, tipBack.y - thickness, tipBack.z};
+        const Vector3 rootBackBottom{rootBack.x, rootBack.y - thickness, rootBack.z};
+
+        Triangle(rootFront, tipFront, tipBack, position, cosine, sine, scale, WingTop);
+        Triangle(rootFront, tipBack, rootBack, position, cosine, sine, scale, WingTop);
+        Triangle(rootFrontBottom, tipBackBottom, tipFrontBottom, position, cosine, sine, scale, WingBottom);
+        Triangle(rootFrontBottom, rootBackBottom, tipBackBottom, position, cosine, sine, scale, WingBottom);
+        Triangle(rootFront, rootFrontBottom, tipFrontBottom, position, cosine, sine, scale, FuselageShade);
+        Triangle(rootFront, tipFrontBottom, tipFront, position, cosine, sine, scale, FuselageShade);
+        Triangle(rootBack, tipBack, tipBackBottom, position, cosine, sine, scale, WingBottom);
+        Triangle(rootBack, tipBackBottom, rootBackBottom, position, cosine, sine, scale, WingBottom);
+    }
+}
+
 bool Airplane::TransitionTo(AirplaneState nextState)
 {
     bool allowed = false;
@@ -41,11 +90,10 @@ bool Airplane::TransitionTo(AirplaneState nextState)
         break;
     }
 
-    // Incidents can interrupt any active operation, but not a completed flight.
     if (nextState == AirplaneState::Incident && state != AirplaneState::Departed)
         allowed = true;
-
     if (!allowed) return false;
+
     state = nextState;
     return true;
 }
@@ -61,95 +109,74 @@ void Airplane::Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale)
     const float cosine = std::cos(radians);
     const float sine = std::sin(radians);
 
-    // Broad, swept wings are the main visual cue that this is an airliner.
-    DrawLocalTriangle({-5, -10}, {-48, 13}, {-43, 21}, drawPosition, cosine, sine, scale, WingColor);
-    DrawLocalTriangle({-5, -10}, {-43, 21}, {-7, 13}, drawPosition, cosine, sine, scale, WingColor);
-    DrawLocalTriangle({5, -10}, {48, 13}, {43, 21}, drawPosition, cosine, sine, scale, WingColor);
-    DrawLocalTriangle({5, -10}, {43, 21}, {7, 13}, drawPosition, cosine, sine, scale, WingColor);
+    // The broad wings and tailplane are thin 3D prisms with shaded undersides.
+    Wing({-3.5f, 1.2f, -9.0f}, {-44.0f, 0.5f, 12.0f},
+         {-39.0f, 0.5f, 20.0f}, {-3.5f, 1.2f, 4.0f},
+         drawPosition, cosine, sine, scale);
+    Wing({3.5f, 1.2f, -9.0f}, {44.0f, 0.5f, 12.0f},
+         {39.0f, 0.5f, 20.0f}, {3.5f, 1.2f, 4.0f},
+         drawPosition, cosine, sine, scale);
+    Wing({-2.5f, 1.1f, 25.0f}, {-20.0f, 0.5f, 34.0f},
+         {-17.0f, 0.5f, 38.0f}, {-2.5f, 1.1f, 32.0f},
+         drawPosition, cosine, sine, scale);
+    Wing({2.5f, 1.1f, 25.0f}, {20.0f, 0.5f, 34.0f},
+         {17.0f, 0.5f, 38.0f}, {2.5f, 1.1f, 32.0f},
+         drawPosition, cosine, sine, scale);
 
-    // Tailplane and vertical tail, behind the body.
-    DrawLocalTriangle({-3, 26}, {-22, 35}, {-19, 39}, drawPosition, cosine, sine, scale, WingColor);
-    DrawLocalTriangle({-3, 26}, {-19, 39}, {0, 34}, drawPosition, cosine, sine, scale, WingColor);
-    DrawLocalTriangle({3, 26}, {22, 35}, {19, 39}, drawPosition, cosine, sine, scale, WingColor);
-    DrawLocalTriangle({3, 26}, {19, 39}, {0, 34}, drawPosition, cosine, sine, scale, WingColor);
+    // Rounded fuselage, tapered toward the nose and tail.
+    DrawCylinderEx(TransformLocal({0.0f, 0.9f, -25.0f}, drawPosition, cosine, sine, scale),
+        TransformLocal({0.0f, 1.0f, 22.0f}, drawPosition, cosine, sine, scale),
+        2.5f * scale, 2.3f * scale, 12, Fuselage);
+    DrawCylinderEx(TransformLocal({0.0f, 0.9f, -25.0f}, drawPosition, cosine, sine, scale),
+        TransformLocal({0.0f, 0.9f, -42.0f}, drawPosition, cosine, sine, scale),
+        2.5f * scale, 0.15f * scale, 12, Fuselage);
+    DrawCylinderEx(TransformLocal({0.0f, 1.0f, 22.0f}, drawPosition, cosine, sine, scale),
+        TransformLocal({0.0f, 0.8f, 38.0f}, drawPosition, cosine, sine, scale),
+        2.3f * scale, 0.12f * scale, 12, FuselageShade);
 
-    // Two dark engine nacelles hang from the wings.
-    DrawLocalCircle(-24, 12, 5.0f, drawPosition, cosine, sine, scale, EngineColor);
-    DrawLocalCircle(24, 12, 5.0f, drawPosition, cosine, sine, scale, EngineColor);
+    // Tall vertical fin gives the tail a clear 3D profile.
+    Triangle({-2.0f, 1.2f, 25.0f}, {0.0f, 9.0f, 36.0f}, {0.0f, 1.2f, 36.0f},
+        drawPosition, cosine, sine, scale, WingTop);
+    Triangle({2.0f, 1.2f, 25.0f}, {0.0f, 1.2f, 36.0f}, {0.0f, 9.0f, 36.0f},
+        drawPosition, cosine, sine, scale, WingBottom);
+    Triangle({0.0f, 9.0f, 36.0f}, {0.0f, 1.2f, 36.0f}, {0.0f, 1.2f, 25.0f},
+        drawPosition, cosine, sine, scale, FuselageShade);
 
-    // Fuselage: a broad center tapers to a recognizable pointed nose.
-    const Vector2 fuselage[] = {
-        {0, -46}, {-2.5f, -41}, {-4, -25}, {-5, 5}, {-4.5f, 27},
-        {-3, 36}, {0, 40}, {3, 36}, {4.5f, 27}, {5, 5},
-        {4, -25}, {2.5f, -41}
-    };
-    DrawLocalFan(fuselage, 12, drawPosition, cosine, sine, scale, BodyColor);
-
-    // Cockpit and a simple cabin stripe add detail at small zoom levels.
-    DrawLocalTriangle({0, -39}, {-2.5f, -31}, {2.5f, -31}, drawPosition,
-        cosine, sine, scale, CockpitColor);
-    // A short row of cabin windows makes the passenger aircraft role clearer.
-    DrawLocalCircle(-2.0f, -20, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(2.0f, -20, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(-2.0f, -14, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(2.0f, -14, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(-2.0f, -8, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(2.0f, -8, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(-2.0f, -2, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(2.0f, -2, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(-2.0f, 4, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(2.0f, 4, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(-2.0f, 10, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalCircle(2.0f, 10, 0.8f, drawPosition, cosine, sine, scale, CockpitColor);
-    DrawLocalTriangle({-3.5f, 18}, {3.5f, 18}, {3.5f, 23}, drawPosition,
-        cosine, sine, scale, MarkingColor);
-    DrawLocalTriangle({-3.5f, 18}, {3.5f, 23}, {-3.5f, 23}, drawPosition,
-        cosine, sine, scale, MarkingColor);
-}
-
-Vector2 Airplane::Transform(float x, float y, Vector2 position,
-    float cosine, float sine, float scale)
-{
-    return {
-        position.x + (x * cosine - y * sine) * scale,
-        position.y + (x * sine + y * cosine) * scale
-    };
-}
-
-void Airplane::DrawLocalTriangle(Vector2 a, Vector2 b, Vector2 c, Vector2 position,
-    float cosine, float sine, float scale, Color color)
-{
-    // Keep the same winding for every triangle. Mirrored right-side geometry
-    // otherwise has the opposite winding and can be culled by the renderer.
-    const float winding = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-    if (winding > 0.0f)
+    // Engine pods and dark inlets beneath the main wings.
+    const float sides[] = {-1.0f, 1.0f};
+    for (const float side : sides)
     {
-        const Vector2 temporary = b;
-        b = c;
-        c = temporary;
+        const float x = side * 22.0f;
+        DrawCylinderEx(TransformLocal({x, 0.0f, 8.0f}, drawPosition, cosine, sine, scale),
+            TransformLocal({x, 0.0f, 19.0f}, drawPosition, cosine, sine, scale),
+            3.2f * scale, 2.6f * scale, 10, EngineColor);
+        DrawSphereEx(TransformLocal({x, 0.0f, 7.8f}, drawPosition, cosine, sine, scale),
+            2.3f * scale, 6, 8, EngineInner);
     }
 
-    DrawTriangle(Transform(a.x, a.y, position, cosine, sine, scale),
-        Transform(b.x, b.y, position, cosine, sine, scale),
-        Transform(c.x, c.y, position, cosine, sine, scale), color);
-}
-
-void Airplane::DrawLocalCircle(float x, float y, float radius, Vector2 position,
-    float cosine, float sine, float scale, Color color)
-{
-    DrawCircleV(Transform(x, y, position, cosine, sine, scale), radius * scale, color);
-}
-
-void Airplane::DrawLocalFan(const Vector2* points, int count, Vector2 position,
-    float cosine, float sine, float scale, Color color)
-{
-    // Fill from the fuselage center with individually wound triangles. This
-    // avoids gaps from a triangle fan when the renderer uses face culling.
-    const Vector2 center{0.0f, 0.0f};
-    for (int i = 0; i < count; ++i)
+    // Blue cockpit glazing, a row of cabin windows, and the tail accent.
+    DrawSphereEx(TransformLocal({0.0f, 2.1f, -29.0f}, drawPosition, cosine, sine, scale),
+        1.8f * scale, 8, 10, WindowColor);
+    for (int window = 0; window < 7; ++window)
     {
-        const int next = (i + 1) % count;
-        DrawLocalTriangle(center, points[i], points[next], position,
-            cosine, sine, scale, color);
+        const float z = -19.0f + window * 4.5f;
+        for (const float side : sides)
+            DrawSphereEx(TransformLocal({side * 2.0f, 2.45f, z}, drawPosition, cosine, sine, scale),
+                0.42f * scale, 5, 6, WindowColor);
+    }
+    DrawCylinderEx(TransformLocal({0.0f, 2.15f, 17.0f}, drawPosition, cosine, sine, scale),
+        TransformLocal({0.0f, 2.15f, 22.0f}, drawPosition, cosine, sine, scale),
+        0.55f * scale, 0.42f * scale, 8, AccentColor);
+
+    // Simple landing gear makes the plane feel grounded on the airport surface.
+    for (const float side : sides)
+    {
+        const Vector3 strutTop{side * 3.0f, 0.2f, 4.0f};
+        const Vector3 wheelPosition{side * 6.0f, -2.6f, 4.0f};
+        DrawCylinderEx(TransformLocal(strutTop, drawPosition, cosine, sine, scale),
+            TransformLocal(wheelPosition, drawPosition, cosine, sine, scale),
+            0.28f * scale, 0.28f * scale, 6, GearColor);
+        DrawSphereEx(TransformLocal(wheelPosition, drawPosition, cosine, sine, scale),
+            0.8f * scale, 6, 8, GearColor);
     }
 }

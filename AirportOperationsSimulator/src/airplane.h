@@ -19,7 +19,7 @@ enum class AirplaneState
     Incident
 };
 
-// A lightweight top-down airplane drawing. The nose points up when heading is 0.
+// Flight data plus a low-poly 3D passenger aircraft. Heading 0 faces along -Z.
 // The simulation owns the airplane's state; Draw() only renders that state.
 class Airplane
 {
@@ -45,18 +45,4 @@ public:
     void Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale) const;
 
 private:
-    static Vector2 Transform(float x, float y, Vector2 position,
-        float cosine, float sine, float scale);
-    static void DrawLocalTriangle(Vector2 a, Vector2 b, Vector2 c, Vector2 position,
-        float cosine, float sine, float scale, Color color);
-    static void DrawLocalCircle(float x, float y, float radius, Vector2 position,
-        float cosine, float sine, float scale, Color color);
-    static void DrawLocalFan(const Vector2* points, int count, Vector2 position,
-        float cosine, float sine, float scale, Color color);
-
-    static constexpr Color WingColor{54, 119, 153, 255};
-    static constexpr Color BodyColor{226, 232, 224, 255};
-    static constexpr Color EngineColor{43, 61, 70, 255};
-    static constexpr Color CockpitColor{77, 174, 196, 255};
-    static constexpr Color MarkingColor{224, 153, 67, 255};
 };
