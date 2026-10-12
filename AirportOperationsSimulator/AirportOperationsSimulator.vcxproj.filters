@@ -15,33 +15,39 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\airport_terminal.h">
+    <ClInclude Include="src\airplane.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\airport_ground.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\camera_controller.h">
+    <ClInclude Include="src\airport_terminal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\airplane.h">
+    <ClInclude Include="src\camera_controller.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\resource_dir.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\service_building.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\airport_terminal.cpp">
+    <ClCompile Include="src\airplane.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\airport_ground.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\airport_terminal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\airplane.cpp">
+    <ClCompile Include="src\service_building.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -301,17 +301,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="src\airport_terminal.h" />
-    <ClInclude Include="src\airport_ground.h" />
-    <ClInclude Include="src\camera_controller.h" />
     <ClInclude Include="src\airplane.h" />
+    <ClInclude Include="src\airport_ground.h" />
+    <ClInclude Include="src\airport_terminal.h" />
+    <ClInclude Include="src\camera_controller.h" />
     <ClInclude Include="src\resource_dir.h" />
+    <ClInclude Include="src\service_building.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\airport_terminal.cpp" />
-    <ClCompile Include="src\airport_ground.cpp" />
-    <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\airplane.cpp" />
+    <ClCompile Include="src\airport_ground.cpp" />
+    <ClCompile Include="src\airport_terminal.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\service_building.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\icon.ico" />

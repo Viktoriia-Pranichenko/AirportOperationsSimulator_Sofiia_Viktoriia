@@ -4,6 +4,7 @@
 #include "airport_ground.h"
 #include "airplane.h"
 #include "camera_controller.h"
+#include "service_building.h"
 
 int main()
 {
@@ -14,6 +15,7 @@ int main()
     AirportTerminal terminal;
     AirportGround airportGround(terminal);
     Airplane airplane;
+    ServiceBuilding serviceBuilding;
     airplane.flightId = "AO100";
     airplane.position = {-60.0f, -507.0f};
     airplane.headingDegrees = 90.0f;
@@ -30,6 +32,7 @@ int main()
         // Draw taxiways after the terminal apron so the connected pavement and
         // centerlines remain visible where they cross the apron slab.
         airportGround.Draw();
+        serviceBuilding.Draw();
         airplane.Draw(0.325f);
         EndMode3D();
 
