@@ -39,6 +39,9 @@
     <ClInclude Include="src\passenger_shuttle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\airport_service_vehicles.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\resource_dir.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -66,6 +69,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\passenger_shuttle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\airport_service_vehicles.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\main.cpp">

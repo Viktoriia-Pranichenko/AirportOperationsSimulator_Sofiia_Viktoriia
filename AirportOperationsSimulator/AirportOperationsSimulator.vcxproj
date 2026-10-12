@@ -309,6 +309,7 @@
     <ClInclude Include="src\car_parking_lot.h" />
     <ClInclude Include="src\airport_fire_truck.h" />
     <ClInclude Include="src\passenger_shuttle.h" />
+    <ClInclude Include="src\airport_service_vehicles.h" />
     <ClInclude Include="src\resource_dir.h" />
     <ClInclude Include="src\service_building.h" />
   </ItemGroup>
@@ -320,6 +321,7 @@
     <ClCompile Include="src\car_parking_lot.cpp" />
     <ClCompile Include="src\airport_fire_truck.cpp" />
     <ClCompile Include="src\passenger_shuttle.cpp" />
+    <ClCompile Include="src\airport_service_vehicles.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\service_building.cpp" />
   </ItemGroup>

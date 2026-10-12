@@ -4,6 +4,7 @@
 #include "airport_ground.h"
 #include "airplane.h"
 #include "airport_fire_truck.h"
+#include "airport_service_vehicles.h"
 #include "baggage_tug.h"
 #include "camera_controller.h"
 #include "car_parking_lot.h"
@@ -35,6 +36,22 @@ int main()
         {179.85f, -112.25f},
         {184.95f, -112.25f}
     };
+    FollowMeCar followMeCars[] = {
+        {190.05f, -39.75f},
+        {195.15f, -39.75f}
+    };
+    AircraftPushbackTug pushbackTugs[] = {
+        {200.25f, -39.75f},
+        {205.35f, -39.75f},
+        {210.45f, -39.75f}
+    };
+    BaggageBeltLoader baggageBeltLoaders[] = {
+        {164.55f, -39.75f},
+        {169.65f, -39.75f},
+        {174.75f, -39.75f},
+        {179.85f, -39.75f},
+        {184.95f, -39.75f}
+    };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
     airplane.flightId = "AO100";
@@ -61,6 +78,12 @@ int main()
             shuttle.Draw();
         for (const AirportFireTruck& fireTruck : airportFireTrucks)
             fireTruck.Draw();
+        for (const FollowMeCar& followMeCar : followMeCars)
+            followMeCar.Draw();
+        for (const AircraftPushbackTug& pushbackTug : pushbackTugs)
+            pushbackTug.Draw();
+        for (const BaggageBeltLoader& baggageBeltLoader : baggageBeltLoaders)
+            baggageBeltLoader.Draw();
         airplane.Draw(0.325f);
         EndMode3D();
 
