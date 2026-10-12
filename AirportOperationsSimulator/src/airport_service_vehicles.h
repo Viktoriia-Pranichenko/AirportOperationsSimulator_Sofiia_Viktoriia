@@ -32,3 +32,47 @@ private:
     float positionX;
     float positionZ;
 };
+
+class CateringTruck
+{
+public:
+    CateringTruck(float positionX, float positionZ);
+    void Draw() const;
+
+private:
+    float positionX;
+    float positionZ;
+};
+
+class WaterServiceTruck
+{
+public:
+    WaterServiceTruck(float positionX, float positionZ);
+    void Draw() const;
+
+private:
+    float positionX;
+    float positionZ;
+};
+
+class MaintenancePickupTruck
+{
+public:
+    MaintenancePickupTruck(float positionX, float positionZ);
+    void Draw() const;
+
+private:
+    float positionX;
+    float positionZ;
+};
+
+class PassengerBoardingStairs
+{
+public:
+    PassengerBoardingStairs(float positionX, float positionZ);
+    void Draw() const;
+
+private:
+    float positionX;
+    float positionZ;
+};

@@ -52,6 +52,28 @@ int main()
         {179.85f, -39.75f},
         {184.95f, -39.75f}
     };
+    CateringTruck cateringTrucks[] = {
+        {164.55f, -70.25f},
+        {169.65f, -70.25f}
+    };
+    WaterServiceTruck waterServiceTrucks[] = {
+        {174.75f, -70.25f},
+        {179.85f, -70.25f}
+    };
+    MaintenancePickupTruck maintenancePickupTrucks[] = {
+        {184.95f, -70.25f},
+        {190.05f, -70.25f}
+    };
+    PassengerBoardingStairs passengerBoardingStairs[] = {
+        {195.15f, -70.25f},
+        {200.25f, -70.25f},
+        {205.35f, -70.25f},
+        {210.45f, -70.25f},
+        {215.55f, -70.25f},
+        {220.65f, -70.25f},
+        {225.75f, -70.25f},
+        {230.85f, -70.25f}
+    };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
     airplane.flightId = "AO100";
@@ -84,6 +106,14 @@ int main()
             pushbackTug.Draw();
         for (const BaggageBeltLoader& baggageBeltLoader : baggageBeltLoaders)
             baggageBeltLoader.Draw();
+        for (const CateringTruck& cateringTruck : cateringTrucks)
+            cateringTruck.Draw();
+        for (const WaterServiceTruck& waterServiceTruck : waterServiceTrucks)
+            waterServiceTruck.Draw();
+        for (const MaintenancePickupTruck& maintenancePickupTruck : maintenancePickupTrucks)
+            maintenancePickupTruck.Draw();
+        for (const PassengerBoardingStairs& boardingStairs : passengerBoardingStairs)
+            boardingStairs.Draw();
         airplane.Draw(0.325f);
         EndMode3D();
 

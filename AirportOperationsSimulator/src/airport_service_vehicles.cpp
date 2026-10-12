@@ -17,6 +17,13 @@ namespace
     constexpr Color LoaderWhite{210, 211, 198, 255};
     constexpr Color LoaderShade{143, 155, 153, 255};
     constexpr Color Belt{61, 70, 69, 255};
+    constexpr Color CateringWhite{218, 220, 207, 255};
+    constexpr Color CateringAccent{205, 112, 46, 255};
+    constexpr Color TankBlue{75, 143, 166, 255};
+    constexpr Color TankShade{47, 105, 128, 255};
+    constexpr Color UtilityGreen{91, 126, 91, 255};
+    constexpr Color StairYellow{213, 174, 72, 255};
+    constexpr Color StairMetal{174, 183, 177, 255};
 
     void DrawWheel(float x, float y, float z, float radius)
     {
@@ -159,4 +166,177 @@ void BaggageBeltLoader::Draw() const
         0.08f,
         8,
         LoaderShade);
+}
+
+CateringTruck::CateringTruck(float positionX, float positionZ)
+    : positionX(positionX), positionZ(positionZ)
+{
+}
+
+void CateringTruck::Draw() const
+{
+    const float x = positionX;
+    const float z = positionZ;
+
+    DrawCubeV({x, 0.69f, z}, {2.55f, 0.45f, 7.7f}, CateringAccent);
+    DrawCubeV({x, 1.93f, z - 0.72f}, {2.52f, 2.12f, 4.6f}, CateringWhite);
+    DrawCubeV({x, 2.03f, z - 0.72f}, {2.58f, 0.2f, 4.72f}, LoaderShade);
+    DrawCubeV({x, 1.55f, z - 0.72f}, {2.58f, 0.28f, 4.72f}, CateringAccent);
+
+    DrawCubeV({x, 1.53f, z + 2.42f}, {2.46f, 1.25f, 2.2f}, CateringWhite);
+    DrawCubeV({x, 2.09f, z + 2.42f}, {2.32f, 0.77f, 0.06f}, Glass);
+    DrawCubeV({x - 1.26f, 1.83f, z + 2.37f}, {0.055f, 0.72f, 0.9f}, Glass);
+    DrawCubeV({x + 1.26f, 1.83f, z + 2.37f}, {0.055f, 0.72f, 0.9f}, Glass);
+    DrawCubeV({x, 0.68f, z + 3.98f}, {2.72f, 0.24f, 0.25f}, Trim);
+
+    for (float side : {-1.0f, 1.0f})
+    {
+        for (float axleZ : {-2.55f, 2.65f})
+            DrawWheel(x + side * 1.31f, 0.42f, z + axleZ, 0.4f);
+        DrawCubeV(
+            {x + side * 1.29f, 1.25f, z - 0.72f},
+            {0.045f, 0.1f, 3.75f},
+            CateringAccent);
+    }
+}
+
+WaterServiceTruck::WaterServiceTruck(float positionX, float positionZ)
+    : positionX(positionX), positionZ(positionZ)
+{
+}
+
+void WaterServiceTruck::Draw() const
+{
+    const float x = positionX;
+    const float z = positionZ;
+
+    DrawCubeV({x, 0.69f, z}, {2.5f, 0.45f, 8.25f}, LoaderShade);
+    DrawCubeV({x, 1.48f, z + 2.75f}, {2.42f, 1.6f, 2.15f}, CateringWhite);
+    DrawCubeV({x, 2.05f, z + 2.75f}, {2.3f, 0.77f, 0.06f}, Glass);
+    DrawCubeV({x - 1.22f, 1.91f, z + 2.72f}, {0.055f, 0.75f, 0.95f}, Glass);
+    DrawCubeV({x + 1.22f, 1.91f, z + 2.72f}, {0.055f, 0.75f, 0.95f}, Glass);
+
+    DrawCylinderEx(
+        {x, 1.26f, z - 2.65f},
+        {x, 1.26f, z + 1.05f},
+        1.05f,
+        1.05f,
+        16,
+        TankBlue);
+    DrawCylinderEx(
+        {x - 0.04f, 1.26f, z - 2.67f},
+        {x + 0.04f, 1.26f, z - 2.67f},
+        1.0f,
+        1.0f,
+        12,
+        TankShade);
+    DrawCylinderEx(
+        {x - 0.04f, 1.26f, z + 1.07f},
+        {x + 0.04f, 1.26f, z + 1.07f},
+        1.0f,
+        1.0f,
+        12,
+        TankShade);
+    DrawCubeV({x, 2.34f, z - 0.8f}, {0.42f, 0.12f, 0.42f}, Trim);
+    DrawCubeV({x, 0.7f, z + 3.91f}, {2.7f, 0.25f, 0.24f}, Trim);
+
+    for (float side : {-1.0f, 1.0f})
+    {
+        for (float axleZ : {-2.68f, 2.83f})
+            DrawWheel(x + side * 1.3f, 0.42f, z + axleZ, 0.4f);
+        DrawCubeV(
+            {x + side * 0.83f, 2.33f, z - 0.8f},
+            {0.08f, 0.13f, 3.4f},
+            Trim);
+    }
+}
+
+MaintenancePickupTruck::MaintenancePickupTruck(float positionX, float positionZ)
+    : positionX(positionX), positionZ(positionZ)
+{
+}
+
+void MaintenancePickupTruck::Draw() const
+{
+    const float x = positionX;
+    const float z = positionZ;
+
+    DrawCubeV({x, 0.67f, z}, {2.15f, 0.4f, 4.95f}, UtilityGreen);
+    DrawCubeV({x, 1.03f, z - 1.1f}, {2.0f, 0.45f, 2.15f}, CateringAccent);
+    DrawCubeV({x, 1.52f, z + 1.0f}, {1.95f, 1.35f, 2.05f}, UtilityGreen);
+    DrawCubeV({x, 2.14f, z + 1.0f}, {1.88f, 0.78f, 0.055f}, Glass);
+    DrawCubeV({x - 0.99f, 1.87f, z + 1.0f}, {0.055f, 0.72f, 0.94f}, Glass);
+    DrawCubeV({x + 0.99f, 1.87f, z + 1.0f}, {0.055f, 0.72f, 0.94f}, Glass);
+    DrawCubeV({x, 1.14f, z - 1.13f}, {1.88f, 0.08f, 1.7f}, Trim);
+    DrawCubeV({x, 0.72f, z + 2.58f}, {2.3f, 0.24f, 0.24f}, Trim);
+
+    for (float side : {-1.0f, 1.0f})
+    {
+        for (float axleZ : {-1.58f, 1.64f})
+            DrawWheel(x + side * 1.08f, 0.39f, z + axleZ, 0.37f);
+        DrawCubeV(
+            {x + side * 1.09f, 0.97f, z - 1.1f},
+            {0.05f, 0.12f, 1.9f},
+            CateringAccent);
+    }
+}
+
+PassengerBoardingStairs::PassengerBoardingStairs(float positionX, float positionZ)
+    : positionX(positionX), positionZ(positionZ)
+{
+}
+
+void PassengerBoardingStairs::Draw() const
+{
+    const float x = positionX;
+    const float z = positionZ;
+
+    DrawCubeV({x, 0.62f, z + 0.05f}, {2.45f, 0.38f, 4.75f}, StairYellow);
+    DrawCubeV({x, 0.87f, z + 1.72f}, {2.25f, 0.16f, 1.12f}, StairMetal);
+    DrawCubeV({x, 0.87f, z - 1.66f}, {2.25f, 0.16f, 1.05f}, StairMetal);
+    DrawCubeV({x, 2.55f, z - 1.82f}, {2.35f, 0.2f, 1.2f}, StairYellow);
+
+    for (float side : {-1.0f, 1.0f})
+    {
+        for (float axleZ : {-1.62f, 1.62f})
+            DrawWheel(x + side * 1.18f, 0.36f, z + axleZ, 0.34f);
+    }
+
+    constexpr int StepCount = 8;
+    const float firstStepZ = z + 1.42f;
+    const float lastStepZ = z - 1.53f;
+    for (int step = 0; step < StepCount; ++step)
+    {
+        const float fraction = static_cast<float>(step) / (StepCount - 1);
+        const float stepZ = firstStepZ + (lastStepZ - firstStepZ) * fraction;
+        const float stepY = 1.13f + 1.25f * fraction;
+        DrawCubeV(
+            {x, stepY, stepZ},
+            {1.52f, 0.15f, 0.38f},
+            StairMetal);
+    }
+
+    const Vector3 lowerLeft{x - 0.94f, 1.08f, firstStepZ + 0.22f};
+    const Vector3 upperLeft{x - 0.94f, 2.67f, lastStepZ - 0.25f};
+    const Vector3 lowerRight{x + 0.94f, 1.08f, firstStepZ + 0.22f};
+    const Vector3 upperRight{x + 0.94f, 2.67f, lastStepZ - 0.25f};
+    DrawCylinderEx(lowerLeft, upperLeft, 0.075f, 0.075f, 8, StairYellow);
+    DrawCylinderEx(lowerRight, upperRight, 0.075f, 0.075f, 8, StairYellow);
+
+    for (int post = 0; post < 4; ++post)
+    {
+        const float fraction = static_cast<float>(post) / 3.0f;
+        const float postZ = lowerLeft.z + (upperLeft.z - lowerLeft.z) * fraction;
+        const float postY = lowerLeft.y + (upperLeft.y - lowerLeft.y) * fraction;
+        for (float side : {-1.0f, 1.0f})
+        {
+            DrawCylinderEx(
+                {x + side * 0.94f, postY - 0.12f, postZ},
+                {x + side * 0.94f, postY + 0.16f, postZ},
+                0.045f,
+                0.045f,
+                6,
+                StairMetal);
+        }
+    }
 }
