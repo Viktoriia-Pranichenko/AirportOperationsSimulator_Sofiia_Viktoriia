@@ -24,6 +24,10 @@ namespace
     constexpr Color UtilityGreen{91, 126, 91, 255};
     constexpr Color StairYellow{213, 174, 72, 255};
     constexpr Color StairMetal{174, 183, 177, 255};
+    constexpr Color TankerBody{201, 207, 195, 255};
+    constexpr Color TankerAccent{218, 171, 55, 255};
+    constexpr Color FuelTank{202, 207, 193, 255};
+    constexpr Color FuelTankShade{152, 165, 161, 255};
 
     void DrawWheel(float x, float y, float z, float radius)
     {
@@ -338,5 +342,61 @@ void PassengerBoardingStairs::Draw() const
                 6,
                 StairMetal);
         }
+    }
+}
+
+AircraftRefuellingTanker::AircraftRefuellingTanker(float positionX, float positionZ)
+    : positionX(positionX), positionZ(positionZ)
+{
+}
+
+void AircraftRefuellingTanker::Draw() const
+{
+    const float x = positionX;
+    const float z = positionZ;
+
+    DrawCubeV({x, 0.72f, z}, {2.55f, 0.44f, 9.15f}, LoaderShade);
+    DrawCubeV({x, 1.48f, z + 2.72f}, {2.48f, 1.55f, 2.3f}, TankerBody);
+    DrawCubeV({x, 2.02f, z + 2.72f}, {2.32f, 0.76f, 0.06f}, Glass);
+    DrawCubeV({x - 1.25f, 1.9f, z + 2.7f}, {0.055f, 0.72f, 0.96f}, Glass);
+    DrawCubeV({x + 1.25f, 1.9f, z + 2.7f}, {0.055f, 0.72f, 0.96f}, Glass);
+
+    DrawCylinderEx(
+        {x, 1.5f, z - 3.08f},
+        {x, 1.5f, z + 0.92f},
+        1.04f,
+        1.04f,
+        16,
+        FuelTank);
+    DrawCylinderEx(
+        {x - 0.04f, 1.5f, z - 3.1f},
+        {x + 0.04f, 1.5f, z - 3.1f},
+        0.98f,
+        0.98f,
+        12,
+        FuelTankShade);
+    DrawCylinderEx(
+        {x - 0.04f, 1.5f, z + 0.94f},
+        {x + 0.04f, 1.5f, z + 0.94f},
+        0.98f,
+        0.98f,
+        12,
+        FuelTankShade);
+    DrawCubeV({x, 2.59f, z - 1.45f}, {0.42f, 0.12f, 0.42f}, TankerAccent);
+    DrawCubeV({x, 0.7f, z + 3.93f}, {2.72f, 0.25f, 0.24f}, Trim);
+
+    for (float side : {-1.0f, 1.0f})
+    {
+        for (float axleZ : {-2.9f, 2.85f})
+            DrawWheel(x + side * 1.32f, 0.42f, z + axleZ, 0.4f);
+
+        DrawCubeV(
+            {x + side * 0.91f, 1.48f, z - 1.45f},
+            {0.07f, 0.18f, 2.55f},
+            TankerAccent);
+        DrawCubeV(
+            {x + side * 1.29f, 1.13f, z - 3.05f},
+            {0.05f, 0.1f, 0.2f},
+            TankerAccent);
     }
 }

@@ -36,6 +36,10 @@ int main()
         {179.85f, -112.25f},
         {184.95f, -112.25f}
     };
+    AircraftRefuellingTanker refuellingTankers[] = {
+        {190.05f, -112.25f},
+        {195.15f, -112.25f}
+    };
     FollowMeCar followMeCars[] = {
         {190.05f, -39.75f},
         {195.15f, -39.75f}
@@ -100,6 +104,8 @@ int main()
             shuttle.Draw();
         for (const AirportFireTruck& fireTruck : airportFireTrucks)
             fireTruck.Draw();
+        for (const AircraftRefuellingTanker& refuellingTanker : refuellingTankers)
+            refuellingTanker.Draw();
         for (const FollowMeCar& followMeCar : followMeCars)
             followMeCar.Draw();
         for (const AircraftPushbackTug& pushbackTug : pushbackTugs)
