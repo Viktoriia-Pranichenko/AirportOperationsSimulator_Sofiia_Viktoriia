@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <cstdio>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -25,8 +26,11 @@ namespace
     struct FlightPlan
     {
         Airplane airplane;
-        float departureDelay{0.0f};
+        float arrivalScheduledSeconds{-1.0f};
+        float departureScheduledSeconds{-1.0f};
         float preparationTime{0.0f};
+        bool hasArrivalSchedule{false};
+        bool spawned{false};
         bool departureFlight{false};
         bool arrivalFlight{false};
         bool routeStarted{false};
@@ -78,6 +82,32 @@ namespace
                 return static_cast<int>(i);
         }
         return -1;
+    }
+
+    std::string FormatShiftTime(float shiftSeconds)
+    {
+        const int totalMinutes = 6 * 60 + static_cast<int>(shiftSeconds / 60.0f);
+        char buffer[8]{};
+        std::snprintf(buffer, sizeof(buffer), "%02d:%02d",
+            (totalMinutes / 60) % 24, totalMinutes % 60);
+        return buffer;
+    }
+
+    const char* FlightStateLabel(AirplaneState state)
+    {
+        switch (state)
+        {
+        case AirplaneState::Holding: return "HOLD";
+        case AirplaneState::Arriving: return "INBOUND";
+        case AirplaneState::Landing: return "LANDING";
+        case AirplaneState::TaxiingToStand: return "TAXI IN";
+        case AirplaneState::Parked: return "PARKED";
+        case AirplaneState::PreparingForDeparture: return "PREP";
+        case AirplaneState::TaxiingToRunway: return "TAXI OUT";
+        case AirplaneState::TakingOff: return "TAKEOFF";
+        case AirplaneState::Departed: return "DONE";
+        default: return "SCHEDULED";
+        }
     }
 }
 
@@ -154,11 +184,13 @@ int main()
     // reach different stands. Route nodes also include the curved taxiway
     // samples, so the aircraft can follow the authored bends smoothly.
     struct ArrivalSetup { const char* flight; const char* type; const char* approach;
-        const char* runwayId; const char* runwayStart; const char* stand; float runwayZ; };
+        const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
+        float arrivalMinute; float departureMinute; };
     const ArrivalSetup arrivals[] = {
-        {"AO100", "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f},
-        {"AO202", "Regional jet", "APPROACH_B_W", "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f},
-        {"AO317", "Cargo jet", "APPROACH_C_W", "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f}
+        {"AO100", "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f, 0.0f, 12.0f},
+        {"AO202", "Regional jet", "APPROACH_B_W", "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f, 4.0f, 17.0f},
+        {"AO317", "Cargo jet", "APPROACH_C_W", "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f, 8.0f, 22.0f},
+        {"AO512", "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_2", -507.0f, 15.0f, 29.0f}
     };
     for (const ArrivalSetup& setup : arrivals)
     {
@@ -171,14 +203,15 @@ int main()
         plan.airplane.headingDegrees = 90.0f;
         plan.airplane.renderScale = 0.23f;
         plan.airplane.isPriority = std::string(setup.flight) == "AO202";
-        plan.arrivalFlight = true;
+        plan.hasArrivalSchedule = true;
+        plan.arrivalScheduledSeconds = setup.arrivalMinute * 60.0f;
+        plan.departureScheduledSeconds = setup.departureMinute * 60.0f;
         plan.arrivalStartNode = setup.approach;
         plan.parkingStandId = setup.stand;
         plan.runwayId = setup.runwayId;
         plan.departureRunwayStart = setup.runwayStart;
         plan.runwayZ = setup.runwayZ;
         plan.departureFlight = true;
-        plan.departureDelay = 12.0f + static_cast<float>(flights.size()) * 7.0f;
         for (const AirportParkingStand& stand : terminal.GetParkingStands())
         {
             if (stand.id == plan.parkingStandId)
@@ -187,7 +220,7 @@ int main()
                 break;
             }
         }
-        plan.airplane.TransitionTo(AirplaneState::Holding);
+        plan.arrivalFlight = false;
         flights.push_back(std::move(plan));
     }
 
@@ -211,7 +244,7 @@ int main()
             }
         }
         plan.departureFlight = true;
-        plan.departureDelay = 5.0f;
+        plan.departureScheduledSeconds = 5.0f * 60.0f;
         plan.parkingStandId = "GATE_4";
         plan.runwayId = "RUNWAY_A";
         flights.push_back(std::move(plan));
@@ -224,28 +257,12 @@ int main()
     std::unordered_map<std::string, std::string> occupiedStands;
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
+    float shiftClockSeconds = 0.0f;
+    constexpr float ShiftClockRate = 15.0f; // 15 simulated seconds per real second.
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
         return first < second ? first + "|" + second : second + "|" + first;
     };
-    for (std::size_t i = 0; i < flights.size(); ++i)
-    {
-        FlightPlan& plan = flights[i];
-        if (plan.arrivalFlight)
-        {
-            plan.requestOrder = nextRequestOrder++;
-            arrivalQueue.push_back(i);
-            occupiedStands.emplace(plan.parkingStandId, plan.airplane.flightId);
-            occupiedNodes.emplace(plan.arrivalStartNode, plan.airplane.flightId);
-            occupiedNodes.emplace(plan.parkingStandId, plan.airplane.flightId);
-        }
-        else if (!plan.parkingStandId.empty())
-        {
-            occupiedStands.emplace(plan.parkingStandId, plan.airplane.flightId);
-            occupiedNodes.emplace(plan.parkingStandId, plan.airplane.flightId);
-        }
-    }
-
     const auto routeCanBeReserved = [&](const std::vector<std::string>& route,
         const std::string& flightId)
     {
@@ -290,10 +307,40 @@ int main()
     while (!WindowShouldClose())
     {
         const float deltaTime = GetFrameTime();
+        shiftClockSeconds += deltaTime * ShiftClockRate;
         cameraController.Update(deltaTime);
-        for (FlightPlan& plan : flights)
+        for (std::size_t flightIndex = 0; flightIndex < flights.size(); ++flightIndex)
         {
+            FlightPlan& plan = flights[flightIndex];
             Airplane& airplane = plan.airplane;
+            if (!plan.spawned)
+            {
+                if (plan.hasArrivalSchedule && shiftClockSeconds >= plan.arrivalScheduledSeconds)
+                {
+                    const TaxiwayNode* approach = airportGround.FindNode(plan.arrivalStartNode);
+                    if (approach == nullptr) continue;
+                    airplane.position = {approach->position.x, approach->position.z};
+                    airplane.headingDegrees = 90.0f;
+                    airplane.TransitionTo(AirplaneState::Holding);
+                    plan.arrivalFlight = true;
+                    plan.spawned = true;
+                    plan.requestOrder = nextRequestOrder++;
+                    arrivalQueue.push_back(flightIndex);
+                    occupiedNodes[plan.arrivalStartNode] = airplane.flightId;
+                }
+                else if (!plan.hasArrivalSchedule && plan.departureFlight &&
+                    shiftClockSeconds >= plan.departureScheduledSeconds)
+                {
+                    const TaxiwayNode* stand = airportGround.FindNode(plan.parkingStandId);
+                    if (stand == nullptr) continue;
+                    airplane.position = {stand->position.x, stand->position.z};
+                    airplane.state = AirplaneState::Parked;
+                    plan.spawned = true;
+                    occupiedStands[plan.parkingStandId] = airplane.flightId;
+                    occupiedNodes[plan.parkingStandId] = airplane.flightId;
+                }
+            }
+            if (!plan.spawned) continue;
             airplane.Update(deltaTime);
             if (airplane.state == AirplaneState::Parked)
                 airplane.headingDegrees = plan.parkingHeadingDegrees;
@@ -354,8 +401,7 @@ int main()
 
             if (airplane.state == AirplaneState::Parked && !airplane.hasTarget)
             {
-                plan.departureDelay -= deltaTime;
-                if (plan.departureDelay <= 0.0f)
+                if (shiftClockSeconds >= plan.departureScheduledSeconds)
                 {
                     airplane.TransitionTo(AirplaneState::PreparingForDeparture);
                     plan.preparationTime = 3.0f;
@@ -495,7 +541,7 @@ int main()
         for (const PassengerBoardingStairs& boardingStairs : passengerBoardingStairs)
             boardingStairs.Draw();
         for (const FlightPlan& plan : flights)
-            if (plan.airplane.state != AirplaneState::Departed)
+            if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
                 plan.airplane.Draw(plan.airplane.renderScale);
         EndMode3D();
 
@@ -504,6 +550,31 @@ int main()
             TextFormat("Zoom: %.2fx   Render: %d x %d",
                 cameraController.GetZoomLevel(), GetRenderWidth(), GetRenderHeight()),
             18, 42, 16, Color{185, 201, 207, 255});
+
+        DrawText(TextFormat("SHIFT %s", FormatShiftTime(shiftClockSeconds).c_str()),
+            GetRenderWidth() - 190, 16, 18, RAYWHITE);
+        const int panelX = 16;
+        const int panelY = 74;
+        const int rowHeight = 21;
+        DrawRectangle(panelX, panelY, 390, 35 + static_cast<int>(flights.size()) * rowHeight,
+            Fade(Color{13, 26, 34, 255}, 0.88f));
+        DrawRectangle(panelX, panelY, 390, 28, Color{33, 66, 82, 255});
+        DrawText("FLIGHT SCHEDULE   ID      ARR     DEP     STATUS",
+            panelX + 9, panelY + 7, 13, RAYWHITE);
+        for (std::size_t i = 0; i < flights.size(); ++i)
+        {
+            const FlightPlan& plan = flights[i];
+            const std::string arr = plan.hasArrivalSchedule ?
+                FormatShiftTime(plan.arrivalScheduledSeconds) : "--:--";
+            const std::string dep = plan.departureFlight ?
+                FormatShiftTime(plan.departureScheduledSeconds) : "--:--";
+            const char* status = plan.spawned ? FlightStateLabel(plan.airplane.state) : "SCHEDULED";
+            const Color rowColor = plan.spawned && plan.airplane.state != AirplaneState::Departed ?
+                Color{235, 242, 245, 255} : Color{166, 184, 191, 255};
+            DrawText(TextFormat("%s      %s   %s   %s", plan.airplane.flightId.c_str(),
+                arr.c_str(), dep.c_str(), status), panelX + 12,
+                panelY + 34 + static_cast<int>(i) * rowHeight, 14, rowColor);
+        }
 
         EndDrawing();
     }
