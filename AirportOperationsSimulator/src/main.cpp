@@ -11,6 +11,54 @@
 #include "passenger_shuttle.h"
 #include "service_building.h"
 
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace
+{
+    struct FlightPlan
+    {
+        Airplane airplane;
+        float departureDelay{0.0f};
+        float preparationTime{0.0f};
+        bool departureFlight{false};
+        bool takeoffRollStarted{false};
+        float takeoffRollTime{0.0f};
+        std::string parkingStandId;
+        std::string departureRunwayStart{"RUNWAY_START_W"};
+        float parkingHeadingDegrees{0.0f};
+    };
+
+    std::vector<Vector2> MakeWorldRoute(const AirportGround& ground,
+        const std::vector<std::string>& nodeIds)
+    {
+        std::vector<Vector2> route;
+        route.reserve(nodeIds.size());
+        for (const std::string& id : nodeIds)
+        {
+            const TaxiwayNode* node = ground.FindNode(id);
+            if (node == nullptr) return {};
+            route.push_back({node->position.x, node->position.z});
+        }
+        return route;
+    }
+
+    int FindRunwayExitWaypoint(const AirportGround& ground,
+        const std::vector<std::string>& route, float runwayZ)
+    {
+        for (std::size_t i = 1; i < route.size(); ++i)
+        {
+            const TaxiwayNode* node = ground.FindNode(route[i]);
+            if (node != nullptr && std::abs(node->position.z - runwayZ) > 1.0f)
+                return static_cast<int>(i);
+        }
+        return -1;
+    }
+}
+
 int main()
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
@@ -19,7 +67,7 @@ int main()
     CameraController cameraController;
     AirportTerminal terminal;
     AirportGround airportGround(terminal);
-    Airplane airplane;
+    std::vector<FlightPlan> flights;
     BaggageTug baggageTugs[] = {
         {164.55f, -79.3f},
         {169.65f, -79.3f},
@@ -80,13 +128,126 @@ int main()
     };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
-    airplane.flightId = "AO100";
-    airplane.position = {-60.0f, -507.0f};
-    airplane.headingDegrees = 90.0f;
+    // Inbound flights enter on separate runways and use the existing graph to
+    // reach different stands. Route nodes also include the curved taxiway
+    // samples, so the aircraft can follow the authored bends smoothly.
+    struct ArrivalSetup { const char* flight; const char* type; const char* runwayStart;
+        const char* stand; float runwayZ; };
+    const ArrivalSetup arrivals[] = {
+        {"AO100", "Passenger jet", "RUNWAY_START_W", "GATE_1", -507.0f},
+        {"AO202", "Regional jet", "RUNWAY_B_START_W", "WEST_2", -642.0f},
+        {"AO317", "Cargo jet", "RUNWAY_C_START_W", "EAST_3", -777.0f}
+    };
+    for (const ArrivalSetup& setup : arrivals)
+    {
+        const std::vector<std::string> nodeIds = airportGround.FindRouteNodeIds(
+            setup.runwayStart, setup.stand);
+        std::vector<Vector2> route = MakeWorldRoute(airportGround, nodeIds);
+        if (route.empty()) continue;
+
+        FlightPlan plan;
+        plan.airplane.flightId = setup.flight;
+        plan.airplane.aircraftType = setup.type;
+        plan.airplane.position = route.front();
+        plan.airplane.headingDegrees = 90.0f;
+        plan.airplane.renderScale = 0.23f;
+        plan.airplane.isPriority = std::string(setup.flight) == "AO202";
+        plan.parkingStandId = setup.stand;
+        plan.departureRunwayStart = setup.runwayStart;
+        plan.departureFlight = true;
+        plan.departureDelay = 12.0f + static_cast<float>(flights.size()) * 7.0f;
+        for (const AirportParkingStand& stand : terminal.GetParkingStands())
+        {
+            if (stand.id == plan.parkingStandId)
+            {
+                plan.parkingHeadingDegrees = stand.headingDegrees;
+                break;
+            }
+        }
+        plan.airplane.TransitionTo(AirplaneState::Landing);
+        const int exitWaypoint = FindRunwayExitWaypoint(airportGround, nodeIds, setup.runwayZ);
+        plan.airplane.SetWaypointRoute(std::move(route), 19.0f,
+            AirplaneState::Parked, exitWaypoint, AirplaneState::TaxiingToStand);
+        flights.push_back(std::move(plan));
+    }
+
+    // A fourth aircraft demonstrates the basic parked -> preparation -> taxi
+    // -> takeoff sequence without adding traffic-control rules.
+    if (const TaxiwayNode* stand = airportGround.FindNode("GATE_4"))
+    {
+        FlightPlan plan;
+        plan.airplane.flightId = "AO440";
+        plan.airplane.aircraftType = "Narrow-body jet";
+        plan.airplane.position = {stand->position.x, stand->position.z};
+        plan.airplane.headingDegrees = 180.0f;
+        plan.airplane.state = AirplaneState::Parked;
+        plan.airplane.renderScale = 0.23f;
+        for (const AirportParkingStand& parkingStand : terminal.GetParkingStands())
+        {
+            if (parkingStand.id == "GATE_4")
+            {
+                plan.parkingHeadingDegrees = parkingStand.headingDegrees;
+                break;
+            }
+        }
+        plan.departureFlight = true;
+        plan.departureDelay = 5.0f;
+        plan.parkingStandId = "GATE_4";
+        flights.push_back(std::move(plan));
+    }
 
     while (!WindowShouldClose())
     {
-        cameraController.Update(GetFrameTime());
+        const float deltaTime = GetFrameTime();
+        cameraController.Update(deltaTime);
+        for (FlightPlan& plan : flights)
+        {
+            Airplane& airplane = plan.airplane;
+            airplane.Update(deltaTime);
+            if (airplane.state == AirplaneState::Parked)
+                airplane.headingDegrees = plan.parkingHeadingDegrees;
+            if (!plan.departureFlight || airplane.state == AirplaneState::Departed) continue;
+
+            // Departures end at the runway for now. The aircraft does not
+            // continue into an airborne animation; that can be added later.
+            if (airplane.state == AirplaneState::TakingOff && !airplane.hasTarget)
+            {
+                if (!plan.takeoffRollStarted)
+                {
+                    plan.takeoffRollStarted = true;
+                    plan.takeoffRollTime = 1.25f;
+                }
+                else
+                {
+                    plan.takeoffRollTime -= deltaTime;
+                    if (plan.takeoffRollTime <= 0.0f)
+                        airplane.TransitionTo(AirplaneState::Departed);
+                }
+                continue;
+            }
+
+            if (airplane.state == AirplaneState::Parked && !airplane.hasTarget)
+            {
+                plan.departureDelay -= deltaTime;
+                if (plan.departureDelay <= 0.0f)
+                {
+                    airplane.TransitionTo(AirplaneState::PreparingForDeparture);
+                    plan.preparationTime = 3.0f;
+                }
+            }
+            else if (airplane.state == AirplaneState::PreparingForDeparture)
+            {
+                plan.preparationTime -= deltaTime;
+                if (plan.preparationTime <= 0.0f)
+                {
+                    const auto taxiNodes = airportGround.FindRouteNodeIds(
+                        plan.parkingStandId, plan.departureRunwayStart);
+                    std::vector<Vector2> taxiRoute = MakeWorldRoute(airportGround, taxiNodes);
+                    if (!taxiRoute.empty() && airplane.TransitionTo(AirplaneState::TaxiingToRunway))
+                        airplane.SetWaypointRoute(std::move(taxiRoute), 11.0f, AirplaneState::TakingOff);
+                }
+            }
+        }
 
         BeginDrawing();
         ClearBackground(Color{142, 181, 199, 255});
@@ -120,7 +281,9 @@ int main()
             maintenancePickupTruck.Draw();
         for (const PassengerBoardingStairs& boardingStairs : passengerBoardingStairs)
             boardingStairs.Draw();
-        airplane.Draw(0.325f);
+        for (const FlightPlan& plan : flights)
+            if (plan.airplane.state != AirplaneState::Departed)
+                plan.airplane.Draw(plan.airplane.renderScale);
         EndMode3D();
 
         DrawText("Pan: WASD or arrow keys    Zoom: mouse wheel", 18, 16, 18, RAYWHITE);

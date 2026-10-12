@@ -3,6 +3,7 @@
 #include "raylib.h"
 
 #include <string>
+#include <vector>
 
 enum class AirplaneState
 {
@@ -34,9 +35,19 @@ public:
     float delayMinutes{0.0f};
     bool hasTarget{false};
     bool isPriority{false};
+    float renderScale{0.325f};
+    float turnRateDegreesPerSecond{95.0f};
 
     // Change state only when the requested transition is valid.
     bool TransitionTo(AirplaneState nextState);
+
+    // Route points are world x/z coordinates. The first point should be the
+    // aircraft's current position; optional transitionIndex changes state as
+    // the aircraft reaches that waypoint.
+    void SetWaypointRoute(std::vector<Vector2> route, float routeSpeed,
+        AirplaneState completionState, int transitionIndex = -1,
+        AirplaneState intermediateState = AirplaneState::TaxiingToStand);
+    void Update(float deltaTime);
 
     // Draw at the airplane's current position and heading.
     void Draw(float scale = 1.0f) const;
@@ -45,4 +56,11 @@ public:
     void Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale) const;
 
 private:
+    std::vector<Vector2> route;
+    std::size_t nextWaypoint{0};
+    float routeSpeed{0.0f};
+    AirplaneState routeCompletionState{AirplaneState::Parked};
+    AirplaneState routeIntermediateState{AirplaneState::TaxiingToStand};
+    int transitionWaypointIndex{-1};
+    bool intermediateTransitionDone{false};
 };

@@ -1,6 +1,8 @@
 #include "airplane.h"
 
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace
 {
@@ -96,6 +98,65 @@ bool Airplane::TransitionTo(AirplaneState nextState)
 
     state = nextState;
     return true;
+}
+
+void Airplane::SetWaypointRoute(std::vector<Vector2> newRoute, float newRouteSpeed,
+    AirplaneState completionState, int transitionIndex, AirplaneState intermediateState)
+{
+    route = std::move(newRoute);
+    nextWaypoint = route.empty() ? 0 : 1; // route[0] is the current location
+    routeSpeed = std::max(0.0f, newRouteSpeed);
+    routeCompletionState = completionState;
+    transitionWaypointIndex = transitionIndex;
+    routeIntermediateState = intermediateState;
+    intermediateTransitionDone = false;
+    speed = routeSpeed;
+    hasTarget = !route.empty();
+    if (hasTarget) targetPosition = route.back();
+    else speed = 0.0f;
+}
+
+void Airplane::Update(float deltaTime)
+{
+    if (!hasTarget || route.empty() || deltaTime <= 0.0f) return;
+
+    float remainingStep = routeSpeed * deltaTime;
+    while (nextWaypoint < route.size())
+    {
+        const Vector2 waypoint = route[nextWaypoint];
+        const float dx = waypoint.x - position.x;
+        const float dz = waypoint.y - position.y;
+        const float distance = std::sqrt(dx * dx + dz * dz);
+        if (distance > 0.001f)
+        {
+            const float desiredHeading = std::atan2(dx, -dz) * RAD2DEG;
+            const float headingDelta = std::remainder(desiredHeading - headingDegrees, 360.0f);
+            const float turnStep = turnRateDegreesPerSecond * deltaTime;
+            headingDegrees += std::clamp(headingDelta, -turnStep, turnStep);
+            if (remainingStep < distance)
+            {
+                const float ratio = remainingStep / distance;
+                position.x += dx * ratio;
+                position.y += dz * ratio;
+                return;
+            }
+            remainingStep -= distance;
+            position = waypoint;
+        }
+
+        if (static_cast<int>(nextWaypoint) == transitionWaypointIndex && !intermediateTransitionDone)
+        {
+            TransitionTo(routeIntermediateState);
+            intermediateTransitionDone = true;
+        }
+        ++nextWaypoint;
+        if (remainingStep <= 0.0f && nextWaypoint < route.size()) return;
+    }
+
+    hasTarget = false;
+    speed = 0.0f;
+    route.clear();
+    TransitionTo(routeCompletionState);
 }
 
 void Airplane::Draw(float scale) const

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <queue>
+#include <unordered_map>
 #include <cstddef>
 #include <initializer_list>
 
@@ -487,6 +489,42 @@ const TaxiwayNode* AirportGround::FindNode(const std::string& id) const
     const auto found = std::find_if(nodes.begin(), nodes.end(),
         [&id](const TaxiwayNode& node) { return node.id == id; });
     return found == nodes.end() ? nullptr : &*found;
+}
+
+std::vector<std::string> AirportGround::FindRouteNodeIds(
+    const std::string& startNodeId, const std::string& destinationNodeId) const
+{
+    if (FindNode(startNodeId) == nullptr || FindNode(destinationNodeId) == nullptr)
+        return {};
+    if (startNodeId == destinationNodeId) return {startNodeId};
+
+    std::queue<std::string> frontier;
+    std::unordered_map<std::string, std::string> predecessor;
+    frontier.push(startNodeId);
+    predecessor.emplace(startNodeId, "");
+
+    while (!frontier.empty())
+    {
+        const std::string currentId = frontier.front();
+        frontier.pop();
+        const TaxiwayNode* current = FindNode(currentId);
+        if (current == nullptr) continue;
+        for (const std::string& neighborId : current->connectedNodeIds)
+        {
+            if (predecessor.find(neighborId) != predecessor.end()) continue;
+            predecessor.emplace(neighborId, currentId);
+            if (neighborId == destinationNodeId)
+            {
+                std::vector<std::string> route;
+                for (std::string id = destinationNodeId; !id.empty(); id = predecessor.at(id))
+                    route.push_back(id);
+                std::reverse(route.begin(), route.end());
+                return route;
+            }
+            frontier.push(neighborId);
+        }
+    }
+    return {};
 }
 
 void AirportGround::Draw() const

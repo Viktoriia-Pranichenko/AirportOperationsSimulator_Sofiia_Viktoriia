@@ -43,6 +43,8 @@ public:
     const std::vector<TaxiwayNode>& GetTaxiwayNodes() const { return nodes; }
     const std::vector<TaxiwayEdge>& GetTaxiwayEdges() const { return edges; }
     const TaxiwayNode* FindNode(const std::string& id) const;
+    std::vector<std::string> FindRouteNodeIds(
+        const std::string& startNodeId, const std::string& destinationNodeId) const;
 
 private:
     void AddNode(const std::string& id, Vector3 position);
