@@ -299,7 +299,8 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         {310.0f, routeY, pairTaxiZs[1] + 17.5f},
         {280.0f, routeY, pairTaxiZs[1]}, 11.0f);
 
-    // Preserve the approach from the primary taxiway into the existing apron.
+    // Preserve the approach up to the apron edge. Hide only the dark-grey
+    // taxiway surfaces inside the marked apron network.
     AddNode("APRON_ENTRY", {0.0f, routeY, -220.0f});
     AddNode("APRON_GATEWAY", {0.0f, routeY, -190.0f});
     AddNode("APRON_SIDE_FAR", {0.0f, routeY, -170.0f});
@@ -310,14 +311,14 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     AddNode("WING_SPINE_1", {0.0f, routeY, -82.0f});
     AddNode("APRON_BACK_ROW", {0.0f, routeY, -48.0f});
     Connect("A_CENTER", "APRON_ENTRY", 15.0f);
-    Connect("APRON_ENTRY", "APRON_GATEWAY", 14.0f);
-    Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 12.0f);
-    Connect("APRON_SIDE_FAR", "WING_SPINE_3", 11.0f);
-    Connect("WING_SPINE_3", "APRON_SIDE_MIDDLE", 11.0f);
-    Connect("APRON_SIDE_MIDDLE", "WING_SPINE_2", 11.0f);
-    Connect("WING_SPINE_2", "APRON_SIDE_NEAR", 11.0f);
-    Connect("APRON_SIDE_NEAR", "WING_SPINE_1", 10.0f);
-    Connect("WING_SPINE_1", "APRON_BACK_ROW", 10.0f);
+    Connect("APRON_ENTRY", "APRON_GATEWAY", 14.0f, false);
+    Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 12.0f, false);
+    Connect("APRON_SIDE_FAR", "WING_SPINE_3", 11.0f, false);
+    Connect("WING_SPINE_3", "APRON_SIDE_MIDDLE", 11.0f, false);
+    Connect("APRON_SIDE_MIDDLE", "WING_SPINE_2", 11.0f, false);
+    Connect("WING_SPINE_2", "APRON_SIDE_NEAR", 11.0f, false);
+    Connect("APRON_SIDE_NEAR", "WING_SPINE_1", 10.0f, false);
+    Connect("WING_SPINE_1", "APRON_BACK_ROW", 10.0f, false);
 
     // A separate gate-side apron lane gives all four facade stands an approach.
     constexpr float gateXs[] = {-33.75f, -11.25f, 11.25f, 33.75f};
@@ -327,12 +328,12 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     AddNode("GATE_ROW_3", {gateXs[2], routeY, -48.0f});
     AddNode("GATE_ROW_4", {gateXs[3], routeY, -48.0f});
     AddNode("GATE_ROW_E", {75.0f, routeY, -48.0f});
-    Connect("GATE_ROW_W", "GATE_ROW_1", 10.0f);
-    Connect("GATE_ROW_1", "GATE_ROW_2", 10.0f);
-    Connect("GATE_ROW_2", "APRON_BACK_ROW", 10.0f);
-    Connect("APRON_BACK_ROW", "GATE_ROW_3", 10.0f);
-    Connect("GATE_ROW_3", "GATE_ROW_4", 10.0f);
-    Connect("GATE_ROW_4", "GATE_ROW_E", 10.0f);
+    Connect("GATE_ROW_W", "GATE_ROW_1", 10.0f, false);
+    Connect("GATE_ROW_1", "GATE_ROW_2", 10.0f, false);
+    Connect("GATE_ROW_2", "APRON_BACK_ROW", 10.0f, false);
+    Connect("APRON_BACK_ROW", "GATE_ROW_3", 10.0f, false);
+    Connect("GATE_ROW_3", "GATE_ROW_4", 10.0f, false);
+    Connect("GATE_ROW_4", "GATE_ROW_E", 10.0f, false);
 
     // Taxiway branches reach the six wing stands without crossing the stands.
     const float wingTaxiZs[] = {-82.0f, -122.0f, -162.0f};
@@ -346,9 +347,9 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         AddNode(eastId, {15.0f, routeY, z});
         const std::string spineId = row == 0 ? "WING_SPINE_1" :
             row == 1 ? "WING_SPINE_2" : "WING_SPINE_3";
-        Connect(spineId, westId, 9.0f);
-        Connect(spineId, eastId, 9.0f);
-        Connect(westId, eastId, 9.0f);
+        Connect(spineId, westId, 9.0f, false);
+        Connect(spineId, eastId, 9.0f, false);
+        Connect(westId, eastId, 9.0f, false);
     }
 
     // Join route nodes to the terminal's existing painted parking stands.
@@ -364,7 +365,7 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
             const std::string entryId = stand.id + "_ENTRY";
             AddNode(entryId, {standPosition.x, routeY, entryZ});
             const std::string rowIndex = stand.id.substr(5);
-            Connect("GATE_ROW_" + rowIndex, entryId, 9.0f);
+            Connect("GATE_ROW_" + rowIndex, entryId, 9.0f, false);
             Connect(entryId, stand.id, 1.0f, false);
         }
         else
@@ -375,7 +376,7 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
             AddNode(entryId, {entryX, routeY, standPosition.z});
             const std::string rowIndex = stand.id.substr(5);
             const std::string rowId = "WING_ROW_" + rowIndex + (westStand ? "_W" : "_E");
-            Connect(rowId, entryId, 9.0f);
+            Connect(rowId, entryId, 9.0f, false);
             Connect(entryId, stand.id, 1.0f, false);
         }
     }
