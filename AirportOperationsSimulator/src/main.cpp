@@ -26,11 +26,17 @@ namespace
     struct FlightPlan
     {
         Airplane airplane;
+        std::string flightName;
+        std::string airline;
+        std::string origin;
+        std::string destination;
+        Color livery{48, 125, 160, 255};
         float arrivalScheduledSeconds{-1.0f};
         float departureScheduledSeconds{-1.0f};
         float preparationTime{0.0f};
         bool hasArrivalSchedule{false};
         bool spawned{false};
+        bool standAssigned{false};
         bool departureFlight{false};
         bool arrivalFlight{false};
         bool routeStarted{false};
@@ -106,8 +112,113 @@ namespace
         case AirplaneState::TaxiingToRunway: return "TAXI OUT";
         case AirplaneState::TakingOff: return "TAKEOFF";
         case AirplaneState::Departed: return "DONE";
+        case AirplaneState::Delayed: return "DELAYED";
+        case AirplaneState::Incident: return "INCIDENT";
         default: return "SCHEDULED";
         }
+    }
+
+    Vector2 ProjectAirportPoint(Vector2 point, const Camera3D& camera)
+    {
+        return GetWorldToScreen({point.x, 1.1f, point.y}, camera);
+    }
+
+    void DrawStateIndicator(AirplaneState state, Vector2 center, float size)
+    {
+        const float half = size * 0.5f;
+        switch (state)
+        {
+        case AirplaneState::Holding:
+            DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), half,
+                Color{247, 184, 68, 255});
+            DrawRectangle(static_cast<int>(center.x - half * 0.35f),
+                static_cast<int>(center.y - half * 0.45f), static_cast<int>(size * 0.18f),
+                static_cast<int>(size * 0.9f), Color{247, 184, 68, 255});
+            DrawRectangle(static_cast<int>(center.x + half * 0.17f),
+                static_cast<int>(center.y - half * 0.45f), static_cast<int>(size * 0.18f),
+                static_cast<int>(size * 0.9f), Color{247, 184, 68, 255});
+            break;
+        case AirplaneState::Arriving:
+            DrawTriangle({center.x, center.y + half}, {center.x - half, center.y - half},
+                {center.x + half, center.y - half}, Color{77, 190, 225, 255});
+            break;
+        case AirplaneState::Landing:
+            DrawLineEx({center.x - half, center.y - half * 0.35f}, center, 3.0f,
+                Color{77, 190, 225, 255});
+            DrawLineEx({center.x + half, center.y - half * 0.35f}, center, 3.0f,
+                Color{77, 190, 225, 255});
+            DrawLineEx(center, {center.x, center.y + half}, 3.0f, Color{77, 190, 225, 255});
+            break;
+        case AirplaneState::TaxiingToStand:
+        case AirplaneState::TaxiingToRunway:
+            DrawRectangle(static_cast<int>(center.x - half), static_cast<int>(center.y - 2.0f),
+                static_cast<int>(size * 0.6f), 4, Color{250, 213, 84, 255});
+            DrawTriangle({center.x + half, center.y}, {center.x + half * 0.1f, center.y - half},
+                {center.x + half * 0.1f, center.y + half}, Color{250, 213, 84, 255});
+            break;
+        case AirplaneState::Parked:
+            DrawRectangle(static_cast<int>(center.x - half), static_cast<int>(center.y - half),
+                static_cast<int>(size), static_cast<int>(size), Color{74, 200, 137, 255});
+            DrawCircleV(center, size * 0.16f, Color{20, 55, 46, 255});
+            break;
+        case AirplaneState::PreparingForDeparture:
+            DrawCircleV(center, half * 0.72f, Color{247, 184, 68, 255});
+            for (int i = 0; i < 4; ++i)
+            {
+                const float angle = i * 1.5707963f;
+                DrawLineEx({center.x + std::cos(angle) * half * 0.82f,
+                    center.y + std::sin(angle) * half * 0.82f},
+                    {center.x + std::cos(angle) * half * 1.25f,
+                    center.y + std::sin(angle) * half * 1.25f}, 2.0f,
+                    Color{247, 184, 68, 255});
+            }
+            break;
+        case AirplaneState::TakingOff:
+            DrawTriangle({center.x, center.y - half}, {center.x - half, center.y + half},
+                {center.x + half, center.y + half}, Color{74, 200, 137, 255});
+            break;
+        case AirplaneState::Delayed:
+            DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), half,
+                Color{247, 144, 63, 255});
+            DrawLineEx({center.x, center.y - half * 0.55f}, {center.x, center.y + half * 0.15f},
+                3.0f, Color{247, 144, 63, 255});
+            DrawCircleV({center.x, center.y + half * 0.55f}, 1.8f, Color{247, 144, 63, 255});
+            break;
+        case AirplaneState::Incident:
+            DrawTriangle({center.x, center.y - half}, {center.x - half, center.y + half},
+                {center.x + half, center.y + half}, Color{231, 76, 76, 255});
+            DrawLineEx({center.x, center.y - half * 0.35f}, {center.x, center.y + half * 0.25f},
+                2.0f, RAYWHITE);
+            DrawCircleV({center.x, center.y + half * 0.55f}, 1.6f, RAYWHITE);
+            break;
+        default:
+            DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), half,
+                Color{150, 169, 177, 255});
+            break;
+        }
+    }
+
+    void DrawAirplanePreview3D(const Airplane& airplane, Rectangle bounds,
+        const Camera3D& previewCamera, RenderTexture2D& previewTarget)
+    {
+        BeginTextureMode(previewTarget);
+        ClearBackground(Color{27, 42, 51, 255});
+        BeginMode3D(previewCamera);
+        airplane.Draw({0.0f, 0.0f}, 0.0f, 0.95f);
+        EndMode3D();
+        EndTextureMode();
+
+        const Rectangle source{0.0f, 0.0f,
+            static_cast<float>(previewTarget.texture.width),
+            -static_cast<float>(previewTarget.texture.height)};
+        DrawTexturePro(previewTarget.texture, source, bounds, {0.0f, 0.0f}, 0.0f, WHITE);
+
+        // Screen-space registration label sits over the fuselage in the preview.
+        const int tagWidth = MeasureText(airplane.flightId.c_str(), 12) + 10;
+        const int tagX = static_cast<int>(bounds.x + bounds.width * 0.5f - tagWidth * 0.5f);
+        const int tagY = static_cast<int>(bounds.y + bounds.height * 0.55f - 8.0f);
+        DrawRectangle(tagX, tagY, tagWidth, 16, Fade(Color{11, 25, 33, 255}, 0.9f));
+        DrawText(airplane.flightId.c_str(), tagX + 5, tagY + 2, 12, RAYWHITE);
     }
 }
 
@@ -117,6 +228,10 @@ int main()
     InitWindow(1024, 768, "Airport Operations Simulator");
 
     CameraController cameraController;
+    const Camera3D airplanePreviewCamera{
+        {38.0f, 98.0f, -120.0f}, {0.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f}, 35.0f, CAMERA_PERSPECTIVE};
+    RenderTexture2D airplanePreviewTarget = LoadRenderTexture(256, 192);
     AirportTerminal terminal;
     AirportGround airportGround(terminal);
     std::vector<FlightPlan> flights;
@@ -183,20 +298,26 @@ int main()
     // Inbound flights enter on separate runways and use the existing graph to
     // reach different stands. Route nodes also include the curved taxiway
     // samples, so the aircraft can follow the authored bends smoothly.
-    struct ArrivalSetup { const char* flight; const char* type; const char* approach;
+    struct ArrivalSetup { const char* flight; const char* name; const char* airline;
+        const char* origin; const char* destination; Color livery; const char* type; const char* approach;
         const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
         float arrivalMinute; float departureMinute; };
     const ArrivalSetup arrivals[] = {
-        {"AO100", "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f, 0.0f, 12.0f},
-        {"AO202", "Regional jet", "APPROACH_B_W", "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f, 4.0f, 17.0f},
-        {"AO317", "Cargo jet", "APPROACH_C_W", "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f, 8.0f, 22.0f},
-        {"AO512", "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_2", -507.0f, 15.0f, 29.0f}
+        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f, 0.0f, 12.0f},
+        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_W", "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f, 4.0f, 17.0f},
+        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_W", "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f, 8.0f, 22.0f},
+        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_2", -507.0f, 15.0f, 29.0f}
     };
     for (const ArrivalSetup& setup : arrivals)
     {
         FlightPlan plan;
         plan.airplane.flightId = setup.flight;
         plan.airplane.aircraftType = setup.type;
+        plan.flightName = setup.name;
+        plan.airline = setup.airline;
+        plan.origin = setup.origin;
+        plan.destination = setup.destination;
+        plan.livery = setup.livery;
         const TaxiwayNode* approach = airportGround.FindNode(setup.approach);
         if (approach == nullptr) continue;
         plan.airplane.position = {approach->position.x, approach->position.z};
@@ -231,6 +352,11 @@ int main()
         FlightPlan plan;
         plan.airplane.flightId = "AO440";
         plan.airplane.aircraftType = "Narrow-body jet";
+        plan.flightName = "Coastal 440";
+        plan.airline = "Coastal Air";
+        plan.origin = "Airport (HOME)";
+        plan.destination = "Oslo (OSL)";
+        plan.livery = {87, 158, 192, 255};
         plan.airplane.position = {stand->position.x, stand->position.z};
         plan.airplane.headingDegrees = 180.0f;
         plan.airplane.state = AirplaneState::Parked;
@@ -258,6 +384,7 @@ int main()
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
     float shiftClockSeconds = 0.0f;
+    int selectedFlightIndex = -1;
     constexpr float ShiftClockRate = 15.0f; // 15 simulated seconds per real second.
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
@@ -309,6 +436,45 @@ int main()
         const float deltaTime = GetFrameTime();
         shiftClockSeconds += deltaTime * ShiftClockRate;
         cameraController.Update(deltaTime);
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            const Vector2 mouse = GetMousePosition();
+            const int rightPanelLeft = GetScreenWidth() - 326;
+            const bool clickedInfoPanel = mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
+            const bool clickedSchedulePanel = mouse.x <= 406.0f && mouse.y >= 74.0f && mouse.y <= 214.0f;
+            if (clickedInfoPanel)
+            {
+                const Rectangle priorityButton{
+                    static_cast<float>(rightPanelLeft + 14), 352.0f, 284.0f, 28.0f};
+                if (selectedFlightIndex >= 0 && CheckCollisionPointRec(mouse, priorityButton))
+                    flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
+                        !flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority;
+            }
+            else if (!clickedSchedulePanel)
+            {
+                selectedFlightIndex = -1;
+                float closestDistance = 34.0f;
+                for (std::size_t i = 0; i < flights.size(); ++i)
+                {
+                    const FlightPlan& plan = flights[i];
+                    if (!plan.spawned || plan.airplane.state == AirplaneState::Departed) continue;
+                    const Vector2 projected = ProjectAirportPoint(plan.airplane.position,
+                        cameraController.GetCamera3D());
+                    const float dx = projected.x - mouse.x;
+                    const float dy = projected.y - mouse.y;
+                    const float distance = std::sqrt(dx * dx + dy * dy);
+                    if (distance < closestDistance)
+                    {
+                        closestDistance = distance;
+                        selectedFlightIndex = static_cast<int>(i);
+                    }
+                }
+            }
+        }
+        if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()) &&
+            IsKeyPressed(KEY_P))
+            flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
+                !flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority;
         for (std::size_t flightIndex = 0; flightIndex < flights.size(); ++flightIndex)
         {
             FlightPlan& plan = flights[flightIndex];
@@ -336,6 +502,7 @@ int main()
                     airplane.position = {stand->position.x, stand->position.z};
                     airplane.state = AirplaneState::Parked;
                     plan.spawned = true;
+                    plan.standAssigned = true;
                     occupiedStands[plan.parkingStandId] = airplane.flightId;
                     occupiedNodes[plan.parkingStandId] = airplane.flightId;
                 }
@@ -428,15 +595,19 @@ int main()
         // conflicts. Blocked routes remain queued until a safe path is free.
         while (!arrivalQueue.empty() || !departureQueue.empty())
         {
-            struct Request { std::uint64_t order; bool arrival; std::size_t flightIndex; };
+            struct Request { bool priority; std::uint64_t order; bool arrival; std::size_t flightIndex; };
             std::vector<Request> requests;
             requests.reserve(arrivalQueue.size() + departureQueue.size());
             for (const std::size_t index : arrivalQueue)
-                requests.push_back({flights[index].requestOrder, true, index});
+                requests.push_back({flights[index].airplane.isPriority, flights[index].requestOrder, true, index});
             for (const std::size_t index : departureQueue)
-                requests.push_back({flights[index].requestOrder, false, index});
+                requests.push_back({flights[index].airplane.isPriority, flights[index].requestOrder, false, index});
             std::stable_sort(requests.begin(), requests.end(),
-                [](const Request& left, const Request& right) { return left.order < right.order; });
+                [](const Request& left, const Request& right)
+                {
+                    if (left.priority != right.priority) return left.priority > right.priority;
+                    return left.order < right.order;
+                });
 
             bool foundSafeRequest = false;
             bool serveArrival = false;
@@ -447,8 +618,6 @@ int main()
                 FlightPlan& candidate = flights[request.flightIndex];
                 const std::string& start = request.arrival ? candidate.arrivalStartNode :
                     candidate.parkingStandId;
-                const std::string& destination = request.arrival ? candidate.parkingStandId :
-                    candidate.departureRunwayStart;
                 const auto selectedRunway = std::find_if(airportGround.GetRunways().begin(),
                     airportGround.GetRunways().end(),
                     [&candidate](const AirportRunway& runway)
@@ -458,20 +627,50 @@ int main()
                     continue;
                 if (runwayOwners.find(candidate.runwayId) != runwayOwners.end())
                     continue;
-                const auto standOwner = occupiedStands.find(destination);
-                if (request.arrival && standOwner != occupiedStands.end() &&
-                    standOwner->second != candidate.airplane.flightId)
-                    continue;
-
-                std::vector<std::string> candidateRoute =
-                    airportGround.FindRouteNodeIds(start, destination);
-                if (candidateRoute.empty() ||
-                    !routeCanBeReserved(candidateRoute, candidate.airplane.flightId))
-                    continue;
+                std::vector<std::string> candidateRoute;
+                std::string assignedStandId = candidate.parkingStandId;
+                float assignedStandHeading = candidate.parkingHeadingDegrees;
+                if (request.arrival)
+                {
+                    std::vector<const AirportParkingStand*> standCandidates;
+                    for (const AirportParkingStand& stand : terminal.GetParkingStands())
+                        if (stand.id == candidate.parkingStandId) standCandidates.push_back(&stand);
+                    for (const AirportParkingStand& stand : terminal.GetParkingStands())
+                        if (stand.id != candidate.parkingStandId) standCandidates.push_back(&stand);
+                    bool foundStand = false;
+                    for (const AirportParkingStand* stand : standCandidates)
+                    {
+                        const auto owner = occupiedStands.find(stand->id);
+                        if (owner != occupiedStands.end() && owner->second != candidate.airplane.flightId)
+                            continue;
+                        std::vector<std::string> route = airportGround.FindRouteNodeIds(start, stand->id);
+                        if (route.empty() || !routeCanBeReserved(route, candidate.airplane.flightId))
+                            continue;
+                        candidateRoute = std::move(route);
+                        assignedStandId = stand->id;
+                        assignedStandHeading = stand->headingDegrees;
+                        foundStand = true;
+                        break;
+                    }
+                    if (!foundStand) continue;
+                }
+                else
+                {
+                    candidateRoute = airportGround.FindRouteNodeIds(
+                        start, candidate.departureRunwayStart);
+                    if (candidateRoute.empty() ||
+                        !routeCanBeReserved(candidateRoute, candidate.airplane.flightId)) continue;
+                }
                 foundSafeRequest = true;
                 serveArrival = request.arrival;
                 flightIndex = request.flightIndex;
                 routeNodeIds = std::move(candidateRoute);
+                if (request.arrival)
+                {
+                    candidate.parkingStandId = assignedStandId;
+                    candidate.parkingHeadingDegrees = assignedStandHeading;
+                    candidate.standAssigned = true;
+                }
                 break;
             }
             if (!foundSafeRequest) break;
@@ -483,6 +682,7 @@ int main()
             requestQueue.erase(queuedRequest);
 
             reserveRoute(routeNodeIds, plan.airplane.flightId);
+            if (serveArrival) occupiedStands[plan.parkingStandId] = plan.airplane.flightId;
             plan.activeRouteNodeIds = routeNodeIds;
             plan.routeStarted = true;
             plan.runwayReserved = true;
@@ -545,6 +745,55 @@ int main()
                 plan.airplane.Draw(plan.airplane.renderScale);
         EndMode3D();
 
+        const Camera3D& activeCamera = cameraController.GetCamera3D();
+        // Keep map labels compact: flight ID, next destination and a live state glyph.
+        for (const FlightPlan& plan : flights)
+        {
+            if (!plan.spawned || plan.airplane.state == AirplaneState::Departed) continue;
+            const Vector2 planeScreen = ProjectAirportPoint(plan.airplane.position, activeCamera);
+            const std::string mapDestination = plan.arrivalFlight ?
+                (plan.standAssigned ? plan.parkingStandId : "ARRIVAL") : plan.destination;
+            const std::string text = plan.airplane.flightId + "  >  " + mapDestination;
+            const int width = MeasureText(text.c_str(), 13) + 12;
+            const int x = static_cast<int>(planeScreen.x + 16.0f);
+            const int y = static_cast<int>(planeScreen.y - 28.0f);
+            DrawRectangle(x, y, width, 22, Fade(Color{12, 27, 36, 255}, 0.91f));
+            DrawText(text.c_str(), x + 6, y + 4, 13, RAYWHITE);
+            DrawStateIndicator(plan.airplane.state,
+                {static_cast<float>(x + width + 12), static_cast<float>(y + 11)}, 14.0f);
+        }
+
+        // Draw the selected aircraft's active or next planned taxi route over the map.
+        if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()))
+        {
+            const FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
+            std::vector<std::string> routeIds = selected.activeRouteNodeIds;
+            if (routeIds.empty() && selected.arrivalFlight)
+                routeIds = airportGround.FindRouteNodeIds(
+                    selected.arrivalStartNode, selected.parkingStandId);
+            else if (routeIds.empty() && selected.departureFlight &&
+                selected.airplane.state != AirplaneState::Departed)
+                routeIds = airportGround.FindRouteNodeIds(
+                    selected.parkingStandId, selected.departureRunwayStart);
+            Vector2 previous{};
+            bool havePrevious = false;
+            for (const std::string& nodeId : routeIds)
+            {
+                const TaxiwayNode* node = airportGround.FindNode(nodeId);
+                if (node == nullptr) continue;
+                const Vector2 point = GetWorldToScreen(
+                    {node->position.x, 1.5f, node->position.z}, activeCamera);
+                if (havePrevious)
+                    DrawLineEx(previous, point, 4.0f, Color{48, 227, 198, 235});
+                previous = point;
+                havePrevious = true;
+            }
+            const Vector2 aircraftScreen = ProjectAirportPoint(
+                selected.airplane.position, activeCamera);
+            DrawCircleLines(static_cast<int>(aircraftScreen.x),
+                static_cast<int>(aircraftScreen.y), 25.0f, Color{74, 238, 216, 255});
+        }
+
         DrawText("Pan: WASD or arrow keys    Zoom: mouse wheel", 18, 16, 18, RAYWHITE);
         DrawText(
             TextFormat("Zoom: %.2fx   Render: %d x %d",
@@ -552,33 +801,86 @@ int main()
             18, 42, 16, Color{185, 201, 207, 255});
 
         DrawText(TextFormat("SHIFT %s", FormatShiftTime(shiftClockSeconds).c_str()),
-            GetRenderWidth() - 190, 16, 18, RAYWHITE);
+            GetScreenWidth() - 190, 16, 18, RAYWHITE);
         const int panelX = 16;
         const int panelY = 74;
         const int rowHeight = 21;
-        DrawRectangle(panelX, panelY, 390, 35 + static_cast<int>(flights.size()) * rowHeight,
+        DrawRectangle(panelX, panelY, 300, 35 + static_cast<int>(flights.size()) * rowHeight,
             Fade(Color{13, 26, 34, 255}, 0.88f));
-        DrawRectangle(panelX, panelY, 390, 28, Color{33, 66, 82, 255});
-        DrawText("FLIGHT SCHEDULE   ID      ARR     DEP     STATUS",
-            panelX + 9, panelY + 7, 13, RAYWHITE);
+        DrawRectangle(panelX, panelY, 300, 28, Color{33, 66, 82, 255});
+        DrawText("FLIGHTS          DESTINATION", panelX + 9, panelY + 7, 13, RAYWHITE);
         for (std::size_t i = 0; i < flights.size(); ++i)
         {
             const FlightPlan& plan = flights[i];
-            const std::string arr = plan.hasArrivalSchedule ?
-                FormatShiftTime(plan.arrivalScheduledSeconds) : "--:--";
-            const std::string dep = plan.departureFlight ?
-                FormatShiftTime(plan.departureScheduledSeconds) : "--:--";
-            const char* status = plan.spawned ? FlightStateLabel(plan.airplane.state) : "SCHEDULED";
+            const std::string mapDestination = !plan.spawned ? plan.destination :
+                (plan.arrivalFlight ? (plan.standAssigned ? plan.parkingStandId : "ARRIVAL") : plan.destination);
             const Color rowColor = plan.spawned && plan.airplane.state != AirplaneState::Departed ?
                 Color{235, 242, 245, 255} : Color{166, 184, 191, 255};
-            DrawText(TextFormat("%s      %s   %s   %s", plan.airplane.flightId.c_str(),
-                arr.c_str(), dep.c_str(), status), panelX + 12,
-                panelY + 34 + static_cast<int>(i) * rowHeight, 14, rowColor);
+            const int rowY = panelY + 34 + static_cast<int>(i) * rowHeight;
+            DrawText(TextFormat("%s", plan.airplane.flightId.c_str()), panelX + 12, rowY, 14, rowColor);
+            DrawText(mapDestination.c_str(), panelX + 105, rowY, 14, rowColor);
+            const Vector2 indicator{static_cast<float>(panelX + 280), static_cast<float>(rowY + 8)};
+            if (plan.spawned) DrawStateIndicator(plan.airplane.state, indicator, 12.0f);
+            else
+            {
+                DrawCircleLines(static_cast<int>(indicator.x), static_cast<int>(indicator.y),
+                    5.0f, Color{150, 169, 177, 255});
+                DrawLineEx({indicator.x, indicator.y - 3.0f}, indicator, 1.5f,
+                    Color{150, 169, 177, 255});
+                DrawLineEx(indicator, {indicator.x + 2.5f, indicator.y + 1.5f}, 1.5f,
+                    Color{150, 169, 177, 255});
+            }
+        }
+
+        const int infoX = GetScreenWidth() - 326;
+        const int infoY = 74;
+        DrawRectangle(infoX, infoY, 312, 324, Fade(Color{13, 26, 34, 255}, 0.93f));
+        DrawRectangle(infoX, infoY, 312, 28, Color{33, 66, 82, 255});
+        DrawText("FLIGHT DETAILS", infoX + 12, infoY + 7, 15, RAYWHITE);
+        if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()))
+        {
+            const FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
+            DrawAirplanePreview3D(selected.airplane,
+                {static_cast<float>(infoX + 14), static_cast<float>(infoY + 40), 128.0f, 112.0f},
+                airplanePreviewCamera, airplanePreviewTarget);
+            DrawText(TextFormat("ID: %s", selected.airplane.flightId.c_str()),
+                infoX + 154, infoY + 40, 15, RAYWHITE);
+            DrawText(TextFormat("Name: %s", selected.flightName.c_str()),
+                infoX + 154, infoY + 64, 13, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Type: %s", selected.airplane.aircraftType.c_str()),
+                infoX + 154, infoY + 85, 12, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Airline: %s", selected.airline.c_str()),
+                infoX + 14, infoY + 133, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("State: %s", FlightStateLabel(selected.airplane.state)),
+                infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Schedule   ARR %s   DEP %s",
+                selected.hasArrivalSchedule ? FormatShiftTime(selected.arrivalScheduledSeconds).c_str() : "--:--",
+                selected.departureFlight ? FormatShiftTime(selected.departureScheduledSeconds).c_str() : "--:--"),
+                infoX + 14, infoY + 181, 13, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Route: %s  >  %s", selected.origin.c_str(), selected.destination.c_str()),
+                infoX + 14, infoY + 205, 12, Color{116, 226, 202, 255});
+            DrawText(TextFormat("Assigned stand: %s",
+                selected.standAssigned ? selected.parkingStandId.c_str() : "Pending assignment"),
+                infoX + 14, infoY + 228, 13, Color{203, 219, 224, 255});
+            const Rectangle priorityButton{
+                static_cast<float>(infoX + 14), static_cast<float>(infoY + 278), 284.0f, 28.0f};
+            DrawRectangleRec(priorityButton, selected.airplane.isPriority ?
+                Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
+            DrawText(selected.airplane.isPriority ? "PRIORITY: ON  (click / P)" : "MARK PRIORITY  (click / P)",
+                infoX + 22, infoY + 285, 13, RAYWHITE);
+        }
+        else
+        {
+            DrawText("Select an aircraft on the map to view its model, airline,",
+                infoX + 14, infoY + 48, 12, Color{203, 219, 224, 255});
+            DrawText("state, route and scheduled times.",
+                infoX + 14, infoY + 68, 12, Color{203, 219, 224, 255});
         }
 
         EndDrawing();
     }
 
+    UnloadRenderTexture(airplanePreviewTarget);
     CloseWindow();
     return 0;
 }
