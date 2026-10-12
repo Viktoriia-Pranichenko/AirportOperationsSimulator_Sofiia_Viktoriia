@@ -58,9 +58,9 @@ public:
         {
             forwardX /= forwardLength;
             forwardZ /= forwardLength;
-            const float rightX = forwardZ;
-            const float rightZ = -forwardX;
-            const float panSpeed = 20.0f / zoomLevel;
+            const float rightX = -forwardZ;
+            const float rightZ = forwardX;
+            const float panSpeed = 30.0f / zoomLevel;
             const Vector3 shift{
                 (rightX * moveRight + forwardX * moveForward) * panSpeed * deltaTime,
                 0.0f,
@@ -73,8 +73,8 @@ public:
         }
 
         // Keep the screen-space camera state available for the existing 2D UI layer.
-        const float uiPanSpeed = 500.0f / zoomLevel * deltaTime;
-        camera2D.target.x += moveRight * uiPanSpeed;
+        const float uiPanSpeed = 575.0f / zoomLevel * deltaTime;
+        camera2D.target.x -= moveRight * uiPanSpeed;
         camera2D.target.y -= moveForward * uiPanSpeed;
 
         const float wheelMove = GetMouseWheelMove();
