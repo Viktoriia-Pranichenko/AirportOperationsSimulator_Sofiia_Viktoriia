@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <initializer_list>
 
 namespace
 {
@@ -13,7 +14,26 @@ namespace
     constexpr Color TaxiwaySurface{75, 83, 85, 255};
     constexpr Color TaxiwayCenterline{241, 195, 70, 255};
     constexpr Color RunwayMarking{235, 236, 226, 255};
-    constexpr Color IntersectionMarking{255, 220, 105, 255};
+
+    void DrawQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
+    {
+        DrawTriangle3D(a, b, c, color);
+        DrawTriangle3D(a, c, d, color);
+    }
+
+    void DrawFlatSegment(Vector3 from, Vector3 to, float width, float y, Color color)
+    {
+        const float dx = to.x - from.x;
+        const float dz = to.z - from.z;
+        const float length = std::sqrt(dx * dx + dz * dz);
+        if (length < 0.01f) return;
+
+        const float halfWidth = width * 0.5f;
+        const float nx = -dz / length * halfWidth;
+        const float nz = dx / length * halfWidth;
+        DrawQuad({from.x + nx, y, from.z + nz}, {to.x + nx, y, to.z + nz},
+            {to.x - nx, y, to.z - nz}, {from.x - nx, y, from.z - nz}, color);
+    }
 
     void DrawGroundAroundApron()
     {
@@ -46,66 +66,61 @@ namespace
     {
         const float centerX = runway.center.x;
         const float centerZ = runway.center.z;
-        DrawCubeV({centerX, -0.03f, centerZ},
-            {runway.length + 28.0f, 0.12f, runway.width + 28.0f}, RunwayShoulder);
-        DrawCubeV({centerX, 0.05f, centerZ},
+        DrawCubeV({centerX, -0.015f, centerZ},
+            // Keep the grey runway base and runway surface aligned in plan.
+            {runway.length, 0.09f, runway.width}, RunwayShoulder);
+        DrawCubeV({centerX, 0.04f, centerZ},
             {runway.length, 0.12f, runway.width}, RunwaySurface);
 
-        const float edgeX = runway.length * 0.5f - 18.0f;
-        const float northEdge = centerZ - runway.width * 0.5f + 9.0f;
-        const float southEdge = centerZ + runway.width * 0.5f - 9.0f;
-        DrawLine3D({centerX - edgeX, 0.12f, northEdge}, {centerX + edgeX, 0.12f, northEdge}, RunwayMarking);
-        DrawLine3D({centerX - edgeX, 0.12f, southEdge}, {centerX + edgeX, 0.12f, southEdge}, RunwayMarking);
+        const float edgeX = runway.length * 0.5f - 6.0f;
+        const float northEdge = centerZ - runway.width * 0.5f + 2.5f;
+        const float southEdge = centerZ + runway.width * 0.5f - 2.5f;
+        DrawFlatSegment({centerX - edgeX, 0.0f, northEdge},
+            {centerX + edgeX, 0.0f, northEdge}, 0.325f, 0.108f, RunwayMarking);
+        DrawFlatSegment({centerX - edgeX, 0.0f, southEdge},
+            {centerX + edgeX, 0.0f, southEdge}, 0.325f, 0.108f, RunwayMarking);
 
         const float halfLength = runway.length * 0.5f;
-        for (float offset = -halfLength + 20.0f; offset + 34.0f <= halfLength - 20.0f; offset += 72.0f)
-            DrawLine3D({centerX + offset, 0.13f, centerZ},
-                {centerX + offset + 34.0f, 0.13f, centerZ}, RunwayMarking);
-
-        for (int bar = 0; bar < 6; ++bar)
+        const float aimingPointDistance = halfLength - 37.5f;
+        for (float offset = -halfLength + 25.0f;
+             offset + 10.0f <= halfLength - 25.0f; offset += 26.0f)
         {
-            const float leftX = centerX - runway.length * 0.5f + 20.0f + bar * 7.0f;
-            const float rightX = centerX + runway.length * 0.5f - 24.0f - bar * 7.0f;
-            for (int side = -1; side <= 1; side += 2)
-            {
-                const float z = centerZ + side * (14.0f + bar * 4.0f);
-                DrawLine3D({leftX, 0.13f, z}, {leftX, 0.13f, z + side * 12.0f}, RunwayMarking);
-                DrawLine3D({rightX, 0.13f, z}, {rightX, 0.13f, z + side * 12.0f}, RunwayMarking);
-            }
+            const float dashCenter = offset + 5.0f;
+            if (std::fabs(dashCenter + aimingPointDistance) < 17.0f ||
+                std::fabs(dashCenter - aimingPointDistance) < 17.0f) continue;
+            DrawFlatSegment({centerX + offset, 0.0f, centerZ},
+                {centerX + offset + 10.0f, 0.0f, centerZ}, 0.3f, 0.109f, RunwayMarking);
         }
 
-        // Preserve the existing white threshold markings at both runway ends.
-        for (int i = 0; i < 8; ++i)
+        // Threshold bars run lengthwise and are evenly spaced across the runway.
+        for (int i = 0; i < 6; ++i)
         {
-            const float z = centerZ - 25.0f + i * 7.0f;
-            const float leftStart = centerX - runway.length * 0.5f + 24.0f + (i % 2) * 4.0f;
-            const float rightStart = centerX + runway.length * 0.5f - 32.0f - (i % 2) * 4.0f;
-            DrawLine3D({leftStart, 0.13f, z}, {leftStart + 23.0f, 0.13f, z}, RunwayMarking);
-            DrawLine3D({rightStart - 23.0f, 0.13f, z}, {rightStart, 0.13f, z}, RunwayMarking);
+            const float z = centerZ + (static_cast<float>(i) - 2.5f) * 2.85f;
+            const float leftX = centerX - halfLength + 12.0f;
+            const float rightX = centerX + halfLength - 12.0f;
+            DrawFlatSegment({leftX - 5.5f, 0.0f, z}, {leftX + 5.5f, 0.0f, z},
+                1.25f, 0.11f, RunwayMarking);
+            DrawFlatSegment({rightX - 5.5f, 0.0f, z}, {rightX + 5.5f, 0.0f, z},
+                1.25f, 0.11f, RunwayMarking);
+        }
+
+        for (int side : {-1, 1})
+        {
+            const float x = centerX + side * (halfLength - 37.5f);
+            for (int zSide : {-1, 1})
+                DrawFlatSegment({x - 7.5f, 0.0f, centerZ + zSide * 5.0f},
+                    {x + 7.5f, 0.0f, centerZ + zSide * 5.0f},
+                    1.4f, 0.11f, RunwayMarking);
         }
     }
 
     void DrawTaxiwaySurface(Vector3 from, Vector3 to, float width)
     {
-        const float dx = to.x - from.x;
-        const float dz = to.z - from.z;
-        const float length = std::fabs(dx) + std::fabs(dz);
-        const bool horizontal = std::fabs(dx) >= std::fabs(dz);
-        const Vector3 center{(from.x + to.x) * 0.5f, 0.04f, (from.z + to.z) * 0.5f};
-
-        // Each segment extends half a lane width past both nodes. Equal widths
-        // make the joins meet cleanly; junction pads below soften the corners.
-        const Vector3 shoulderSize = horizontal
-            ? Vector3{length + width + 8.0f, 0.14f, width + 8.0f}
-            : Vector3{width + 8.0f, 0.14f, length + width + 8.0f};
-        const Vector3 pavementSize = horizontal
-            ? Vector3{length + width, 0.14f, width}
-            : Vector3{width, 0.14f, length + width};
-        DrawCubeV(center, shoulderSize, TaxiwayShoulder);
-        DrawCubeV({center.x, center.y + 0.004f, center.z}, pavementSize, TaxiwaySurface);
+        DrawFlatSegment(from, to, width + 4.0f, 0.012f, TaxiwayShoulder);
+        DrawFlatSegment(from, to, width, 0.026f, TaxiwaySurface);
     }
 
-    void DrawTaxiwayCenterline(Vector3 from, Vector3 to, float width,
+    void DrawTaxiwayCenterline(Vector3 from, Vector3 to,
         bool stopAtHoldLine, float holdLineZ = -517.0f)
     {
         if (stopAtHoldLine)
@@ -115,160 +130,252 @@ namespace
             from.z = holdLineZ;
         }
 
-        const float dx = to.x - from.x;
-        const float dz = to.z - from.z;
-        const bool horizontal = std::fabs(dx) >= std::fabs(dz);
-        const float length = std::fabs(dx) + std::fabs(dz);
-        const Vector3 center{(from.x + to.x) * 0.5f, 0.116f, (from.z + to.z) * 0.5f};
-        const Vector3 stripeSize = horizontal
-            ? Vector3{length + 0.4f, 0.025f, 0.42f}
-            : Vector3{0.42f, 0.025f, length + 0.4f};
-        DrawCubeV(center, stripeSize, TaxiwayCenterline);
+        DrawFlatSegment(from, to, 0.31f, 0.075f, TaxiwayCenterline);
     }
 
 }
 
-AirportGround::AirportGround(const AirportTerminal&)
+AirportGround::AirportGround(const AirportTerminal& terminal)
 {
+    // Three shorter parallel runways keep a visible grass buffer between
+    // each runway and the inter-runway taxi lanes.
     runways = {
-        {"RUNWAY_A", {0.0f, 0.0f, -515.0f}, 700.0f, 60.0f},
-        {"RUNWAY_B", {0.0f, 0.0f, -635.0f}, 700.0f, 60.0f},
-        {"RUNWAY_C", {0.0f, 0.0f, -755.0f}, 700.0f, 60.0f}
+        {"RUNWAY_A", {0.0f, 0.0f, -507.0f}, 300.0f, 26.0f},
+        {"RUNWAY_B", {0.0f, 0.0f, -642.0f}, 300.0f, 26.0f},
+        {"RUNWAY_C", {0.0f, 0.0f, -777.0f}, 300.0f, 26.0f}
     };
 
-    // Keep Taxiway A in place and connect it to the south side of Runway A.
-    AddNode("A_WEST", {-450.0f, 0.08f, -465.0f});
-    AddNode("A_EXIT_W", {-260.0f, 0.08f, -465.0f});
-    AddNode("A_CENTER", {0.0f, 0.08f, -465.0f});
-    AddNode("A_EXIT_E", {260.0f, 0.08f, -465.0f});
-    AddNode("A_EAST", {450.0f, 0.08f, -465.0f});
-    Connect("A_WEST", "A_EXIT_W", 30.0f);
-    Connect("A_EXIT_W", "A_CENTER", 30.0f);
-    Connect("A_CENTER", "A_EXIT_E", 30.0f);
-    Connect("A_EXIT_E", "A_EAST", 30.0f);
-
-    const float taxiwayWidth = 24.0f;
-    const float runwayExitXs[] = {-260.0f, 0.0f, 260.0f};
-    const char* runwaySuffixes[] = {"W", "C", "E"};
+    constexpr float routeY = 0.08f;
+    constexpr float runwayExitXs[] = {-65.0f, 0.0f, 65.0f};
+    constexpr char runwaySuffixes[] = {'W', 'C', 'E'};
     const std::string runwayPrefixes[] = {"RUNWAY_A", "RUNWAY_B", "RUNWAY_C"};
 
-    // Route nodes along all runway centerlines remain separate from taxiway
-    // pavement so later movement logic can reserve runway occupancy.
-    for (std::size_t runwayIndex = 1; runwayIndex < runways.size(); ++runwayIndex)
+    // Keep route nodes along each full runway centreline, with usable exits at
+    // west, centre and east. Runway A's original IDs remain available.
+    for (std::size_t r = 0; r < runways.size(); ++r)
     {
-        const std::string& prefix = runwayPrefixes[runwayIndex];
-        const float z = runways[runwayIndex].center.z;
-        AddNode(prefix + "_W", {runwayExitXs[0], 0.08f, z});
-        AddNode(prefix + "_CENTER", {runwayExitXs[1], 0.08f, z});
-        AddNode(prefix + "_E", {runwayExitXs[2], 0.08f, z});
+        const float z = runways[r].center.z;
+        const float halfLength = runways[r].length * 0.5f - 10.0f;
+        const std::string prefix = r == 0 ? std::string("RUNWAY") : runwayPrefixes[r];
+        const std::string westEnd = prefix + "_START_W";
+        const std::string eastEnd = prefix + "_END_E";
+        AddNode(westEnd, {-halfLength, routeY, z});
+        AddNode(prefix + "_W", {runwayExitXs[0], routeY, z});
+        AddNode(prefix + "_CENTER", {runwayExitXs[1], routeY, z});
+        AddNode(prefix + "_E", {runwayExitXs[2], routeY, z});
+        AddNode(eastEnd, {halfLength, routeY, z});
+        Connect(westEnd, prefix + "_W", 1.0f, false);
         Connect(prefix + "_W", prefix + "_CENTER", 1.0f, false);
         Connect(prefix + "_CENTER", prefix + "_E", 1.0f, false);
+        Connect(prefix + "_E", eastEnd, 1.0f, false);
     }
 
-    // Preserve the original Runway A node IDs for existing movement code.
-    // (Runway A keeps its pre-existing RUNWAY_W/CENTER/E node names.)
-    AddNode("RUNWAY_W", {runwayExitXs[0], 0.08f, runways[0].center.z});
-    AddNode("RUNWAY_CENTER", {runwayExitXs[1], 0.08f, runways[0].center.z});
-    AddNode("RUNWAY_E", {runwayExitXs[2], 0.08f, runways[0].center.z});
-    Connect("RUNWAY_W", "RUNWAY_CENTER", 1.0f, false);
-    Connect("RUNWAY_CENTER", "RUNWAY_E", 1.0f, false);
+    // Taxiway A is the primary parallel taxiway between Runway A and apron.
+    constexpr float parallelTaxiZ = -425.0f;
+    AddNode("A_WEST", {-280.0f, routeY, parallelTaxiZ});
+    AddNode("A_EXIT_W", {-65.0f, routeY, parallelTaxiZ});
+    AddNode("A_CENTER", {0.0f, routeY, parallelTaxiZ});
+    AddNode("A_EXIT_E", {65.0f, routeY, parallelTaxiZ});
+    AddNode("A_EAST", {280.0f, routeY, parallelTaxiZ});
+    Connect("A_WEST", "A_EXIT_W", 15.0f);
+    Connect("A_EXIT_W", "A_CENTER", 15.0f);
+    Connect("A_CENTER", "A_EXIT_E", 15.0f);
+    Connect("A_EXIT_E", "A_EAST", 15.0f);
 
-    const float runwayASouthEdge = runways[0].center.z + runways[0].width * 0.5f;
-    const float runwayANorthEdge = runways[0].center.z - runways[0].width * 0.5f;
-    const float runwayBSouthEdge = runways[1].center.z + runways[1].width * 0.5f;
-    const float runwayBNorthEdge = runways[1].center.z - runways[1].width * 0.5f;
-    const float runwayCSouthEdge = runways[2].center.z + runways[2].width * 0.5f;
-    const float abTaxiZ = (runwayANorthEdge + runwayBSouthEdge) * 0.5f;
-    const float bcTaxiZ = (runwayBNorthEdge + runwayCSouthEdge) * 0.5f;
+    const float runwayNorthEdges[] = {
+        runways[0].center.z - runways[0].width * 0.5f,
+        runways[1].center.z - runways[1].width * 0.5f,
+        runways[2].center.z - runways[2].width * 0.5f};
+    const float runwaySouthEdges[] = {
+        runways[0].center.z + runways[0].width * 0.5f,
+        runways[1].center.z + runways[1].width * 0.5f,
+        runways[2].center.z + runways[2].width * 0.5f};
+    const float pairTaxiZs[] = {
+        (runwayNorthEdges[0] + runwaySouthEdges[1]) * 0.5f,
+        (runwayNorthEdges[1] + runwaySouthEdges[2]) * 0.5f};
+    const char* pairPrefixes[] = {"AB", "BC"};
+    const int upperRunways[] = {0, 1};
+    const int lowerRunways[] = {1, 2};
 
-    // Taxiway A joins Runway A's south side. Runway A's north and Runway B's
-    // south exits share a taxiway between them; Runway B and C share another.
-    const char* taxiPrefixes[] = {"AB", "BC"};
-    const float taxiZs[] = {abTaxiZ, bcTaxiZ};
-    const int upperRunwayIndices[] = {0, 1};
-    const int lowerRunwayIndices[] = {1, 2};
-    const auto runwayNodeId = [&runwayPrefixes, &runwaySuffixes](int runwayIndex, int exitIndex)
+    auto makeBezierConnection = [this](const std::string& pathId,
+        const std::string& fromId, const std::string& toId,
+        Vector3 control1, Vector3 control2, float width)
     {
-        if (runwayIndex == 0)
-            return std::string(exitIndex == 1 ? "RUNWAY_CENTER" :
-                exitIndex == 0 ? "RUNWAY_W" : "RUNWAY_E");
-        return runwayPrefixes[runwayIndex] + "_" +
-            (exitIndex == 1 ? "CENTER" : runwaySuffixes[exitIndex]);
+        const TaxiwayNode* fromNode = FindNode(fromId);
+        const TaxiwayNode* toNode = FindNode(toId);
+        if (fromNode == nullptr || toNode == nullptr) return;
+        const Vector3 start = fromNode->position;
+        const Vector3 finish = toNode->position;
+        std::string previousId = fromId;
+        constexpr int segments = 8;
+        for (int step = 1; step < segments; ++step)
+        {
+            const float t = static_cast<float>(step) / segments;
+            const float oneMinusT = 1.0f - t;
+            const float x = oneMinusT * oneMinusT * oneMinusT * start.x +
+                3.0f * oneMinusT * oneMinusT * t * control1.x +
+                3.0f * oneMinusT * t * t * control2.x + t * t * t * finish.x;
+            const float z = oneMinusT * oneMinusT * oneMinusT * start.z +
+                3.0f * oneMinusT * oneMinusT * t * control1.z +
+                3.0f * oneMinusT * t * t * control2.z + t * t * t * finish.z;
+            const std::string nodeId = pathId + "_" + std::to_string(step);
+            AddNode(nodeId, {x, start.y, z});
+            Connect(previousId, nodeId, width);
+            previousId = nodeId;
+        }
+        Connect(previousId, toId, width);
     };
+
+    // Shared, parallel taxiways in the grass-separated runway corridors.
     for (int pair = 0; pair < 2; ++pair)
     {
-        const std::string prefix = taxiPrefixes[pair];
-        const float taxiZ = taxiZs[pair];
-        const int upper = upperRunwayIndices[pair];
-        const int lower = lowerRunwayIndices[pair];
-        const float upperEdge = runways[upper].center.z - runways[upper].width * 0.5f;
-        const float lowerEdge = runways[lower].center.z + runways[lower].width * 0.5f;
-
-        AddNode(prefix + "_TAXI_W", {-320.0f, 0.08f, taxiZ});
-        AddNode(prefix + "_TAXI_E", {320.0f, 0.08f, taxiZ});
-        const std::string laneNodes[] = {
-            prefix + "_TAXI_W", prefix + "_EXIT_W",
-            prefix + "_CENTER", prefix + "_EXIT_E", prefix + "_TAXI_E"
-        };
-        const float laneXs[] = {-320.0f, -260.0f, 0.0f, 260.0f, 320.0f};
-        for (int i = 1; i < 4; ++i)
-            AddNode(laneNodes[i], {laneXs[i], 0.08f, taxiZ});
-        for (int i = 0; i < 4; ++i)
-            Connect(laneNodes[i], laneNodes[i + 1], taxiwayWidth);
+        const std::string prefix = pairPrefixes[pair];
+        const float taxiZ = pairTaxiZs[pair];
+        const std::string west = prefix + "_TAXI_W";
+        const std::string exitWest = prefix + "_EXIT_W";
+        const std::string center = prefix + "_CENTER";
+        const std::string exitEast = prefix + "_EXIT_E";
+        const std::string east = prefix + "_TAXI_E";
+        AddNode(west, {-240.0f, routeY, taxiZ});
+        AddNode(exitWest, {runwayExitXs[0], routeY, taxiZ});
+        AddNode(center, {0.0f, routeY, taxiZ});
+        AddNode(exitEast, {runwayExitXs[2], routeY, taxiZ});
+        AddNode(east, {240.0f, routeY, taxiZ});
+        Connect(west, exitWest, 12.0f);
+        Connect(exitWest, center, 12.0f);
+        Connect(center, exitEast, 12.0f);
+        Connect(exitEast, east, 12.0f);
 
         for (int i = 0; i < 3; ++i)
         {
+            const int upper = upperRunways[pair];
+            const int lower = lowerRunways[pair];
             const std::string upperExit = prefix + "_UPPER_EXIT_" + runwaySuffixes[i];
             const std::string lowerExit = prefix + "_LOWER_EXIT_" + runwaySuffixes[i];
-            const std::string upperRunwayNode = runwayNodeId(upper, i);
-            const std::string lowerRunwayNode = runwayNodeId(lower, i);
+            const std::string exitPosition = i == 0 ? "W" : i == 1 ? "CENTER" : "E";
+            const std::string upperPrefix = upper == 0 ? std::string("RUNWAY") : runwayPrefixes[upper];
+            const std::string upperRunwayNode = upperPrefix + "_" + exitPosition;
+            const std::string lowerRunwayNode = runwayPrefixes[lower] + "_" + exitPosition;
+            const float upperEdge = runwayNorthEdges[upper];
+            const float lowerEdge = runwaySouthEdges[lower];
 
-            AddNode(upperExit, {runwayExitXs[i], 0.08f, upperEdge});
-            AddNode(lowerExit, {runwayExitXs[i], 0.08f, lowerEdge});
+            AddNode(upperExit, {runwayExitXs[i], routeY, upperEdge});
+            AddNode(lowerExit, {runwayExitXs[i], routeY, lowerEdge});
             Connect(upperRunwayNode, upperExit, 1.0f, false);
             Connect(lowerRunwayNode, lowerExit, 1.0f, false);
-            Connect(upperExit, laneNodes[i + 1], taxiwayWidth, true, true, upperEdge - 13.0f);
-            Connect(lowerExit, laneNodes[i + 1], taxiwayWidth, true, true, lowerEdge + 13.0f);
+            Connect(upperExit, i == 0 ? exitWest : i == 1 ? center : exitEast,
+                12.0f, true, true, upperEdge - 6.0f);
+            Connect(lowerExit, i == 0 ? exitWest : i == 1 ? center : exitEast,
+                12.0f, true, true, lowerEdge + 6.0f);
         }
     }
 
-    // Three runway ends feed a shared east-side bypass. It runs outside the
-    // runway shoulders and joins the existing Taxiway A without crossing a runway.
-    AddNode("BYPASS_A", {390.0f, 0.08f, -465.0f});
-    AddNode("BYPASS_AB", {390.0f, 0.08f, abTaxiZ});
-    AddNode("BYPASS_BC", {390.0f, 0.08f, bcTaxiZ});
-    Connect("A_EAST", "BYPASS_A", 30.0f);
-    Connect("BYPASS_A", "BYPASS_AB", 20.0f);
-    Connect("BYPASS_AB", "BYPASS_BC", 20.0f);
-    Connect("BYPASS_AB", "AB_TAXI_E", 24.0f);
-    Connect("BYPASS_BC", "BC_TAXI_E", 24.0f);
-
-    // Runway A retains the original south-side exit IDs for existing logic.
+    // Runway A exits to its south-side parallel taxiway.
     const char* runwayAExits[] = {"RWY_EXIT_W", "RWY_EXIT_C", "RWY_EXIT_E"};
     const char* runwayAPathNodes[] = {"RUNWAY_W", "RUNWAY_CENTER", "RUNWAY_E"};
+    const char* parallelNodes[] = {"A_EXIT_W", "A_CENTER", "A_EXIT_E"};
     for (int i = 0; i < 3; ++i)
     {
-        AddNode(runwayAExits[i], {runwayExitXs[i], 0.08f, runwayASouthEdge});
+        AddNode(runwayAExits[i], {runwayExitXs[i], routeY, runwaySouthEdges[0]});
         Connect(runwayAPathNodes[i], runwayAExits[i], 1.0f, false);
-        const char* taxiNode = i == 0 ? "A_EXIT_W" : i == 1 ? "A_CENTER" : "A_EXIT_E";
-        Connect(runwayAExits[i], taxiNode, 30.0f, true, true, runwayASouthEdge + 13.0f);
+        Connect(runwayAExits[i], parallelNodes[i], 15.0f, true, true,
+            runwaySouthEdges[0] + 6.0f);
     }
 
-    // Broad connector enters the existing paved terminal apron, then narrows
-    // gradually into the apron movement lane.
-    AddNode("APRON_ENTRY", {0.0f, 0.08f, -220.0f});
-    AddNode("APRON_GATEWAY", {0.0f, 0.08f, -190.0f});
-    AddNode("APRON_SIDE_FAR", {0.0f, 0.08f, -170.0f});
-    AddNode("APRON_SIDE_MIDDLE", {0.0f, 0.08f, -130.0f});
-    AddNode("APRON_SIDE_NEAR", {0.0f, 0.08f, -90.0f});
-    AddNode("APRON_BACK_ROW", {0.0f, 0.08f, -54.375f});
-    Connect("A_CENTER", "APRON_ENTRY", 30.0f);
-    Connect("APRON_ENTRY", "APRON_GATEWAY", 28.0f);
-    Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 24.0f);
-    Connect("APRON_SIDE_FAR", "APRON_SIDE_MIDDLE", 22.0f);
-    Connect("APRON_SIDE_MIDDLE", "APRON_SIDE_NEAR", 22.0f);
-    Connect("APRON_SIDE_NEAR", "APRON_BACK_ROW", 20.0f);
+    // The eastern bypass gives traffic a route between the parallel taxiways.
+    AddNode("BYPASS_A", {310.0f, routeY, parallelTaxiZ});
+    AddNode("BYPASS_AB", {310.0f, routeY, pairTaxiZs[0]});
+    AddNode("BYPASS_BC", {310.0f, routeY, pairTaxiZs[1]});
+    Connect("A_EAST", "BYPASS_A", 12.0f);
+    Connect("BYPASS_A", "BYPASS_AB", 11.0f);
+    Connect("BYPASS_AB", "BYPASS_BC", 11.0f);
+    makeBezierConnection("BYPASS_AB_TURN", "BYPASS_AB", "AB_TAXI_E",
+        {310.0f, routeY, pairTaxiZs[0] + 17.5f},
+        {280.0f, routeY, pairTaxiZs[0]}, 11.0f);
+    makeBezierConnection("BYPASS_BC_TURN", "BYPASS_BC", "BC_TAXI_E",
+        {310.0f, routeY, pairTaxiZs[1] + 17.5f},
+        {280.0f, routeY, pairTaxiZs[1]}, 11.0f);
 
+    // Preserve the approach from the primary taxiway into the existing apron.
+    AddNode("APRON_ENTRY", {0.0f, routeY, -220.0f});
+    AddNode("APRON_GATEWAY", {0.0f, routeY, -190.0f});
+    AddNode("APRON_SIDE_FAR", {0.0f, routeY, -170.0f});
+    AddNode("WING_SPINE_3", {0.0f, routeY, -162.0f});
+    AddNode("APRON_SIDE_MIDDLE", {0.0f, routeY, -130.0f});
+    AddNode("WING_SPINE_2", {0.0f, routeY, -122.0f});
+    AddNode("APRON_SIDE_NEAR", {0.0f, routeY, -90.0f});
+    AddNode("WING_SPINE_1", {0.0f, routeY, -82.0f});
+    AddNode("APRON_BACK_ROW", {0.0f, routeY, -48.0f});
+    Connect("A_CENTER", "APRON_ENTRY", 15.0f);
+    Connect("APRON_ENTRY", "APRON_GATEWAY", 14.0f);
+    Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 12.0f);
+    Connect("APRON_SIDE_FAR", "WING_SPINE_3", 11.0f);
+    Connect("WING_SPINE_3", "APRON_SIDE_MIDDLE", 11.0f);
+    Connect("APRON_SIDE_MIDDLE", "WING_SPINE_2", 11.0f);
+    Connect("WING_SPINE_2", "APRON_SIDE_NEAR", 11.0f);
+    Connect("APRON_SIDE_NEAR", "WING_SPINE_1", 10.0f);
+    Connect("WING_SPINE_1", "APRON_BACK_ROW", 10.0f);
+
+    // A separate gate-side apron lane gives all four facade stands an approach.
+    constexpr float gateXs[] = {-33.75f, -11.25f, 11.25f, 33.75f};
+    AddNode("GATE_ROW_W", {-75.0f, routeY, -48.0f});
+    AddNode("GATE_ROW_1", {gateXs[0], routeY, -48.0f});
+    AddNode("GATE_ROW_2", {gateXs[1], routeY, -48.0f});
+    AddNode("GATE_ROW_3", {gateXs[2], routeY, -48.0f});
+    AddNode("GATE_ROW_4", {gateXs[3], routeY, -48.0f});
+    AddNode("GATE_ROW_E", {75.0f, routeY, -48.0f});
+    Connect("GATE_ROW_W", "GATE_ROW_1", 10.0f);
+    Connect("GATE_ROW_1", "GATE_ROW_2", 10.0f);
+    Connect("GATE_ROW_2", "APRON_BACK_ROW", 10.0f);
+    Connect("APRON_BACK_ROW", "GATE_ROW_3", 10.0f);
+    Connect("GATE_ROW_3", "GATE_ROW_4", 10.0f);
+    Connect("GATE_ROW_4", "GATE_ROW_E", 10.0f);
+
+    // Taxiway branches reach the six wing stands without crossing the stands.
+    const float wingTaxiZs[] = {-82.0f, -122.0f, -162.0f};
+    for (int row = 0; row < 3; ++row)
+    {
+        const float z = wingTaxiZs[row];
+        const std::string rowId = "WING_ROW_" + std::to_string(row + 1);
+        const std::string westId = rowId + "_W";
+        const std::string eastId = rowId + "_E";
+        AddNode(westId, {-15.0f, routeY, z});
+        AddNode(eastId, {15.0f, routeY, z});
+        const std::string spineId = row == 0 ? "WING_SPINE_1" :
+            row == 1 ? "WING_SPINE_2" : "WING_SPINE_3";
+        Connect(spineId, westId, 9.0f);
+        Connect(spineId, eastId, 9.0f);
+        Connect(westId, eastId, 9.0f);
+    }
+
+    // Join route nodes to the terminal's existing painted parking stands.
+    for (const AirportParkingStand& stand : terminal.GetParkingStands())
+    {
+        Vector3 standPosition = stand.position;
+        standPosition.y = routeY;
+        AddNode(stand.id, standPosition);
+
+        if (stand.id.rfind("GATE_", 0) == 0)
+        {
+            const float entryZ = standPosition.z - 6.0f;
+            const std::string entryId = stand.id + "_ENTRY";
+            AddNode(entryId, {standPosition.x, routeY, entryZ});
+            const std::string rowIndex = stand.id.substr(5);
+            Connect("GATE_ROW_" + rowIndex, entryId, 9.0f);
+            Connect(entryId, stand.id, 1.0f, false);
+        }
+        else
+        {
+            const bool westStand = stand.id.rfind("WEST_", 0) == 0;
+            const float entryX = standPosition.x + (westStand ? 6.25f : -6.25f);
+            const std::string entryId = stand.id + "_ENTRY";
+            AddNode(entryId, {entryX, routeY, standPosition.z});
+            const std::string rowIndex = stand.id.substr(5);
+            const std::string rowId = "WING_ROW_" + rowIndex + (westStand ? "_W" : "_E");
+            Connect(rowId, entryId, 9.0f);
+            Connect(entryId, stand.id, 1.0f, false);
+        }
+    }
 }
 
 void AirportGround::AddNode(const std::string& id, Vector3 position)
@@ -321,33 +428,45 @@ void AirportGround::Draw() const
     // the lanes' elevations and colors, so the surfaces join without a curb.
     for (const TaxiwayNode& node : nodes)
     {
-        // Runway exits are straight joins into the runway; keeping their
-        // existing white edge markings visible matters more than capping them.
-        bool isTurn = false;
-        if (node.connectedNodeIds.size() == 2)
-        {
-            const TaxiwayNode* first = FindNode(node.connectedNodeIds[0]);
-            const TaxiwayNode* second = FindNode(node.connectedNodeIds[1]);
-            if (first != nullptr && second != nullptr)
-            {
-                const bool firstHorizontal = std::fabs(first->position.x - node.position.x) > 0.01f;
-                const bool secondHorizontal = std::fabs(second->position.x - node.position.x) > 0.01f;
-                isTurn = firstHorizontal != secondHorizontal;
-            }
-        }
-        if (node.connectedNodeIds.size() < 3 && !isTurn) continue;
-
+        std::vector<const TaxiwayNode*> pavementNeighbors;
         float widestLane = 0.0f;
         for (const TaxiwayEdge& edge : edges)
-            if (edge.fromNodeId == node.id || edge.toNodeId == node.id)
+        {
+            if (!edge.drawSurface) continue;
+            if (edge.fromNodeId == node.id)
+            {
+                pavementNeighbors.push_back(FindNode(edge.toNodeId));
                 widestLane = std::max(widestLane, edge.width);
-        if (widestLane <= 0.0f) continue;
+            }
+            else if (edge.toNodeId == node.id)
+            {
+                pavementNeighbors.push_back(FindNode(edge.fromNodeId));
+                widestLane = std::max(widestLane, edge.width);
+            }
+        }
+        if (pavementNeighbors.size() < 2 || widestLane <= 0.0f) continue;
 
-        DrawCylinder({node.position.x, 0.0f, node.position.z},
-            (widestLane + 8.0f) * 0.72f, (widestLane + 8.0f) * 0.72f,
-            0.11f, 20, TaxiwayShoulder);
-        DrawCylinder({node.position.x, 0.004f, node.position.z},
-            widestLane * 0.72f, widestLane * 0.72f, 0.11f, 20, TaxiwaySurface);
+        const bool isBezierSample = node.id.rfind("BYPASS_AB_TURN_", 0) == 0 ||
+            node.id.rfind("BYPASS_BC_TURN_", 0) == 0;
+        bool needsJoinPad = pavementNeighbors.size() >= 3 || isBezierSample;
+        if (pavementNeighbors.size() == 2 && pavementNeighbors[0] && pavementNeighbors[1])
+        {
+            const float ax = pavementNeighbors[0]->position.x - node.position.x;
+            const float az = pavementNeighbors[0]->position.z - node.position.z;
+            const float bx = pavementNeighbors[1]->position.x - node.position.x;
+            const float bz = pavementNeighbors[1]->position.z - node.position.z;
+            const float aLength = std::sqrt(ax * ax + az * az);
+            const float bLength = std::sqrt(bx * bx + bz * bz);
+            if (aLength > 0.01f && bLength > 0.01f)
+                needsJoinPad = (ax * bx + az * bz) / (aLength * bLength) < 0.85f;
+        }
+        if (!needsJoinPad) continue;
+
+        DrawCylinder({node.position.x, -0.015f, node.position.z},
+            (widestLane + 4.0f) * 0.5f, (widestLane + 4.0f) * 0.5f,
+            0.027f, 20, TaxiwayShoulder);
+        DrawCylinder({node.position.x, -0.02f, node.position.z},
+            widestLane * 0.5f, widestLane * 0.5f, 0.046f, 20, TaxiwaySurface);
     }
 
     // Paint continuous centerlines after the intersection pads so they remain
@@ -358,9 +477,8 @@ void AirportGround::Draw() const
         const TaxiwayNode* from = FindNode(edge.fromNodeId);
         const TaxiwayNode* to = FindNode(edge.toNodeId);
         if (from == nullptr || to == nullptr) continue;
-        Vector3 lineFrom = from->position;
-        Vector3 lineTo = to->position;
-        DrawTaxiwayCenterline(lineFrom, lineTo, edge.width, edge.stopAtHoldLine, edge.holdLineZ);
+        DrawTaxiwayCenterline(from->position, to->position,
+            edge.stopAtHoldLine, edge.holdLineZ);
     }
 
     // Simplified runway holding-position marking. The solid pair faces the
@@ -370,17 +488,17 @@ void AirportGround::Draw() const
     {
         constexpr float lineY = 0.135f;
         constexpr float lineThickness = 0.025f;
-        constexpr float lineDepth = 0.5f;
+        constexpr float lineDepth = 0.25f;
         constexpr Color HoldMarking{245, 197, 55, 255};
-        DrawCubeV({x, lineY, solidOne}, {30.0f, lineThickness, lineDepth}, HoldMarking);
-        DrawCubeV({x, lineY, solidTwo}, {30.0f, lineThickness, lineDepth}, HoldMarking);
+        DrawCubeV({x, lineY, solidOne}, {13.5f, lineThickness, lineDepth}, HoldMarking);
+        DrawCubeV({x, lineY, solidTwo}, {13.5f, lineThickness, lineDepth}, HoldMarking);
 
         for (float z : {dashedOne, dashedTwo})
         {
             for (int dash = 0; dash < 7; ++dash)
             {
-                const float dashX = x - 12.0f + dash * 4.0f;
-                DrawCubeV({dashX, lineY, z}, {2.0f, lineThickness, lineDepth}, HoldMarking);
+                const float dashX = x - 6.0f + dash * 2.0f;
+                DrawCubeV({dashX, lineY, z}, {1.0f, lineThickness, lineDepth}, HoldMarking);
             }
         }
     };
@@ -388,12 +506,12 @@ void AirportGround::Draw() const
     const auto drawRunwayHold = [&drawHoldMarking](float x, float runwayEdgeZ, float taxiSide)
     {
         drawHoldMarking(x,
-            runwayEdgeZ + taxiSide * 8.0f,
-            runwayEdgeZ + taxiSide * 10.5f,
-            runwayEdgeZ + taxiSide * 5.5f,
-            runwayEdgeZ + taxiSide * 3.0f);
+            runwayEdgeZ + taxiSide * 4.0f,
+            runwayEdgeZ + taxiSide * 5.25f,
+            runwayEdgeZ + taxiSide * 2.75f,
+            runwayEdgeZ + taxiSide * 1.5f);
     };
-    const float runwayExitXs[] = {-260.0f, 0.0f, 260.0f};
+    const float runwayExitXs[] = {-65.0f, 0.0f, 65.0f};
     for (float x : runwayExitXs)
     {
         drawRunwayHold(x, runways[0].center.z + runways[0].width * 0.5f, 1.0f);
