@@ -2,9 +2,59 @@
 
 #include "raylib.h"
 
+#include <cmath>
+#include <cstdlib>
+
 namespace
 {
-    constexpr Color Wall{211, 204, 177, 255};
+    Vector3 Normalize(Vector3 vector)
+    {
+        const float length = std::sqrt(
+            vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+        return length > 0.0f
+            ? Vector3{vector.x / length, vector.y / length, vector.z / length}
+            : Vector3{0.0f, 0.0f, 0.0f};
+    }
+
+    Vector3 CrossProduct(Vector3 left, Vector3 right)
+    {
+        return {
+            left.y * right.z - left.z * right.y,
+            left.z * right.x - left.x * right.z,
+            left.x * right.y - left.y * right.x
+        };
+    }
+
+    Ray GetScreenRay(Vector2 screenPosition, const Camera3D& camera)
+    {
+        const Vector3 forward = Normalize({
+            camera.target.x - camera.position.x,
+            camera.target.y - camera.position.y,
+            camera.target.z - camera.position.z
+        });
+        const Vector3 right = Normalize(CrossProduct(forward, camera.up));
+        const Vector3 cameraUp = CrossProduct(right, forward);
+        const float screenWidth = static_cast<float>(GetScreenWidth());
+        const float screenHeight = static_cast<float>(GetScreenHeight());
+        if (screenWidth <= 0.0f || screenHeight <= 0.0f)
+            return {camera.position, forward};
+
+        const float normalizedX = 2.0f * screenPosition.x / screenWidth - 1.0f;
+        const float normalizedY = 1.0f - 2.0f * screenPosition.y / screenHeight;
+        const float halfFovTangent = std::tan(camera.fovy * DEG2RAD * 0.5f);
+        const float aspectRatio = screenWidth / screenHeight;
+        const Vector3 direction = Normalize({
+            forward.x + right.x * normalizedX * halfFovTangent * aspectRatio +
+                cameraUp.x * normalizedY * halfFovTangent,
+            forward.y + right.y * normalizedX * halfFovTangent * aspectRatio +
+                cameraUp.y * normalizedY * halfFovTangent,
+            forward.z + right.z * normalizedX * halfFovTangent * aspectRatio +
+                cameraUp.z * normalizedY * halfFovTangent
+        });
+        return {camera.position, direction};
+    }
+
+        constexpr Color Wall{211, 204, 177, 255};
     constexpr Color WallSide{164, 180, 175, 255};
     constexpr Color Roof{43, 73, 94, 255};
     constexpr Color Trim{91, 127, 140, 255};
@@ -265,4 +315,116 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         return result;
     }();
     return stands;
+}
+
+const AirportParkingStand* AirportTerminal::GetAdjacentGate(
+    const std::string& gateId, int direction) const
+{
+    constexpr const char* navigationOrder[] = {
+        "GATE_1", "GATE_2", "GATE_3", "GATE_4",
+        "EAST_1", "EAST_2", "EAST_3",
+        "WEST_3", "WEST_2", "WEST_1"
+    };
+    constexpr int GateCount = static_cast<int>(
+        sizeof(navigationOrder) / sizeof(navigationOrder[0]));
+
+    int currentIndex = -1;
+    for (int i = 0; i < GateCount; ++i)
+    {
+        if (gateId == navigationOrder[i])
+        {
+            currentIndex = i;
+            break;
+        }
+    }
+    if (currentIndex < 0) return nullptr;
+
+    const int step = direction < 0 ? -1 : 1;
+    const int adjacentIndex = (currentIndex + step + GateCount) % GateCount;
+    for (const AirportParkingStand& stand : GetParkingStands())
+    {
+        if (stand.id == navigationOrder[adjacentIndex]) return &stand;
+    }
+    return nullptr;
+}
+
+bool AirportTerminal::GetGateMarkingPosition(
+    const std::string& gateId, Vector3& position) const
+{
+    for (const AirportParkingStand& stand : GetParkingStands())
+    {
+        if (stand.id == gateId)
+        {
+            position = stand.position;
+            if (gateId.rfind("WEST_", 0) == 0 || gateId.rfind("EAST_", 0) == 0)
+            {
+                const std::size_t separator = gateId.find('_');
+                const int row = std::atoi(gateId.c_str() + separator + 1) - 1;
+                constexpr float markingWingZs[] = {-72.0f, -104.0f, -136.0f};
+                if (row < 0 || row >= static_cast<int>(sizeof(markingWingZs) / sizeof(markingWingZs[0])))
+                    return false;
+                position.x = (gateId.rfind("WEST_", 0) == 0 ? -SideStandCenterX : SideStandCenterX) *
+                    TerminalScale;
+                position.z = markingWingZs[row] * TerminalScale;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+const AirportParkingStand* AirportTerminal::GetGateAtScreenPosition(
+    Vector2 screenPosition, const Camera3D& camera) const
+{
+    const Ray ray = GetScreenRay(screenPosition, camera);
+    if (std::fabs(ray.direction.y) < 0.0001f) return nullptr;
+
+    constexpr float GroundY = 0.06f;
+    constexpr float ClickPadding = 2.5f;
+    const float distance = (GroundY - ray.position.y) / ray.direction.y;
+    if (distance < 0.0f) return nullptr;
+    const Vector3 point{
+        ray.position.x + ray.direction.x * distance,
+        GroundY,
+        ray.position.z + ray.direction.z * distance
+    };
+
+    for (const AirportParkingStand& stand : GetParkingStands())
+    {
+        Vector3 markingPosition{};
+        if (!GetGateMarkingPosition(stand.id, markingPosition)) continue;
+
+        const bool topGate = stand.id.rfind("GATE_", 0) == 0;
+        const float halfWidth = (topGate ? 5.5f : 10.0f) * TerminalScale + ClickPadding;
+        const float halfDepth = 8.0f * TerminalScale + ClickPadding;
+        if (std::fabs(point.x - markingPosition.x) <= halfWidth &&
+            std::fabs(point.z - markingPosition.z) <= halfDepth)
+            return &stand;
+    }
+    return nullptr;
+}
+
+void AirportTerminal::DrawGateHighlight(const std::string& gateId) const
+{
+    Vector3 position{};
+    if (!GetGateMarkingPosition(gateId, position)) return;
+
+    const bool topGate = gateId.rfind("GATE_", 0) == 0;
+    const float width = (topGate ? 11.0f : 20.0f) * TerminalScale;
+    const float depth = 16.0f * TerminalScale;
+    constexpr float Y = 0.07f;
+    constexpr float Border = 0.32f;
+    const Color fill{48, 205, 198, 72};
+    const Color outline{79, 239, 222, 245};
+
+    DrawCubeV({position.x, Y, position.z},
+        {width, 0.035f, depth}, fill);
+    DrawCubeV({position.x, Y + 0.03f, position.z - depth * 0.5f},
+        {width, 0.06f, Border}, outline);
+    DrawCubeV({position.x, Y + 0.03f, position.z + depth * 0.5f},
+        {width, 0.06f, Border}, outline);
+    DrawCubeV({position.x - width * 0.5f, Y + 0.03f, position.z},
+        {Border, 0.06f, depth}, outline);
+    DrawCubeV({position.x + width * 0.5f, Y + 0.03f, position.z},
+        {Border, 0.06f, depth}, outline);
 }

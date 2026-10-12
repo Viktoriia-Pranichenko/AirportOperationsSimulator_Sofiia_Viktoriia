@@ -23,6 +23,45 @@
 
 namespace
 {
+    constexpr float GateNavigationButtonWidth = 144.0f;
+    constexpr float GateNavigationButtonHeight = 32.0f;
+    constexpr float GateNavigationButtonGap = 8.0f;
+    constexpr float GateNavigationButtonMargin = 16.0f;
+
+    struct GateNavigationButtons
+    {
+        Rectangle previous;
+        Rectangle next;
+        Rectangle overview;
+    };
+
+    GateNavigationButtons GetGateNavigationButtons()
+    {
+        const float buttonY = static_cast<float>(
+            GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
+        return {
+            {GateNavigationButtonMargin, buttonY,
+                GateNavigationButtonWidth, GateNavigationButtonHeight},
+            {GateNavigationButtonMargin + GateNavigationButtonWidth + GateNavigationButtonGap,
+                buttonY, GateNavigationButtonWidth, GateNavigationButtonHeight},
+            {static_cast<float>(GetScreenWidth()) - GateNavigationButtonMargin -
+                GateNavigationButtonWidth, buttonY,
+                GateNavigationButtonWidth, GateNavigationButtonHeight}
+        };
+    }
+
+    void DrawGateNavigationButton(Rectangle bounds, const char* label)
+    {
+        DrawRectangleRec(bounds, Color{25, 64, 78, 245});
+        DrawRectangleLinesEx(bounds, 2.0f, Color{112, 211, 213, 255});
+        constexpr int FontSize = 13;
+        const int textWidth = MeasureText(label, FontSize);
+        const int textX = static_cast<int>(bounds.x + (bounds.width - textWidth) * 0.5f);
+        const int textY = static_cast<int>(
+            bounds.y + (bounds.height - FontSize) * 0.5f);
+        DrawText(label, textX, textY, FontSize, RAYWHITE);
+    }
+
     struct FlightPlan
     {
         Airplane airplane;
@@ -385,6 +424,7 @@ int main()
     std::uint64_t nextRequestOrder = 0;
     float shiftClockSeconds = 0.0f;
     int selectedFlightIndex = -1;
+    std::string selectedGateId;
     constexpr float ShiftClockRate = 15.0f; // 15 simulated seconds per real second.
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
@@ -430,6 +470,20 @@ int main()
                 occupiedSections.erase(owner);
         }
     };
+    const auto selectGate = [&](const AirportParkingStand& gate)
+    {
+        selectedGateId = gate.id;
+        selectedFlightIndex = -1;
+        Vector3 focus = gate.position;
+        terminal.GetGateMarkingPosition(selectedGateId, focus);
+        cameraController.EnterGateView(focus, gate.headingDegrees);
+    };
+    const auto selectAdjacentGate = [&](int direction)
+    {
+        if (const AirportParkingStand* gate =
+            terminal.GetAdjacentGate(selectedGateId, direction))
+            selectGate(*gate);
+    };
 
     while (!WindowShouldClose())
     {
@@ -439,36 +493,72 @@ int main()
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            const int rightPanelLeft = GetScreenWidth() - 326;
-            const bool clickedInfoPanel = mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
-            const bool clickedSchedulePanel = mouse.x <= 406.0f && mouse.y >= 74.0f && mouse.y <= 214.0f;
-            if (clickedInfoPanel)
+            if (cameraController.IsGateViewActive())
             {
-                const Rectangle priorityButton{
-                    static_cast<float>(rightPanelLeft + 14), 352.0f, 284.0f, 28.0f};
-                if (selectedFlightIndex >= 0 && CheckCollisionPointRec(mouse, priorityButton))
-                    flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
-                        !flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority;
-            }
-            else if (!clickedSchedulePanel)
-            {
-                selectedFlightIndex = -1;
-                float closestDistance = 34.0f;
-                for (std::size_t i = 0; i < flights.size(); ++i)
+                const GateNavigationButtons buttons = GetGateNavigationButtons();
+                if (CheckCollisionPointRec(mouse, buttons.previous))
+                    selectAdjacentGate(-1);
+                else if (CheckCollisionPointRec(mouse, buttons.next))
+                    selectAdjacentGate(1);
+                else if (CheckCollisionPointRec(mouse, buttons.overview))
                 {
-                    const FlightPlan& plan = flights[i];
-                    if (!plan.spawned || plan.airplane.state == AirplaneState::Departed) continue;
-                    const Vector2 projected = ProjectAirportPoint(plan.airplane.position,
-                        cameraController.GetCamera3D());
-                    const float dx = projected.x - mouse.x;
-                    const float dy = projected.y - mouse.y;
-                    const float distance = std::sqrt(dx * dx + dy * dy);
-                    if (distance < closestDistance)
+                    cameraController.ReturnToOverview();
+                    selectedGateId.clear();
+                }
+            }
+            else
+            {
+                const int rightPanelLeft = GetScreenWidth() - 326;
+                const bool clickedInfoPanel =
+                    mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
+                const bool clickedSchedulePanel =
+                    mouse.x <= 406.0f && mouse.y >= 74.0f && mouse.y <= 214.0f;
+                if (clickedInfoPanel)
+                {
+                    const Rectangle priorityButton{
+                        static_cast<float>(rightPanelLeft + 14), 352.0f, 284.0f, 28.0f};
+                    if (selectedFlightIndex >= 0 && CheckCollisionPointRec(mouse, priorityButton))
+                        flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
+                            !flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority;
+                }
+                else if (!clickedSchedulePanel)
+                {
+                    const AirportParkingStand* clickedGate =
+                        terminal.GetGateAtScreenPosition(mouse, cameraController.GetCamera3D());
+                    if (clickedGate != nullptr)
+                        selectGate(*clickedGate);
+                    else
                     {
-                        closestDistance = distance;
-                        selectedFlightIndex = static_cast<int>(i);
+                        selectedGateId.clear();
+                        selectedFlightIndex = -1;
+                        float closestDistance = 34.0f;
+                        for (std::size_t i = 0; i < flights.size(); ++i)
+                        {
+                            const FlightPlan& plan = flights[i];
+                            if (!plan.spawned || plan.airplane.state == AirplaneState::Departed) continue;
+                            const Vector2 projected = ProjectAirportPoint(plan.airplane.position,
+                                cameraController.GetCamera3D());
+                            const float dx = projected.x - mouse.x;
+                            const float dy = projected.y - mouse.y;
+                            const float distance = std::sqrt(dx * dx + dy * dy);
+                            if (distance < closestDistance)
+                            {
+                                closestDistance = distance;
+                                selectedFlightIndex = static_cast<int>(i);
+                            }
+                        }
                     }
                 }
+            }
+        }
+        if (cameraController.IsGateViewActive())
+        {
+            if (IsKeyPressed(KEY_LEFT)) selectAdjacentGate(-1);
+            else if (IsKeyPressed(KEY_RIGHT)) selectAdjacentGate(1);
+            else if (IsKeyPressed(KEY_ESCAPE))
+            {
+                cameraController.ReturnToOverview();
+                selectedGateId.clear();
             }
         }
         if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()) &&
@@ -717,6 +807,8 @@ int main()
         // centerlines remain visible where they cross the apron slab.
         airportGround.Draw();
         carParkingLot.Draw();
+        if (!selectedGateId.empty())
+            terminal.DrawGateHighlight(selectedGateId);
         serviceBuilding.Draw();
         for (const BaggageTug& baggageTug : baggageTugs)
             baggageTug.Draw();
@@ -746,6 +838,20 @@ int main()
         EndMode3D();
 
         const Camera3D& activeCamera = cameraController.GetCamera3D();
+        if (!selectedGateId.empty())
+        {
+            std::string gateLabel = selectedGateId;
+            if (selectedGateId.rfind("WEST_", 0) == 0)
+                gateLabel = "WEST WING GATE " + selectedGateId.substr(5);
+            else if (selectedGateId.rfind("EAST_", 0) == 0)
+                gateLabel = "EAST WING GATE " + selectedGateId.substr(5);
+            else if (selectedGateId.rfind("GATE_", 0) == 0)
+                gateLabel = "GATE " + selectedGateId.substr(5);
+            const GateNavigationButtons buttons = GetGateNavigationButtons();
+            DrawGateNavigationButton(buttons.previous, "PREV GATE");
+            DrawGateNavigationButton(buttons.next, "NEXT GATE");
+            DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
+        }
         // Keep map labels compact: flight ID, next destination and a live state glyph.
         for (const FlightPlan& plan : flights)
         {
@@ -875,6 +981,24 @@ int main()
                 infoX + 14, infoY + 48, 12, Color{203, 219, 224, 255});
             DrawText("state, route and scheduled times.",
                 infoX + 14, infoY + 68, 12, Color{203, 219, 224, 255});
+        }
+
+        if (!selectedGateId.empty())
+        {
+            std::string gateLabel = selectedGateId;
+            if (selectedGateId.rfind("WEST_", 0) == 0)
+                gateLabel = "WEST WING GATE " + selectedGateId.substr(5);
+            else if (selectedGateId.rfind("EAST_", 0) == 0)
+                gateLabel = "EAST WING GATE " + selectedGateId.substr(5);
+            else if (selectedGateId.rfind("GATE_", 0) == 0)
+                gateLabel = "GATE " + selectedGateId.substr(5);
+            const int labelWidth = MeasureText(gateLabel.c_str(), 22) + 32;
+            const int labelX = (GetScreenWidth() - labelWidth) / 2;
+            const int labelY = GetScreenHeight() - 100;
+            DrawRectangle(labelX, labelY, labelWidth, 36, Color{20, 54, 67, 245});
+            DrawRectangleLines(labelX, labelY, labelWidth, 36, Color{112, 211, 213, 255});
+            DrawText(gateLabel.c_str(), labelX + 16, labelY + 7, 22,
+                Color{105, 244, 220, 255});
         }
 
         EndDrawing();

@@ -37,6 +37,7 @@ public:
             ? static_cast<float>(renderWidth) / static_cast<float>(screenWidth)
             : 1.0f;
         camera2D.zoom = zoomLevel * dpiScale;
+        if (gateViewActive) return;
 
         float moveRight = 0.0f;
         float moveForward = 0.0f;
@@ -105,6 +106,34 @@ public:
     const Camera2D& GetCamera() const { return camera2D; }
     const Camera3D& GetCamera3D() const { return camera3D; }
     float GetZoomLevel() const { return zoomLevel; }
+    bool IsGateViewActive() const { return gateViewActive; }
+
+    void EnterGateView(Vector3 focus, float gateOrientationDegrees)
+    {
+        if (!gateViewActive)
+        {
+            overviewCamera = camera3D;
+            overviewZoomLevel = zoomLevel;
+        }
+        gateViewActive = true;
+        constexpr float CameraHeight = 88.0f;
+        const float headingRadians = gateOrientationDegrees * DEG2RAD;
+        camera3D = {
+            {focus.x, focus.y + CameraHeight, focus.z},
+            focus,
+            {std::sin(headingRadians), 0.0f, -std::cos(headingRadians)},
+            48.0f,
+            CAMERA_PERSPECTIVE
+        };
+    }
+
+    void ReturnToOverview()
+    {
+        if (!gateViewActive) return;
+        camera3D = overviewCamera;
+        zoomLevel = overviewZoomLevel;
+        gateViewActive = false;
+    }
 
 private:
     static constexpr float MinZoom = 0.5f;
@@ -113,5 +142,8 @@ private:
 
     Camera2D camera2D;
     Camera3D camera3D;
+    Camera3D overviewCamera{};
     float zoomLevel = 1.0f;
+    float overviewZoomLevel = 1.0f;
+    bool gateViewActive = false;
 };
