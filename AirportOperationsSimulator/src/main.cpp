@@ -3,6 +3,7 @@
 #include "airport_terminal.h"
 #include "airport_ground.h"
 #include "airplane.h"
+#include "baggage_tug.h"
 #include "camera_controller.h"
 #include "car_parking_lot.h"
 #include "service_building.h"
@@ -16,6 +17,13 @@ int main()
     AirportTerminal terminal;
     AirportGround airportGround(terminal);
     Airplane airplane;
+    BaggageTug baggageTugs[] = {
+        {164.55f, -79.3f},
+        {169.65f, -79.3f},
+        {174.75f, -79.3f},
+        {179.85f, -79.3f},
+        {184.95f, -79.3f}
+    };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
     airplane.flightId = "AO100";
@@ -36,6 +44,8 @@ int main()
         airportGround.Draw();
         carParkingLot.Draw();
         serviceBuilding.Draw();
+        for (const BaggageTug& baggageTug : baggageTugs)
+            baggageTug.Draw();
         airplane.Draw(0.325f);
         EndMode3D();
 
