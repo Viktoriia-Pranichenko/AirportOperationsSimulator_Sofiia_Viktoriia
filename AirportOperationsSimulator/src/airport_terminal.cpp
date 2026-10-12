@@ -19,6 +19,7 @@ namespace
     constexpr float SideWingCenterZ = -70.0f;
     constexpr float SideWingLength = 156.0f;
     constexpr float TerminalScale = 1.25f;
+    constexpr float SideStandCenterX = 28.0f;
     constexpr Color BoardingDoorGlass{190, 105, 58, 255};
     constexpr Color BoardingDoorHighlight{239, 184, 119, 255};
 
@@ -228,11 +229,11 @@ namespace
         // a clear apron lane between the terminal canopy and stand markings.
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
         for (float x : backStandXs) DrawStand(x, -20.0f, 5.5f, 8.0f);
-        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
+        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
         for (float z : wingStandZs)
         {
-            DrawStand(-30.0f, z, 10.0f, 8.0f);
-            DrawStand(30.0f, z, 10.0f, 8.0f);
+            DrawStand(-SideStandCenterX, z, 10.0f, 8.0f);
+            DrawStand(SideStandCenterX, z, 10.0f, 8.0f);
         }
     }
 }
@@ -257,9 +258,9 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         for (int row = 0; row < 3; ++row)
         {
             result.push_back({"WEST_" + std::to_string(row + 1),
-                {-30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
+                {-SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
             result.push_back({"EAST_" + std::to_string(row + 1),
-                {30.0f * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
+                {SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
         }
         return result;
     }();
