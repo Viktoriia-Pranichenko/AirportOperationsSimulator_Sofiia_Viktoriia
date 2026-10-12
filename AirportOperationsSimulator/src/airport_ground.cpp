@@ -214,12 +214,15 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         const std::string prefix = r == 0 ? std::string("RUNWAY") : runwayPrefixes[r];
         const std::string westEnd = prefix + "_START_W";
         const std::string eastEnd = prefix + "_END_E";
+        const std::string approach = "APPROACH_" + runwayPrefixes[r].substr(7) + "_W";
+        AddNode(approach, {-halfLength - 50.0f, routeY, z});
         AddNode(westEnd, {-halfLength, routeY, z});
         AddNode(prefix + "_W", {runwayExitXs[0], routeY, z});
         AddNode(prefix + "_CENTER", {runwayExitXs[1], routeY, z});
         AddNode(prefix + "_E", {runwayExitXs[2], routeY, z});
         AddNode(eastEnd, {halfLength, routeY, z});
         Connect(westEnd, prefix + "_W", 1.0f, false);
+        Connect(approach, westEnd, 1.0f, false);
         Connect(prefix + "_W", prefix + "_CENTER", 1.0f, false);
         Connect(prefix + "_CENTER", prefix + "_E", 1.0f, false);
         Connect(prefix + "_E", eastEnd, 1.0f, false);
@@ -491,10 +494,46 @@ const TaxiwayNode* AirportGround::FindNode(const std::string& id) const
     return found == nodes.end() ? nullptr : &*found;
 }
 
+bool AirportGround::SetTaxiwaySectionOpen(const std::string& fromNodeId,
+    const std::string& toNodeId, bool open)
+{
+    for (TaxiwayEdge& edge : edges)
+    {
+        if ((edge.fromNodeId == fromNodeId && edge.toNodeId == toNodeId) ||
+            (edge.fromNodeId == toNodeId && edge.toNodeId == fromNodeId))
+        {
+            edge.open = open;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool AirportGround::SetNodeBlocked(const std::string& nodeId, bool blocked)
+{
+    const auto found = std::find_if(nodes.begin(), nodes.end(),
+        [&nodeId](const TaxiwayNode& node) { return node.id == nodeId; });
+    if (found == nodes.end()) return false;
+    found->blockedByObstacle = blocked;
+    return true;
+}
+
+bool AirportGround::SetRunwayAvailable(const std::string& runwayId, bool available)
+{
+    const auto found = std::find_if(runways.begin(), runways.end(),
+        [&runwayId](const AirportRunway& runway) { return runway.id == runwayId; });
+    if (found == runways.end()) return false;
+    found->available = available;
+    return true;
+}
+
 std::vector<std::string> AirportGround::FindRouteNodeIds(
     const std::string& startNodeId, const std::string& destinationNodeId) const
 {
-    if (FindNode(startNodeId) == nullptr || FindNode(destinationNodeId) == nullptr)
+    const TaxiwayNode* start = FindNode(startNodeId);
+    const TaxiwayNode* destination = FindNode(destinationNodeId);
+    if (start == nullptr || destination == nullptr ||
+        start->blockedByObstacle || destination->blockedByObstacle)
         return {};
     if (startNodeId == destinationNodeId) return {startNodeId};
 
@@ -511,6 +550,16 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
         if (current == nullptr) continue;
         for (const std::string& neighborId : current->connectedNodeIds)
         {
+            const TaxiwayNode* neighbor = FindNode(neighborId);
+            if (neighbor == nullptr || neighbor->blockedByObstacle) continue;
+            const bool sectionOpen = std::any_of(edges.begin(), edges.end(),
+                [&currentId, &neighborId](const TaxiwayEdge& edge)
+                {
+                    return edge.open &&
+                        ((edge.fromNodeId == currentId && edge.toNodeId == neighborId) ||
+                         (edge.fromNodeId == neighborId && edge.toNodeId == currentId));
+                });
+            if (!sectionOpen) continue;
             if (predecessor.find(neighborId) != predecessor.end()) continue;
             predecessor.emplace(neighborId, currentId);
             if (neighborId == destinationNodeId)
@@ -599,6 +648,41 @@ void AirportGround::Draw() const
         if (from == nullptr || to == nullptr) continue;
         DrawTaxiwayCenterline(from->position, to->position,
             edge.stopAtHoldLine, edge.holdLineZ);
+    }
+
+    // Operational closures remain visible as a red transverse bar. Route
+    // searches skip the same edge, so the visual closure and graph agree.
+    for (const TaxiwayEdge& edge : edges)
+    {
+        if (edge.open) continue;
+        const TaxiwayNode* from = FindNode(edge.fromNodeId);
+        const TaxiwayNode* to = FindNode(edge.toNodeId);
+        if (from == nullptr || to == nullptr) continue;
+        const float dx = to->position.x - from->position.x;
+        const float dz = to->position.z - from->position.z;
+        const float length = std::sqrt(dx * dx + dz * dz);
+        if (length <= 0.01f) continue;
+        const float ux = dx / length;
+        const float uz = dz / length;
+        const float px = -uz * edge.width * 0.5f;
+        const float pz = ux * edge.width * 0.5f;
+        const float barHalfLength = 1.25f;
+        const Vector3 center{(from->position.x + to->position.x) * 0.5f,
+            0.19f, (from->position.z + to->position.z) * 0.5f};
+        DrawQuad({center.x - px - ux * barHalfLength, center.y, center.z - pz - uz * barHalfLength},
+            {center.x + px - ux * barHalfLength, center.y, center.z + pz - uz * barHalfLength},
+            {center.x + px + ux * barHalfLength, center.y, center.z + pz + uz * barHalfLength},
+            {center.x - px + ux * barHalfLength, center.y, center.z - pz + uz * barHalfLength},
+            Color{203, 65, 57, 255});
+    }
+
+    // Blocked route nodes show the obstacle that caused route searches to
+    // avoid that intersection or waypoint.
+    for (const TaxiwayNode& node : nodes)
+    {
+        if (node.blockedByObstacle)
+            DrawCubeV({node.position.x, 0.7f, node.position.z},
+                {4.0f, 1.2f, 4.0f}, Color{203, 65, 57, 255});
     }
 
     // Simplified runway holding-position marking. The solid pair faces the

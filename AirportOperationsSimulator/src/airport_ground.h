@@ -10,6 +10,7 @@ struct TaxiwayNode
     std::string id;
     Vector3 position;
     std::vector<std::string> connectedNodeIds;
+    bool blockedByObstacle{false};
 };
 
 struct TaxiwayEdge
@@ -20,6 +21,7 @@ struct TaxiwayEdge
     bool drawSurface;
     bool stopAtHoldLine;
     float holdLineZ;
+    bool open{true};
 };
 
 struct AirportRunway
@@ -30,6 +32,7 @@ struct AirportRunway
     float width;
     std::string westEndNumber;
     std::string eastEndNumber;
+    bool available{true};
 };
 
 // Runway and taxiway geometry share their coordinates with the terminal's stands.
@@ -43,6 +46,11 @@ public:
     const std::vector<TaxiwayNode>& GetTaxiwayNodes() const { return nodes; }
     const std::vector<TaxiwayEdge>& GetTaxiwayEdges() const { return edges; }
     const TaxiwayNode* FindNode(const std::string& id) const;
+    // Closed sections and blocked nodes are omitted from future route searches.
+    bool SetTaxiwaySectionOpen(const std::string& fromNodeId,
+        const std::string& toNodeId, bool open);
+    bool SetNodeBlocked(const std::string& nodeId, bool blocked);
+    bool SetRunwayAvailable(const std::string& runwayId, bool available);
     std::vector<std::string> FindRouteNodeIds(
         const std::string& startNodeId, const std::string& destinationNodeId) const;
 

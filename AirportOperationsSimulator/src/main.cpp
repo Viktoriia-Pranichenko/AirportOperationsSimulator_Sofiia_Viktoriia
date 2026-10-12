@@ -13,7 +13,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <deque>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -25,10 +28,19 @@ namespace
         float departureDelay{0.0f};
         float preparationTime{0.0f};
         bool departureFlight{false};
+        bool arrivalFlight{false};
+        bool routeStarted{false};
+        bool departureQueued{false};
+        bool runwayReserved{false};
         bool takeoffRollStarted{false};
         float takeoffRollTime{0.0f};
+        std::uint64_t requestOrder{0};
+        std::vector<std::string> activeRouteNodeIds;
+        std::string arrivalStartNode;
         std::string parkingStandId;
+        std::string runwayId{"RUNWAY_A"};
         std::string departureRunwayStart{"RUNWAY_START_W"};
+        float runwayZ{0.0f};
         float parkingHeadingDegrees{0.0f};
     };
 
@@ -49,10 +61,20 @@ namespace
     int FindRunwayExitWaypoint(const AirportGround& ground,
         const std::vector<std::string>& route, float runwayZ)
     {
+        bool leftRunwayCenterline = false;
         for (std::size_t i = 1; i < route.size(); ++i)
         {
             const TaxiwayNode* node = ground.FindNode(route[i]);
-            if (node != nullptr && std::abs(node->position.z - runwayZ) > 1.0f)
+            if (node == nullptr) continue;
+            if (std::abs(node->position.z - runwayZ) > 1.0f)
+                leftRunwayCenterline = true;
+            if (!leftRunwayCenterline) continue;
+
+            const std::string& id = route[i];
+            const bool runwayExitConnector = id.find("UPPER_EXIT") != std::string::npos ||
+                id.find("LOWER_EXIT") != std::string::npos ||
+                id.rfind("RWY_EXIT_", 0) == 0 || id.find("_TURN_") != std::string::npos;
+            if (!runwayExitConnector && std::abs(node->position.z - runwayZ) > 20.0f)
                 return static_cast<int>(i);
         }
         return -1;
@@ -131,29 +153,30 @@ int main()
     // Inbound flights enter on separate runways and use the existing graph to
     // reach different stands. Route nodes also include the curved taxiway
     // samples, so the aircraft can follow the authored bends smoothly.
-    struct ArrivalSetup { const char* flight; const char* type; const char* runwayStart;
-        const char* stand; float runwayZ; };
+    struct ArrivalSetup { const char* flight; const char* type; const char* approach;
+        const char* runwayId; const char* runwayStart; const char* stand; float runwayZ; };
     const ArrivalSetup arrivals[] = {
-        {"AO100", "Passenger jet", "RUNWAY_START_W", "GATE_1", -507.0f},
-        {"AO202", "Regional jet", "RUNWAY_B_START_W", "WEST_2", -642.0f},
-        {"AO317", "Cargo jet", "RUNWAY_C_START_W", "EAST_3", -777.0f}
+        {"AO100", "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f},
+        {"AO202", "Regional jet", "APPROACH_B_W", "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f},
+        {"AO317", "Cargo jet", "APPROACH_C_W", "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f}
     };
     for (const ArrivalSetup& setup : arrivals)
     {
-        const std::vector<std::string> nodeIds = airportGround.FindRouteNodeIds(
-            setup.runwayStart, setup.stand);
-        std::vector<Vector2> route = MakeWorldRoute(airportGround, nodeIds);
-        if (route.empty()) continue;
-
         FlightPlan plan;
         plan.airplane.flightId = setup.flight;
         plan.airplane.aircraftType = setup.type;
-        plan.airplane.position = route.front();
+        const TaxiwayNode* approach = airportGround.FindNode(setup.approach);
+        if (approach == nullptr) continue;
+        plan.airplane.position = {approach->position.x, approach->position.z};
         plan.airplane.headingDegrees = 90.0f;
         plan.airplane.renderScale = 0.23f;
         plan.airplane.isPriority = std::string(setup.flight) == "AO202";
+        plan.arrivalFlight = true;
+        plan.arrivalStartNode = setup.approach;
         plan.parkingStandId = setup.stand;
+        plan.runwayId = setup.runwayId;
         plan.departureRunwayStart = setup.runwayStart;
+        plan.runwayZ = setup.runwayZ;
         plan.departureFlight = true;
         plan.departureDelay = 12.0f + static_cast<float>(flights.size()) * 7.0f;
         for (const AirportParkingStand& stand : terminal.GetParkingStands())
@@ -164,10 +187,7 @@ int main()
                 break;
             }
         }
-        plan.airplane.TransitionTo(AirplaneState::Landing);
-        const int exitWaypoint = FindRunwayExitWaypoint(airportGround, nodeIds, setup.runwayZ);
-        plan.airplane.SetWaypointRoute(std::move(route), 19.0f,
-            AirplaneState::Parked, exitWaypoint, AirplaneState::TaxiingToStand);
+        plan.airplane.TransitionTo(AirplaneState::Holding);
         flights.push_back(std::move(plan));
     }
 
@@ -193,8 +213,79 @@ int main()
         plan.departureFlight = true;
         plan.departureDelay = 5.0f;
         plan.parkingStandId = "GATE_4";
+        plan.runwayId = "RUNWAY_A";
         flights.push_back(std::move(plan));
     }
+
+    std::deque<std::size_t> arrivalQueue;
+    std::deque<std::size_t> departureQueue;
+    std::unordered_map<std::string, std::string> occupiedNodes;
+    std::unordered_map<std::string, std::string> occupiedSections;
+    std::unordered_map<std::string, std::string> occupiedStands;
+    std::unordered_map<std::string, std::string> runwayOwners;
+    std::uint64_t nextRequestOrder = 0;
+    const auto sectionKey = [](const std::string& first, const std::string& second)
+    {
+        return first < second ? first + "|" + second : second + "|" + first;
+    };
+    for (std::size_t i = 0; i < flights.size(); ++i)
+    {
+        FlightPlan& plan = flights[i];
+        if (plan.arrivalFlight)
+        {
+            plan.requestOrder = nextRequestOrder++;
+            arrivalQueue.push_back(i);
+            occupiedStands.emplace(plan.parkingStandId, plan.airplane.flightId);
+            occupiedNodes.emplace(plan.arrivalStartNode, plan.airplane.flightId);
+            occupiedNodes.emplace(plan.parkingStandId, plan.airplane.flightId);
+        }
+        else if (!plan.parkingStandId.empty())
+        {
+            occupiedStands.emplace(plan.parkingStandId, plan.airplane.flightId);
+            occupiedNodes.emplace(plan.parkingStandId, plan.airplane.flightId);
+        }
+    }
+
+    const auto routeCanBeReserved = [&](const std::vector<std::string>& route,
+        const std::string& flightId)
+    {
+        if (route.empty()) return false;
+        for (const std::string& nodeId : route)
+        {
+            const auto owner = occupiedNodes.find(nodeId);
+            if (owner != occupiedNodes.end() && owner->second != flightId) return false;
+        }
+        for (std::size_t i = 1; i < route.size(); ++i)
+        {
+            const auto owner = occupiedSections.find(sectionKey(route[i - 1], route[i]));
+            if (owner != occupiedSections.end() && owner->second != flightId) return false;
+        }
+        return true;
+    };
+    const auto reserveRoute = [&](const std::vector<std::string>& route,
+        const std::string& flightId)
+    {
+        for (const std::string& nodeId : route) occupiedNodes[nodeId] = flightId;
+        for (std::size_t i = 1; i < route.size(); ++i)
+            occupiedSections[sectionKey(route[i - 1], route[i])] = flightId;
+    };
+    const auto releaseRoute = [&](const std::vector<std::string>& route,
+        const std::string& flightId)
+    {
+        for (const std::string& nodeId : route)
+        {
+            const auto owner = occupiedNodes.find(nodeId);
+            if (owner != occupiedNodes.end() && owner->second == flightId)
+                occupiedNodes.erase(owner);
+        }
+        for (std::size_t i = 1; i < route.size(); ++i)
+        {
+            const std::string key = sectionKey(route[i - 1], route[i]);
+            const auto owner = occupiedSections.find(key);
+            if (owner != occupiedSections.end() && owner->second == flightId)
+                occupiedSections.erase(owner);
+        }
+    };
 
     while (!WindowShouldClose())
     {
@@ -206,6 +297,23 @@ int main()
             airplane.Update(deltaTime);
             if (airplane.state == AirplaneState::Parked)
                 airplane.headingDegrees = plan.parkingHeadingDegrees;
+
+            if (plan.arrivalFlight && plan.routeStarted &&
+                airplane.state == AirplaneState::TaxiingToStand && plan.runwayReserved)
+            {
+                const auto owner = runwayOwners.find(plan.runwayId);
+                if (owner != runwayOwners.end() && owner->second == airplane.flightId)
+                    runwayOwners.erase(owner);
+                plan.runwayReserved = false;
+            }
+            if (plan.arrivalFlight && plan.routeStarted && airplane.state == AirplaneState::Parked)
+            {
+                releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
+                plan.activeRouteNodeIds.clear();
+                plan.routeStarted = false;
+                plan.arrivalFlight = false;
+                occupiedNodes[plan.parkingStandId] = airplane.flightId;
+            }
             if (!plan.departureFlight || airplane.state == AirplaneState::Departed) continue;
 
             // Departures end at the runway for now. The aircraft does not
@@ -221,7 +329,25 @@ int main()
                 {
                     plan.takeoffRollTime -= deltaTime;
                     if (plan.takeoffRollTime <= 0.0f)
+                    {
                         airplane.TransitionTo(AirplaneState::Departed);
+                        releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
+                        plan.activeRouteNodeIds.clear();
+                        const auto runwayOwner = runwayOwners.find(plan.runwayId);
+                        if (plan.runwayReserved && runwayOwner != runwayOwners.end() &&
+                            runwayOwner->second == airplane.flightId)
+                        {
+                            runwayOwners.erase(plan.runwayId);
+                            plan.runwayReserved = false;
+                        }
+                        const auto standOwner = occupiedStands.find(plan.parkingStandId);
+                        if (standOwner != occupiedStands.end() && standOwner->second == airplane.flightId)
+                            occupiedStands.erase(standOwner);
+                        const auto standNodeOwner = occupiedNodes.find(plan.parkingStandId);
+                        if (standNodeOwner != occupiedNodes.end() &&
+                            standNodeOwner->second == airplane.flightId)
+                            occupiedNodes.erase(standNodeOwner);
+                    }
                 }
                 continue;
             }
@@ -240,11 +366,98 @@ int main()
                 plan.preparationTime -= deltaTime;
                 if (plan.preparationTime <= 0.0f)
                 {
-                    const auto taxiNodes = airportGround.FindRouteNodeIds(
-                        plan.parkingStandId, plan.departureRunwayStart);
-                    std::vector<Vector2> taxiRoute = MakeWorldRoute(airportGround, taxiNodes);
-                    if (!taxiRoute.empty() && airplane.TransitionTo(AirplaneState::TaxiingToRunway))
-                        airplane.SetWaypointRoute(std::move(taxiRoute), 11.0f, AirplaneState::TakingOff);
+                    if (!plan.departureQueued)
+                    {
+                        plan.departureQueued = true;
+                        plan.requestOrder = nextRequestOrder++;
+                        departureQueue.push_back(static_cast<std::size_t>(&plan - flights.data()));
+                    }
+                }
+            }
+        }
+
+        // Serve the oldest ready requests. Each runway has its own lease, so
+        // independent runways can operate concurrently. Exclusive
+        // reservations on route nodes and edges prevents runway and taxiway
+        // conflicts. Blocked routes remain queued until a safe path is free.
+        while (!arrivalQueue.empty() || !departureQueue.empty())
+        {
+            struct Request { std::uint64_t order; bool arrival; std::size_t flightIndex; };
+            std::vector<Request> requests;
+            requests.reserve(arrivalQueue.size() + departureQueue.size());
+            for (const std::size_t index : arrivalQueue)
+                requests.push_back({flights[index].requestOrder, true, index});
+            for (const std::size_t index : departureQueue)
+                requests.push_back({flights[index].requestOrder, false, index});
+            std::stable_sort(requests.begin(), requests.end(),
+                [](const Request& left, const Request& right) { return left.order < right.order; });
+
+            bool foundSafeRequest = false;
+            bool serveArrival = false;
+            std::size_t flightIndex = 0;
+            std::vector<std::string> routeNodeIds;
+            for (const Request& request : requests)
+            {
+                FlightPlan& candidate = flights[request.flightIndex];
+                const std::string& start = request.arrival ? candidate.arrivalStartNode :
+                    candidate.parkingStandId;
+                const std::string& destination = request.arrival ? candidate.parkingStandId :
+                    candidate.departureRunwayStart;
+                const auto selectedRunway = std::find_if(airportGround.GetRunways().begin(),
+                    airportGround.GetRunways().end(),
+                    [&candidate](const AirportRunway& runway)
+                    { return runway.id == candidate.runwayId; });
+                if (selectedRunway == airportGround.GetRunways().end() ||
+                    !selectedRunway->available)
+                    continue;
+                if (runwayOwners.find(candidate.runwayId) != runwayOwners.end())
+                    continue;
+                const auto standOwner = occupiedStands.find(destination);
+                if (request.arrival && standOwner != occupiedStands.end() &&
+                    standOwner->second != candidate.airplane.flightId)
+                    continue;
+
+                std::vector<std::string> candidateRoute =
+                    airportGround.FindRouteNodeIds(start, destination);
+                if (candidateRoute.empty() ||
+                    !routeCanBeReserved(candidateRoute, candidate.airplane.flightId))
+                    continue;
+                foundSafeRequest = true;
+                serveArrival = request.arrival;
+                flightIndex = request.flightIndex;
+                routeNodeIds = std::move(candidateRoute);
+                break;
+            }
+            if (!foundSafeRequest) break;
+
+            FlightPlan& plan = flights[flightIndex];
+            auto& requestQueue = serveArrival ? arrivalQueue : departureQueue;
+            const auto queuedRequest = std::find(requestQueue.begin(), requestQueue.end(), flightIndex);
+            if (queuedRequest == requestQueue.end()) break;
+            requestQueue.erase(queuedRequest);
+
+            reserveRoute(routeNodeIds, plan.airplane.flightId);
+            plan.activeRouteNodeIds = routeNodeIds;
+            plan.routeStarted = true;
+            plan.runwayReserved = true;
+            runwayOwners[plan.runwayId] = plan.airplane.flightId;
+            if (serveArrival)
+            {
+                plan.airplane.TransitionTo(AirplaneState::Arriving);
+                plan.airplane.TransitionTo(AirplaneState::Landing);
+                const std::vector<Vector2> route = MakeWorldRoute(airportGround, routeNodeIds);
+                const int exitWaypoint = FindRunwayExitWaypoint(
+                    airportGround, routeNodeIds, plan.runwayZ);
+                plan.airplane.SetWaypointRoute(route, 19.0f, AirplaneState::Parked,
+                    exitWaypoint, AirplaneState::TaxiingToStand);
+            }
+            else
+            {
+                plan.departureQueued = false;
+                if (plan.airplane.TransitionTo(AirplaneState::TaxiingToRunway))
+                {
+                    const std::vector<Vector2> route = MakeWorldRoute(airportGround, routeNodeIds);
+                    plan.airplane.SetWaypointRoute(route, 11.0f, AirplaneState::TakingOff);
                 }
             }
         }
