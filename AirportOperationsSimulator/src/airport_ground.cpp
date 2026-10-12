@@ -37,29 +37,32 @@ namespace
 
     void DrawGroundAroundApron()
     {
-        // Keep the terminal's original grey slab visible without a coplanar
-        // ground plane under it. These sections meet, but do not overlap, the slab.
+        // Keep grass outside the connected apron and service-spur footprint.
         constexpr float groundY = -0.01f;
         constexpr float groundMinX = -750.0f;
         constexpr float groundMaxX = 750.0f;
         constexpr float groundMinZ = -810.0f;
         constexpr float groundMaxZ = 155.0f;
-        constexpr float slabMinX = -210.0f;
-        constexpr float slabMaxX = 210.0f;
-        constexpr float slabMinZ = -265.0f;
+        constexpr float platformMinX = -220.0f;
+        constexpr float platformMaxX = 220.0f;
+        constexpr float spurMaxX = 280.0f;
+        constexpr float platformMinZ = -270.0f;
+        constexpr float platformMaxZ = 160.0f;
+        constexpr float spurMinZ = -180.0f;
+        constexpr float spurMaxZ = 45.0f;
 
-        const float groundLength = groundMaxZ - groundMinZ;
-        const float sideWidth = slabMinX - groundMinX;
-        DrawPlane({(groundMinX + slabMinX) * 0.5f, groundY,
-                      (groundMinZ + groundMaxZ) * 0.5f},
-            {sideWidth, groundLength}, Grass);
-        DrawPlane({(slabMaxX + groundMaxX) * 0.5f, groundY,
-                      (groundMinZ + groundMaxZ) * 0.5f},
-            {sideWidth, groundLength}, Grass);
+        const auto drawGrassRect = [groundY](float minX, float maxX, float minZ, float maxZ)
+        {
+            if (maxX <= minX || maxZ <= minZ) return;
+            DrawPlane({(minX + maxX) * 0.5f, groundY, (minZ + maxZ) * 0.5f},
+                {maxX - minX, maxZ - minZ}, Grass);
+        };
 
-        const float rearLength = slabMinZ - groundMinZ;
-        DrawPlane({0.0f, groundY, (groundMinZ + slabMinZ) * 0.5f},
-            {slabMaxX - slabMinX, rearLength}, Grass);
+        drawGrassRect(groundMinX, platformMinX, groundMinZ, groundMaxZ);
+        drawGrassRect(spurMaxX, groundMaxX, groundMinZ, groundMaxZ);
+        drawGrassRect(platformMinX, platformMaxX, groundMinZ, platformMinZ);
+        drawGrassRect(platformMaxX, spurMaxX, groundMinZ, spurMinZ);
+        drawGrassRect(platformMaxX, spurMaxX, spurMaxZ, groundMaxZ);
     }
 
     void DrawRunway(const AirportRunway& runway)

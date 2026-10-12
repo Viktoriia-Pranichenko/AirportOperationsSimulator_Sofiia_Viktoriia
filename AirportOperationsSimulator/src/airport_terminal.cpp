@@ -207,16 +207,21 @@ namespace
 
     void DrawApronAndStands()
     {
-        // A finite 420-unit slab covers the terminal and all ten stands with
-        // margin, replacing the previous 20,000-unit surface that had no useful
-        // relationship to the airport's actual bounds.
-        constexpr float platformSize = 420.0f;
+        // The apron and the service-area spur meet edge-to-edge to form one paved platform.
+        constexpr float platformDepth = 430.0f;
         constexpr float platformCenterZ = -55.0f;
         constexpr float platformThickness = 1.0f;
+        constexpr float serviceSpurDepth = 225.0f;
+        constexpr float serviceSpurCenterZ = -67.5f;
+        const Color platformColor{105, 121, 122, 255};
         DrawCubeV(
             {0.0f, -0.01f - platformThickness * 0.5f, platformCenterZ},
-            {platformSize, platformThickness, platformSize},
-            Color{105, 121, 122, 255});
+            {440.0f, platformThickness, platformDepth},
+            platformColor);
+        DrawCubeV(
+            {250.0f, -0.01f - platformThickness * 0.5f, serviceSpurCenterZ},
+            {60.0f, platformThickness, serviceSpurDepth},
+            platformColor);
 
         // Four stands face the main section and three serve each wing (ten total).
         // The main row sits slightly closer to its boarding facade while leaving

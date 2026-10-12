@@ -305,6 +305,7 @@
     <ClInclude Include="src\airport_ground.h" />
     <ClInclude Include="src\airport_terminal.h" />
     <ClInclude Include="src\camera_controller.h" />
+    <ClInclude Include="src\car_parking_lot.h" />
     <ClInclude Include="src\resource_dir.h" />
     <ClInclude Include="src\service_building.h" />
   </ItemGroup>
@@ -312,6 +313,7 @@
     <ClCompile Include="src\airplane.cpp" />
     <ClCompile Include="src\airport_ground.cpp" />
     <ClCompile Include="src\airport_terminal.cpp" />
+    <ClCompile Include="src\car_parking_lot.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\service_building.cpp" />
   </ItemGroup>
