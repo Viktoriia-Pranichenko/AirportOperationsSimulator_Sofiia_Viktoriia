@@ -28,6 +28,8 @@ struct AirportRunway
     Vector3 center;
     float length;
     float width;
+    std::string westEndNumber;
+    std::string eastEndNumber;
 };
 
 // Runway and taxiway geometry share their coordinates with the terminal's stands.
