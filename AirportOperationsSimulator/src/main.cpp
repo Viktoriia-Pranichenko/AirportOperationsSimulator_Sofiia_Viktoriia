@@ -3,9 +3,11 @@
 #include "airport_terminal.h"
 #include "airport_ground.h"
 #include "airplane.h"
+#include "airport_fire_truck.h"
 #include "baggage_tug.h"
 #include "camera_controller.h"
 #include "car_parking_lot.h"
+#include "passenger_shuttle.h"
 #include "service_building.h"
 
 int main()
@@ -23,6 +25,15 @@ int main()
         {174.75f, -79.3f},
         {179.85f, -79.3f},
         {184.95f, -79.3f}
+    };
+    PassengerShuttle passengerShuttles[] = {
+        {164.55f, -112.25f},
+        {169.65f, -112.25f},
+        {174.75f, -112.25f}
+    };
+    AirportFireTruck airportFireTrucks[] = {
+        {179.85f, -112.25f},
+        {184.95f, -112.25f}
     };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
@@ -46,6 +57,10 @@ int main()
         serviceBuilding.Draw();
         for (const BaggageTug& baggageTug : baggageTugs)
             baggageTug.Draw();
+        for (const PassengerShuttle& shuttle : passengerShuttles)
+            shuttle.Draw();
+        for (const AirportFireTruck& fireTruck : airportFireTrucks)
+            fireTruck.Draw();
         airplane.Draw(0.325f);
         EndMode3D();
 
