@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <deque>
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -83,7 +84,6 @@ namespace
         bool departureQueued{false};
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
-        float takeoffRollTime{0.0f};
         std::uint64_t requestOrder{0};
         std::vector<std::string> activeRouteNodeIds;
         std::string arrivalStartNode;
@@ -105,6 +105,26 @@ namespace
             if (node == nullptr) return {};
             route.push_back({node->position.x, node->position.z});
         }
+        return route;
+    }
+
+    std::vector<Vector2> MakeTakeoffRoute(const AirportGround& ground,
+        const std::string& runwayId, const std::string& startNodeId, Vector2 currentPosition)
+    {
+        const auto runway = std::find_if(ground.GetRunways().begin(), ground.GetRunways().end(),
+            [&runwayId](const AirportRunway& item) { return item.id == runwayId; });
+        if (runway == ground.GetRunways().end()) return {};
+        const bool westStart = startNodeId.find("START_W") != std::string::npos;
+        const float direction = westStart ? 1.0f : -1.0f;
+        const float farRunwayEnd = runway->center.x + direction * runway->length * 0.5f;
+        const float rolloutEnd = farRunwayEnd + direction * 50.0f;
+        const float startX = currentPosition.x;
+        const float runwayZ = runway->center.z;
+        std::vector<Vector2> route;
+        route.reserve(6);
+        route.push_back(currentPosition);
+        for (float fraction : {0.2f, 0.42f, 0.66f, 0.86f, 1.0f})
+            route.push_back({startX + (rolloutEnd - startX) * fraction, runwayZ});
         return route;
     }
 
@@ -582,7 +602,11 @@ int main()
                 {
                     const TaxiwayNode* approach = airportGround.FindNode(plan.arrivalStartNode);
                     if (approach == nullptr) continue;
-                    airplane.position = {approach->position.x, approach->position.z};
+                    // Start beyond the graph's runway approach point so the
+                    // landing animation has a visible final descent in view.
+                    airplane.position = {approach->position.x - 160.0f, approach->position.z};
+                    airplane.altitude = 80.0f;
+                    airplane.pitchDegrees = -12.0f;
                     airplane.headingDegrees = 90.0f;
                     airplane.TransitionTo(AirplaneState::Holding);
                     plan.arrivalFlight = true;
@@ -625,40 +649,37 @@ int main()
                 plan.arrivalFlight = false;
                 occupiedNodes[plan.parkingStandId] = airplane.flightId;
             }
+            if (plan.departureFlight && airplane.state == AirplaneState::Departed)
+            {
+                releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
+                plan.activeRouteNodeIds.clear();
+                plan.routeStarted = false;
+                const auto runwayOwner = runwayOwners.find(plan.runwayId);
+                if (plan.runwayReserved && runwayOwner != runwayOwners.end() &&
+                    runwayOwner->second == airplane.flightId)
+                {
+                    runwayOwners.erase(runwayOwner);
+                    plan.runwayReserved = false;
+                }
+                const auto standOwner = occupiedStands.find(plan.parkingStandId);
+                if (standOwner != occupiedStands.end() && standOwner->second == airplane.flightId)
+                    occupiedStands.erase(standOwner);
+                const auto standNodeOwner = occupiedNodes.find(plan.parkingStandId);
+                if (standNodeOwner != occupiedNodes.end() &&
+                    standNodeOwner->second == airplane.flightId)
+                    occupiedNodes.erase(standNodeOwner);
+                continue;
+            }
             if (!plan.departureFlight || airplane.state == AirplaneState::Departed) continue;
 
-            // Departures end at the runway for now. The aircraft does not
-            // continue into an airborne animation; that can be added later.
             if (airplane.state == AirplaneState::TakingOff && !airplane.hasTarget)
             {
                 if (!plan.takeoffRollStarted)
                 {
                     plan.takeoffRollStarted = true;
-                    plan.takeoffRollTime = 1.25f;
-                }
-                else
-                {
-                    plan.takeoffRollTime -= deltaTime;
-                    if (plan.takeoffRollTime <= 0.0f)
-                    {
-                        airplane.TransitionTo(AirplaneState::Departed);
-                        releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
-                        plan.activeRouteNodeIds.clear();
-                        const auto runwayOwner = runwayOwners.find(plan.runwayId);
-                        if (plan.runwayReserved && runwayOwner != runwayOwners.end() &&
-                            runwayOwner->second == airplane.flightId)
-                        {
-                            runwayOwners.erase(plan.runwayId);
-                            plan.runwayReserved = false;
-                        }
-                        const auto standOwner = occupiedStands.find(plan.parkingStandId);
-                        if (standOwner != occupiedStands.end() && standOwner->second == airplane.flightId)
-                            occupiedStands.erase(standOwner);
-                        const auto standNodeOwner = occupiedNodes.find(plan.parkingStandId);
-                        if (standNodeOwner != occupiedNodes.end() &&
-                            standNodeOwner->second == airplane.flightId)
-                            occupiedNodes.erase(standNodeOwner);
-                    }
+                    const std::vector<Vector2> takeoffRoute = MakeTakeoffRoute(
+                        airportGround, plan.runwayId, plan.departureRunwayStart, airplane.position);
+                    airplane.SetWaypointRoute(takeoffRoute, 72.0f, AirplaneState::Departed);
                 }
                 continue;
             }
@@ -809,11 +830,20 @@ int main()
             {
                 plan.airplane.TransitionTo(AirplaneState::Arriving);
                 plan.airplane.TransitionTo(AirplaneState::Landing);
-                const std::vector<Vector2> route = MakeWorldRoute(airportGround, routeNodeIds);
+                const std::vector<Vector2> runwayRoute = MakeWorldRoute(airportGround, routeNodeIds);
+                std::vector<Vector2> route;
+                route.reserve(runwayRoute.size() + 4);
+                route.push_back(plan.airplane.position);
+                route.push_back({plan.airplane.position.x + 40.0f, plan.airplane.position.y});
+                route.push_back({plan.airplane.position.x + 80.0f, plan.airplane.position.y});
+                route.push_back({plan.airplane.position.x + 120.0f, plan.airplane.position.y});
+                route.insert(route.end(), runwayRoute.begin(), runwayRoute.end());
                 const int exitWaypoint = FindRunwayExitWaypoint(
                     airportGround, routeNodeIds, plan.runwayZ);
-                plan.airplane.SetWaypointRoute(route, 19.0f, AirplaneState::Parked,
-                    exitWaypoint, AirplaneState::TaxiingToStand);
+                // The runway threshold is graph node 1; after adding the
+                // airborne lead-in, touchdown is at route point 5.
+                plan.airplane.SetWaypointRoute(route, 32.0f, AirplaneState::Parked,
+                    exitWaypoint + 4, AirplaneState::TaxiingToStand, 5);
             }
             else
             {

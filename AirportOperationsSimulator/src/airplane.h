@@ -36,6 +36,8 @@ public:
     AirplaneState state{AirplaneState::Arriving};
     float headingDegrees{0.0f};
     float speed{0.0f};
+    float altitude{0.0f};
+    float pitchDegrees{0.0f};
     float delayMinutes{0.0f};
     bool hasTarget{false};
     bool isPriority{false};
@@ -50,7 +52,8 @@ public:
     // the aircraft reaches that waypoint.
     void SetWaypointRoute(std::vector<Vector2> route, float routeSpeed,
         AirplaneState completionState, int transitionIndex = -1,
-        AirplaneState intermediateState = AirplaneState::TaxiingToStand);
+        AirplaneState intermediateState = AirplaneState::TaxiingToStand,
+        int touchdownWaypoint = -1);
     void Update(float deltaTime);
 
     // Draw at the airplane's current position and heading.
@@ -60,9 +63,15 @@ public:
     void Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale) const;
 
 private:
+    void DrawPose(Vector2 drawPosition, float drawHeadingDegrees, float scale,
+        float drawPitchDegrees, float drawAltitude) const;
+
     std::vector<Vector2> route;
     std::size_t nextWaypoint{0};
     float routeSpeed{0.0f};
+    float landingApproachLength{0.0f};
+    std::size_t landingTouchdownWaypoint{0};
+    float animationTime{0.0f};
     AirplaneState routeCompletionState{AirplaneState::Parked};
     AirplaneState routeIntermediateState{AirplaneState::TaxiingToStand};
     int transitionWaypointIndex{-1};
