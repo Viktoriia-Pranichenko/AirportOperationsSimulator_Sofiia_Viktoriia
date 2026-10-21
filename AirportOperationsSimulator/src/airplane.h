@@ -9,6 +9,7 @@ enum class AirplaneState
 {
     Arriving,
     Landing,
+    AwaitingTaxiAuthorization,
     TaxiingToStand,
     Parked,
     PreparingForDeparture,

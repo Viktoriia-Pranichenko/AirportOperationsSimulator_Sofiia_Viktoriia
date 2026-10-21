@@ -78,6 +78,10 @@ bool Airplane::TransitionTo(AirplaneState nextState)
         allowed = nextState == AirplaneState::Arriving || nextState == AirplaneState::Landing;
         break;
     case AirplaneState::Landing:
+        allowed = nextState == AirplaneState::AwaitingTaxiAuthorization ||
+            nextState == AirplaneState::TaxiingToStand;
+        break;
+    case AirplaneState::AwaitingTaxiAuthorization:
         allowed = nextState == AirplaneState::TaxiingToStand;
         break;
     case AirplaneState::TaxiingToStand:
