@@ -1,13 +1,17 @@
 #include "baggage_tug.h"
 
+#include "airport_terminal.h"
 #include "raylib.h"
+#include "rlgl.h"
 
+#include <cmath>
 #include <initializer_list>
 
 namespace
 {
     constexpr float TugWheelY = 0.42f;
     constexpr float CartWheelY = 0.31f;
+    constexpr float DegreesToRadians = PI / 180.0f;
 
     constexpr Color TugBody{218, 183, 75, 255};
     constexpr Color TugBodyShade{157, 126, 50, 255};
@@ -154,16 +158,47 @@ BaggageTug::BaggageTug(float x, float z)
 {
 }
 
+bool BaggageTug::MoveTowardsGate(int gateNumber,
+    const AirportTerminal& terminal, float deltaTime)
+{
+    if (gateNumber < 1 || deltaTime <= 0.0f) return false;
+
+    if (route.GetGateNumber() != gateNumber || route.GetWaypoints().empty())
+    {
+        if (!route.BuildToEastWingGateFromBaggageParking(gateNumber, terminal,
+            {positionX, positionZ}, headingDegrees))
+            return false;
+        nextRoutePoint = 1;
+    }
+
+    constexpr float MovementSpeed = 12.0f;
+    constexpr float MaximumSteeringRate = 75.0f * DegreesToRadians;
+    Vector2 position{positionX, positionZ};
+    const bool arrived = route.Advance(position, headingDegrees,
+        nextRoutePoint, deltaTime, MovementSpeed, MaximumSteeringRate);
+    positionX = position.x;
+    positionZ = position.y;
+    return arrived;
+}
+
 void BaggageTug::Draw() const
 {
+    rlPushMatrix();
+    rlTranslatef(positionX, 0.0f, positionZ);
+    rlRotatef(headingDegrees, 0.0f, 1.0f, 0.0f);
+
     const float firstCartZ = positionZ - 5.25f;
     const float secondCartZ = positionZ - 10.6f;
     const float thirdCartZ = positionZ - 15.95f;
 
-    DrawTug(positionX, positionZ);
-    DrawLuggageCart(positionX, firstCartZ, Color{65, 101, 131, 255}, Color{174, 140, 93, 255});
-    DrawLuggageCart(positionX, secondCartZ, Color{105, 119, 117, 255}, Color{65, 101, 131, 255});
-    DrawLuggageCart(positionX, thirdCartZ, Color{174, 140, 93, 255}, Color{105, 119, 117, 255});
-    ConnectCarts(positionX, firstCartZ, secondCartZ);
-    ConnectCarts(positionX, secondCartZ, thirdCartZ);
+    const float relativeFirstCartZ = firstCartZ - positionZ;
+    const float relativeSecondCartZ = secondCartZ - positionZ;
+    const float relativeThirdCartZ = thirdCartZ - positionZ;
+    DrawTug(0.0f, 0.0f);
+    DrawLuggageCart(0.0f, relativeFirstCartZ, Color{65, 101, 131, 255}, Color{174, 140, 93, 255});
+    DrawLuggageCart(0.0f, relativeSecondCartZ, Color{105, 119, 117, 255}, Color{65, 101, 131, 255});
+    DrawLuggageCart(0.0f, relativeThirdCartZ, Color{174, 140, 93, 255}, Color{105, 119, 117, 255});
+    ConnectCarts(0.0f, relativeFirstCartZ, relativeSecondCartZ);
+    ConnectCarts(0.0f, relativeSecondCartZ, relativeThirdCartZ);
+    rlPopMatrix();
 }

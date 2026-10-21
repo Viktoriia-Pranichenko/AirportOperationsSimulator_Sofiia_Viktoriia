@@ -297,11 +297,11 @@ int main()
     AirportGround airportGround(terminal);
     std::vector<FlightPlan> flights;
     BaggageTug baggageTugs[] = {
-        {164.55f, -79.3f},
-        {169.65f, -79.3f},
-        {174.75f, -79.3f},
-        {179.85f, -79.3f},
-        {184.95f, -79.3f}
+        {230.85f, -112.25f},
+        {225.75f, -112.25f},
+        {220.65f, -112.25f},
+        {215.55f, -112.25f},
+        {210.45f, -112.25f}
     };
     PassengerShuttle passengerShuttles[] = {
         {164.55f, -112.25f},
@@ -516,7 +516,10 @@ int main()
         const float deltaTime = GetFrameTime();
         shiftClockSeconds += deltaTime * ShiftClockRate;
         cameraController.Update(deltaTime);
-        followMeCars[0].MoveTowardsGate(1, terminal, deltaTime);
+        const bool followMeArrived =
+            followMeCars[0].MoveTowardsGate(1, terminal, deltaTime);
+        if (followMeArrived)
+            baggageTugs[0].MoveTowardsGate(1, terminal, deltaTime);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();

@@ -2,6 +2,7 @@
 
 #include "airport_terminal.h"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -102,6 +103,123 @@ bool ServiceVehicleRoute::BuildToEastWingGate(int targetGateNumber,
 
     gateNumber = targetGateNumber;
     return true;
+}
+
+bool ServiceVehicleRoute::BuildToEastWingGateFromBaggageParking(
+    int targetGateNumber, const AirportTerminal& terminal,
+    Vector2 startPosition, float startHeadingDegrees)
+{
+    waypoints.clear();
+    reverseWaypointCount = 0;
+    gateNumber = -1;
+    if (targetGateNumber < 1) return false;
+
+    const std::string gateId = "EAST_" + std::to_string(targetGateNumber);
+    const AirportParkingStand* targetGate = nullptr;
+    for (const AirportParkingStand& stand : terminal.GetParkingStands())
+    {
+        if (stand.id == gateId)
+        {
+            targetGate = &stand;
+            break;
+        }
+    }
+    if (targetGate == nullptr) return false;
+
+    waypoints.push_back(startPosition);
+    float routeHeading = startHeadingDegrees;
+
+    // The tug is parked in the lower section's outer row. Drive forward into
+    // its aisle, then leave through the same west end as the follow-me car.
+    constexpr float LowerSectionAisleZ = -97.0f;
+    constexpr float ParkingLotExitX = 150.0f;
+    constexpr float SouthOfTerminalZ = -220.0f;
+    AppendRouteLine(waypoints, routeHeading,
+        LowerSectionAisleZ - startPosition.y);
+    AppendRouteLine(waypoints, routeHeading, 4.0f);
+    AppendRouteTurn(waypoints, routeHeading, 4.0f, -1);
+    AppendRouteLine(waypoints, routeHeading,
+        waypoints.back().x - ParkingLotExitX);
+
+    // Continue south around the terminal's east side, as the follow-me route
+    // does after reaching the shared parking exit.
+    AppendRouteTurn(waypoints, routeHeading, 12.0f, -1);
+    AppendRouteLine(waypoints, routeHeading,
+        waypoints.back().y - SouthOfTerminalZ);
+    AppendRouteTurn(waypoints, routeHeading, 12.0f, 1);
+
+    // Approach from the apron side of the east wing, outside the aircraft
+    // stand rectangles. The tug and its trailing carts remain west of them.
+    constexpr float StandClearanceX = 20.0f;
+    const float approachX = targetGate->position.x - StandClearanceX;
+    AppendRouteLine(waypoints, routeHeading,
+        waypoints.back().x - (approachX + 10.0f));
+    AppendRouteTurn(waypoints, routeHeading, 10.0f, 1);
+    const float approachZ = targetGate->position.z;
+    AppendRouteLine(waypoints, routeHeading,
+        approachZ - waypoints.back().y);
+
+    gateNumber = targetGateNumber;
+    return true;
+}
+
+bool ServiceVehicleRoute::Advance(Vector2& position, float& headingDegrees,
+    std::size_t& nextWaypoint, float deltaTime, float speed,
+    float maximumSteeringRate) const
+{
+    if (waypoints.empty() || deltaTime <= 0.0f || speed <= 0.0f)
+        return false;
+
+    float remainingTime = deltaTime;
+    while (nextWaypoint < waypoints.size() && remainingTime > 0.0f)
+    {
+        const Vector2 waypoint = waypoints[nextWaypoint];
+        const float dx = waypoint.x - position.x;
+        const float dz = waypoint.y - position.y;
+        const float distance = std::sqrt(dx * dx + dz * dz);
+        if (distance <= 0.001f)
+        {
+            ++nextWaypoint;
+            continue;
+        }
+
+        const float pathHeading = std::atan2(dx, dz) / DegreesToRadians;
+        const bool reversing = nextWaypoint <= reverseWaypointCount;
+        headingDegrees = std::remainder(
+            pathHeading + (reversing ? 180.0f : 0.0f), 360.0f);
+
+        float segmentSpeed = speed;
+        if (nextWaypoint + 1 < waypoints.size())
+        {
+            const Vector2 next = waypoints[nextWaypoint + 1];
+            const float nextHeading = std::atan2(
+                next.x - waypoint.x, next.y - waypoint.y);
+            const float segmentHeading = std::atan2(dx, dz);
+            const float turnAngle = std::abs(std::remainder(
+                nextHeading - segmentHeading, 2.0f * PI));
+            if (turnAngle > 0.001f)
+            {
+                const Vector2 previous = waypoints[nextWaypoint - 1];
+                const float segmentDx = waypoint.x - previous.x;
+                const float segmentDz = waypoint.y - previous.y;
+                const float segmentLength = std::sqrt(
+                    segmentDx * segmentDx + segmentDz * segmentDz);
+                const float turnRadius = segmentLength / turnAngle;
+                segmentSpeed = std::min(segmentSpeed,
+                    turnRadius * maximumSteeringRate);
+            }
+        }
+
+        const float travelDistance = std::min(distance,
+            segmentSpeed * remainingTime);
+        position.x += dx / distance * travelDistance;
+        position.y += dz / distance * travelDistance;
+        remainingTime -= travelDistance / segmentSpeed;
+        if (travelDistance < distance) break;
+        ++nextWaypoint;
+    }
+
+    return nextWaypoint >= waypoints.size();
 }
 
 const std::vector<Vector2>& ServiceVehicleRoute::GetWaypoints() const
