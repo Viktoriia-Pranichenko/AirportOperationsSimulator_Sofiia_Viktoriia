@@ -138,8 +138,8 @@ void Airplane::SetWaypointRoute(std::vector<Vector2> newRoute, float newRouteSpe
             const float dz = route[i].y - route[i - 1].y;
             landingApproachLength += std::sqrt(dx * dx + dz * dz);
         }
-        altitude = 80.0f;
-        pitchDegrees = -12.0f;
+        altitude = 32.0f;
+        pitchDegrees = -5.0f;
     }
     else
     {
@@ -225,8 +225,8 @@ void Airplane::Update(float deltaTime)
             remainingApproach += std::sqrt(dx * dx + dz * dz);
             cursor = route[i];
         }
-        altitude = std::clamp(remainingApproach / landingApproachLength, 0.0f, 1.0f) * 80.0f;
-        pitchDegrees = -12.0f * std::clamp(altitude / 80.0f, 0.0f, 1.0f);
+        altitude = std::clamp(remainingApproach / landingApproachLength, 0.0f, 1.0f) * 32.0f;
+        pitchDegrees = -5.0f * std::clamp(altitude / 32.0f, 0.0f, 1.0f);
     }
     else if (state == AirplaneState::Landing)
     {
@@ -246,8 +246,8 @@ void Airplane::Update(float deltaTime)
         const float progress = totalDistance > 0.0f ?
             std::clamp(1.0f - distanceToEnd / totalDistance, 0.0f, 1.0f) : 0.0f;
         const float lift = std::clamp((progress - 0.45f) / 0.55f, 0.0f, 1.0f);
-        pitchDegrees = 27.0f * lift;
-        altitude = 70.0f * lift;
+        pitchDegrees = 15.0f * lift;
+        altitude = 30.0f * lift;
     }
 
     if (nextWaypoint >= route.size())
@@ -283,21 +283,22 @@ void Airplane::DrawPose(Vector2 drawPosition, float drawHeadingDegrees, float sc
     const float pitchRadians = drawPitchDegrees * DEG2RAD;
     const Color wingTop = liveryColor;
     const Color wingBottom = Darken(liveryColor, 0.62f);
-    const bool airbornePhase = state == AirplaneState::Arriving ||
-        state == AirplaneState::Landing || state == AirplaneState::TakingOff ||
-        drawAltitude > 0.1f;
-    const float wingFlex = airbornePhase ?
-        std::sin(animationTime * 4.2f) * std::min(16.0f, 5.0f + drawAltitude * 0.14f) : 0.0f;
+    const float movementBlend = std::clamp(speed / 3.0f, 0.0f, 1.0f);
+    // Wing movement follows actual aircraft motion. It fades in while taxiing
+    // or flying and settles to neutral as speed reaches zero.
+    const float wingFlex = std::sin(animationTime * 2.8f) * 1.6f * movementBlend;
     float gearDeployment = 1.0f;
     if (state == AirplaneState::TakingOff)
     {
         const float retract = std::clamp((drawAltitude - 2.0f) / 24.0f, 0.0f, 1.0f);
         gearDeployment = 1.0f - retract;
     }
-    else if (state == AirplaneState::Landing || state == AirplaneState::Arriving)
-    {
-        gearDeployment = std::clamp((65.0f - drawAltitude) / 28.0f, 0.0f, 1.0f);
-    }
+    float flapDeflectionDegrees = 0.0f;
+    if ((state == AirplaneState::Landing || state == AirplaneState::Arriving) && drawAltitude > 1.0f)
+        flapDeflectionDegrees = -4.0f * movementBlend;
+    else if (state == AirplaneState::TakingOff)
+        flapDeflectionDegrees = -3.0f *
+            (1.0f - std::clamp(drawAltitude / 30.0f, 0.0f, 1.0f)) * movementBlend;
 
     // A soft ground shadow makes the flare, touchdown, and initial climb easy
     // to read against the runway from the game's elevated camera.
@@ -320,6 +321,33 @@ void Airplane::DrawPose(Vector2 drawPosition, float drawHeadingDegrees, float sc
     Wing({3.5f, 1.2f, -9.0f}, {44.0f, 0.5f + wingFlex, 12.0f},
          {39.0f, 0.5f + wingFlex, 20.0f}, {3.5f, 1.2f, 4.0f},
          drawPosition, cosine, sine, scale, pitchRadians, drawAltitude, wingTop, wingBottom);
+
+    // Animated control-surface panels along each wing's trailing edge.
+    const auto drawFlap = [&](Vector3 hingeInner, Vector3 hingeOuter,
+        Vector3 trailingInner, Vector3 trailingOuter)
+    {
+        const float deflection = flapDeflectionDegrees * DEG2RAD;
+        const auto lowerEdge = [deflection](Vector3 point, Vector3 hinge)
+        {
+            const float chord = point.z - hinge.z;
+            point.y = hinge.y + std::sin(deflection) * chord + 0.06f;
+            point.z = hinge.z + std::cos(deflection) * chord;
+            return point;
+        };
+        trailingInner = lowerEdge(trailingInner, hingeInner);
+        trailingOuter = lowerEdge(trailingOuter, hingeOuter);
+        const Color flapColor = Darken(liveryColor, 0.72f);
+        Triangle(hingeInner, hingeOuter, trailingOuter, drawPosition, cosine, sine,
+            scale, pitchRadians, drawAltitude, flapColor);
+        Triangle(hingeInner, trailingOuter, trailingInner, drawPosition, cosine, sine,
+            scale, pitchRadians, drawAltitude, flapColor);
+        DrawLine3D(transform(hingeInner), transform(trailingInner), FuselageShade);
+        DrawLine3D(transform(hingeOuter), transform(trailingOuter), FuselageShade);
+    };
+    drawFlap({-14.0f, 1.0f, 4.0f}, {-34.0f, 0.67f, 8.0f},
+        {-14.0f, 0.9f, 11.0f}, {-34.0f, 0.58f, 16.5f});
+    drawFlap({14.0f, 1.0f, 4.0f}, {34.0f, 0.67f, 8.0f},
+        {14.0f, 0.9f, 11.0f}, {34.0f, 0.58f, 16.5f});
     Wing({-2.5f, 1.1f, 25.0f}, {-20.0f, 0.5f, 34.0f},
          {-17.0f, 0.5f, 38.0f}, {-2.5f, 1.1f, 32.0f},
          drawPosition, cosine, sine, scale, pitchRadians, drawAltitude, wingTop, wingBottom);

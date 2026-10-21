@@ -605,8 +605,8 @@ int main()
                     // Start beyond the graph's runway approach point so the
                     // landing animation has a visible final descent in view.
                     airplane.position = {approach->position.x - 160.0f, approach->position.z};
-                    airplane.altitude = 80.0f;
-                    airplane.pitchDegrees = -12.0f;
+                    airplane.altitude = 32.0f;
+                    airplane.pitchDegrees = -5.0f;
                     airplane.headingDegrees = 90.0f;
                     airplane.TransitionTo(AirplaneState::Holding);
                     plan.arrivalFlight = true;
