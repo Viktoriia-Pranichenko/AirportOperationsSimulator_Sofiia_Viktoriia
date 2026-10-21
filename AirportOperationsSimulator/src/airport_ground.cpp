@@ -194,9 +194,9 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     // Three shorter parallel runways keep a visible grass buffer between
     // each runway and the inter-runway taxi lanes.
     runways = {
-        {"RUNWAY_A", {0.0f, 0.0f, -507.0f}, 300.0f, 26.0f, "09", "27"},
-        {"RUNWAY_B", {0.0f, 0.0f, -642.0f}, 300.0f, 26.0f, "09", "27"},
-        {"RUNWAY_C", {0.0f, 0.0f, -777.0f}, 300.0f, 26.0f, "09", "27"}
+        {"RUNWAY_A", {0.0f, 0.0f, -507.0f}, 450.0f, 26.0f, "09", "27"},
+        {"RUNWAY_B", {0.0f, 0.0f, -642.0f}, 450.0f, 26.0f, "09", "27"},
+        {"RUNWAY_C", {0.0f, 0.0f, -777.0f}, 450.0f, 26.0f, "09", "27"}
     };
 
     constexpr float routeY = 0.08f;
@@ -371,20 +371,36 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     // The eastern bypass gives traffic a route between the parallel taxiways.
     AddNode("BYPASS_A", {230.0f, routeY, parallelTaxiZ});
     AddNode("BYPASS_AB", {230.0f, routeY, pairTaxiZs[0]});
-    AddNode("BYPASS_BC", {230.0f, routeY, pairTaxiZs[1]});
+    AddNode("BYPASS_BC", {230.0f, routeY, runways[2].center.z});
+    AddNode("WEST_BYPASS_A", {-230.0f, routeY, parallelTaxiZ});
+    AddNode("WEST_BYPASS_AB", {-230.0f, routeY, pairTaxiZs[0]});
+    AddNode("WEST_BYPASS_BC", {-230.0f, routeY, runways[2].center.z});
     Connect("A_EAST", "BYPASS_A", 12.0f);
     Connect("BYPASS_A", "BYPASS_AB", 11.0f);
     Connect("BYPASS_AB", "BYPASS_BC", 11.0f);
+    Connect("A_WEST", "WEST_BYPASS_A", 12.0f);
+    Connect("WEST_BYPASS_A", "WEST_BYPASS_AB", 11.0f);
+    Connect("WEST_BYPASS_AB", "WEST_BYPASS_BC", 11.0f);
     makeBezierConnection("BYPASS_AB_TURN", "BYPASS_AB", "AB_TAXI_E",
         {230.0f, routeY, pairTaxiZs[0] + 17.5f},
         {210.0f, routeY, pairTaxiZs[0]}, 11.0f);
     makeBezierConnection("BYPASS_BC_TURN", "BYPASS_BC", "BC_TAXI_E",
-        {230.0f, routeY, pairTaxiZs[1] + 17.5f},
+        {230.0f, routeY, runways[2].center.z + 20.0f},
         {210.0f, routeY, pairTaxiZs[1]}, 11.0f);
+    makeBezierConnection("WEST_BYPASS_AB_TURN", "WEST_BYPASS_AB", "AB_TAXI_W",
+        {-230.0f, routeY, pairTaxiZs[0] + 17.5f},
+        {-210.0f, routeY, pairTaxiZs[0]}, 11.0f);
+    makeBezierConnection("WEST_BYPASS_BC_TURN", "WEST_BYPASS_BC", "BC_TAXI_W",
+        {-230.0f, routeY, runways[2].center.z + 20.0f},
+        {-210.0f, routeY, pairTaxiZs[1]}, 11.0f);
 
     // Preserve the approach up to the apron edge. Hide only the dark-grey
     // taxiway surfaces inside the marked apron network.
     AddNode("APRON_ENTRY", {0.0f, routeY, -220.0f});
+    AddNode("MAIN_TAXI_W_TOP", {-25.0f, routeY, -220.0f});
+    AddNode("MAIN_TAXI_W_BOTTOM", {-25.0f, routeY, parallelTaxiZ});
+    AddNode("MAIN_TAXI_E_TOP", {25.0f, routeY, -220.0f});
+    AddNode("MAIN_TAXI_E_BOTTOM", {25.0f, routeY, parallelTaxiZ});
     AddNode("APRON_GATEWAY", {0.0f, routeY, -190.0f});
     AddNode("APRON_SIDE_FAR", {0.0f, routeY, -180.0f});
     AddNode("WING_SPINE_3", {0.0f, routeY, -174.0f});
@@ -393,7 +409,12 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     AddNode("APRON_SIDE_NEAR", {0.0f, routeY, -100.0f});
     AddNode("WING_SPINE_1", {0.0f, routeY, -94.0f});
     AddNode("APRON_BACK_ROW", {0.0f, routeY, -60.0f});
-    Connect("A_CENTER", "APRON_ENTRY", 15.0f);
+    Connect("APRON_ENTRY", "MAIN_TAXI_W_TOP", 11.0f, false);
+    Connect("MAIN_TAXI_W_TOP", "MAIN_TAXI_W_BOTTOM", 11.0f);
+    Connect("MAIN_TAXI_W_BOTTOM", "A_EXIT_W", 11.0f);
+    Connect("APRON_GATEWAY", "MAIN_TAXI_E_TOP", 11.0f, false);
+    Connect("MAIN_TAXI_E_TOP", "MAIN_TAXI_E_BOTTOM", 11.0f);
+    Connect("MAIN_TAXI_E_BOTTOM", "A_EXIT_E", 11.0f);
     Connect("APRON_ENTRY", "APRON_GATEWAY", 14.0f, false);
     Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 12.0f, false);
     Connect("APRON_SIDE_FAR", "WING_SPINE_3", 11.0f, false);
