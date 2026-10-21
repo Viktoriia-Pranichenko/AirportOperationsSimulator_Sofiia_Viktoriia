@@ -296,63 +296,64 @@ int main()
     AirportTerminal terminal;
     AirportGround airportGround(terminal);
     std::vector<FlightPlan> flights;
-    BaggageTug baggageTugs[] = {
+    // Keep the original parking bays recorded for the later vehicle-movement
+    // work. For this temporary static servicing view, the active models below
+    // are staged around the already parked aircraft at GATE_4.
+    [[maybe_unused]] constexpr Vector2 BaggageTugParkingPositions[] = {
         {230.85f, -112.25f},
         {225.75f, -112.25f},
         {220.65f, -112.25f},
         {215.55f, -112.25f},
         {210.45f, -112.25f}
     };
-    PassengerShuttle passengerShuttles[] = {
+    [[maybe_unused]] constexpr Vector2 PassengerShuttleParkingPositions[] = {
         {164.55f, -112.25f},
         {169.65f, -112.25f},
         {174.75f, -112.25f}
     };
-    AirportFireTruck airportFireTrucks[] = {
+    [[maybe_unused]] constexpr Vector2 FireTruckParkingPositions[] = {
         {179.85f, -112.25f},
         {184.95f, -112.25f}
     };
-    AircraftRefuellingTanker refuellingTankers[] = {
+    [[maybe_unused]] constexpr Vector2 RefuellingTankerParkingPositions[] = {
         {190.05f, -112.25f},
         {195.15f, -112.25f}
     };
-    FollowMeCar followMeCars[] = {
-        {190.05f, -39.75f},
-        {195.15f, -39.75f}
+    constexpr Vector2 FollowMeCarParkingPosition{190.05f, -39.75f};
+    [[maybe_unused]] constexpr Vector2 PushbackTugParkingPositions[] = {
+        {200.25f, -39.75f}, {205.35f, -39.75f}, {210.45f, -39.75f}
     };
-    AircraftPushbackTug pushbackTugs[] = {
-        {200.25f, -39.75f},
-        {205.35f, -39.75f},
-        {210.45f, -39.75f}
+    [[maybe_unused]] constexpr Vector2 BaggageBeltLoaderParkingPositions[] = {
+        {164.55f, -39.75f}, {169.65f, -39.75f}, {174.75f, -39.75f},
+        {179.85f, -39.75f}, {184.95f, -39.75f}
     };
-    BaggageBeltLoader baggageBeltLoaders[] = {
-        {164.55f, -39.75f},
-        {169.65f, -39.75f},
-        {174.75f, -39.75f},
-        {179.85f, -39.75f},
-        {184.95f, -39.75f}
+    [[maybe_unused]] constexpr Vector2 CateringTruckParkingPositions[] = {
+        {164.55f, -70.25f}, {169.65f, -70.25f}
     };
-    CateringTruck cateringTrucks[] = {
-        {164.55f, -70.25f},
-        {169.65f, -70.25f}
+    [[maybe_unused]] constexpr Vector2 WaterServiceTruckParkingPositions[] = {
+        {174.75f, -70.25f}, {179.85f, -70.25f}
     };
-    WaterServiceTruck waterServiceTrucks[] = {
-        {174.75f, -70.25f},
-        {179.85f, -70.25f}
+    [[maybe_unused]] constexpr Vector2 MaintenancePickupParkingPositions[] = {
+        {184.95f, -70.25f}, {190.05f, -70.25f}
     };
-    MaintenancePickupTruck maintenancePickupTrucks[] = {
-        {184.95f, -70.25f},
-        {190.05f, -70.25f}
+    [[maybe_unused]] constexpr Vector2 BoardingStairsParkingPositions[] = {
+        {195.15f, -70.25f}, {200.25f, -70.25f}, {205.35f, -70.25f},
+        {210.45f, -70.25f}, {215.55f, -70.25f}, {220.65f, -70.25f},
+        {225.75f, -70.25f}, {230.85f, -70.25f}
     };
+
+    // A single, spaced service set is shown beside the static GATE_4 aircraft.
+    // Positions are outside the aircraft planform and away from the terminal.
+    BaggageTug baggageTugs[] = {{18.0f, -37.0f}};
+    AircraftRefuellingTanker refuellingTankers[] = {{49.0f, -27.0f}};
+    FollowMeCar followMeCars[] = {{FollowMeCarParkingPosition.x, FollowMeCarParkingPosition.y}};
+    AircraftPushbackTug pushbackTugs[] = {{34.0f, -47.0f}};
+    BaggageBeltLoader baggageBeltLoaders[] = {{49.0f, -13.0f}};
+    CateringTruck cateringTrucks[] = {{18.0f, -13.0f}};
+    WaterServiceTruck waterServiceTrucks[] = {{49.0f, -42.0f}};
+    MaintenancePickupTruck maintenancePickupTrucks[] = {{18.0f, -26.0f}};
     PassengerBoardingStairs passengerBoardingStairs[] = {
-        {195.15f, -70.25f},
-        {200.25f, -70.25f},
-        {205.35f, -70.25f},
-        {210.45f, -70.25f},
-        {215.55f, -70.25f},
-        {220.65f, -70.25f},
-        {225.75f, -70.25f},
-        {230.85f, -70.25f}
+        {23.5f, -17.0f}, {44.0f, -17.0f}
     };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
@@ -516,10 +517,6 @@ int main()
         const float deltaTime = GetFrameTime();
         shiftClockSeconds += deltaTime * ShiftClockRate;
         cameraController.Update(deltaTime);
-        const bool followMeArrived =
-            followMeCars[0].MoveTowardsGate(1, terminal, deltaTime);
-        if (followMeArrived)
-            baggageTugs[0].MoveTowardsGate(1, terminal, deltaTime);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
@@ -873,10 +870,6 @@ int main()
         serviceBuilding.Draw();
         for (const BaggageTug& baggageTug : baggageTugs)
             baggageTug.Draw();
-        for (const PassengerShuttle& shuttle : passengerShuttles)
-            shuttle.Draw();
-        for (const AirportFireTruck& fireTruck : airportFireTrucks)
-            fireTruck.Draw();
         for (const AircraftRefuellingTanker& refuellingTanker : refuellingTankers)
             refuellingTanker.Draw();
         for (const FollowMeCar& followMeCar : followMeCars)
