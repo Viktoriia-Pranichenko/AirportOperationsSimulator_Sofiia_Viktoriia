@@ -90,6 +90,7 @@ namespace
         std::string arrivalStartNode;
         std::string landingExitNodeId;
         std::string parkingStandId;
+        std::string departureHoldNodeId;
         std::string runwayId{"RUNWAY_A"};
         std::string departureRunwayStart{"RUNWAY_START_W"};
         float runwayZ{0.0f};
@@ -173,6 +174,7 @@ namespace
         case AirplaneState::Parked: return "PARKED";
         case AirplaneState::PreparingForDeparture: return "PREP";
         case AirplaneState::TaxiingToRunway: return "TAXI OUT";
+        case AirplaneState::AwaitingTakeoffAuthorization: return "HOLD SHORT";
         case AirplaneState::TakingOff: return "TAKEOFF";
         case AirplaneState::Departed: return "DONE";
         case AirplaneState::Delayed: return "DELAYED";
@@ -202,6 +204,7 @@ namespace
                 static_cast<int>(size * 0.9f), Color{247, 184, 68, 255});
             break;
         case AirplaneState::AwaitingTaxiAuthorization:
+        case AirplaneState::AwaitingTakeoffAuthorization:
             DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), half,
                 Color{79, 194, 228, 255});
             DrawLineEx({center.x - half * 0.45f, center.y},
@@ -460,6 +463,9 @@ int main()
         plan.parkingStandId = setup.stand;
         plan.runwayId = setup.runwayId;
         plan.departureRunwayStart = setup.runwayStart;
+        plan.departureHoldNodeId = std::string(setup.runwayId) == "RUNWAY_A" ?
+            "A_EXIT_W" : (std::string(setup.runwayId) == "RUNWAY_B" ?
+                "AB_EXIT_W" : "BC_EXIT_W");
         plan.runwayZ = setup.runwayZ;
         plan.departureFlight = true;
         for (const AirportParkingStand& stand : terminal.GetParkingStands())
@@ -504,6 +510,7 @@ int main()
         plan.departureScheduledSeconds = 5.0f * 60.0f;
         plan.parkingStandId = "GATE_4";
         plan.runwayId = "RUNWAY_A";
+        plan.departureHoldNodeId = "A_EXIT_W";
         flights.push_back(std::move(plan));
     }
 
@@ -623,6 +630,53 @@ int main()
                             selected.requestOrder = nextRequestOrder++;
                             taxiToStandQueue.push_back(static_cast<std::size_t>(selectedFlightIndex));
                         }
+                        else if (selected.airplane.state == AirplaneState::Parked &&
+                            selected.departureFlight && !selected.departureQueued)
+                        {
+                            if (selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
+                                selected.preparationTime = 3.0f;
+                        }
+                        else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
+                        {
+                            const auto runway = std::find_if(airportGround.GetRunways().begin(),
+                                airportGround.GetRunways().end(),
+                                [&selected](const AirportRunway& item)
+                                { return item.id == selected.runwayId; });
+                            const bool runwayFree = runway != airportGround.GetRunways().end() &&
+                                runway->available && runwayOwners.find(selected.runwayId) == runwayOwners.end();
+                            const std::vector<std::string> runwayEntry = airportGround.FindRouteNodeIds(
+                                selected.departureHoldNodeId, selected.departureRunwayStart);
+                            if (runwayFree && routeCanBeReserved(runwayEntry, selected.airplane.flightId))
+                            {
+                                std::vector<Vector2> takeoffRoute = MakeWorldRoute(airportGround, runwayEntry);
+                                if (!takeoffRoute.empty())
+                                {
+                                    const std::vector<Vector2> roll = MakeTakeoffRoute(airportGround,
+                                        selected.runwayId, selected.departureRunwayStart,
+                                        takeoffRoute.back());
+                                    takeoffRoute.insert(takeoffRoute.end(), roll.begin() + 1, roll.end());
+                                    const std::size_t thresholdIndex = runwayEntry.size() - 1;
+                                    if (roll.size() > 1 && selected.airplane.TransitionTo(
+                                        AirplaneState::TaxiingToRunway))
+                                    {
+                                        reserveRoute(runwayEntry, selected.airplane.flightId);
+                                        selected.activeRouteNodeIds = runwayEntry;
+                                        selected.routeStarted = true;
+                                        selected.runwayReserved = true;
+                                        selected.takeoffRollStarted = true;
+                                        runwayOwners[selected.runwayId] = selected.airplane.flightId;
+                                        const auto holdOwner = occupiedNodes.find(selected.departureHoldNodeId);
+                                        if (holdOwner != occupiedNodes.end() &&
+                                            holdOwner->second == selected.airplane.flightId)
+                                            occupiedNodes.erase(holdOwner);
+                                        selected.airplane.SetWaypointRoute(takeoffRoute, 72.0f,
+                                            AirplaneState::Departed,
+                                            static_cast<int>(thresholdIndex),
+                                            AirplaneState::TakingOff);
+                                    }
+                                }
+                            }
+                        }
                     }
                     else if (selectedFlightIndex >= 0 && CheckCollisionPointRec(mouse, priorityButton))
                         flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
@@ -630,29 +684,40 @@ int main()
                 }
                 else if (!clickedSchedulePanel)
                 {
-                    const AirportParkingStand* clickedGate =
-                        terminal.GetGateAtScreenPosition(mouse, cameraController.GetCamera3D());
-                    if (clickedGate != nullptr)
-                        selectGate(*clickedGate);
-                    else
+                    // Resolve aircraft hits before the larger gate hit regions,
+                    // since a parked aircraft can overlap its stand on screen.
+                    int clickedFlight = -1;
+                    float closestDistance = 34.0f;
+                    for (std::size_t i = 0; i < flights.size(); ++i)
+                    {
+                        const FlightPlan& plan = flights[i];
+                        if (!plan.spawned || plan.airplane.state == AirplaneState::Departed) continue;
+                        const Vector2 projected = ProjectAirportPoint(plan.airplane.position,
+                            cameraController.GetCamera3D());
+                        const float dx = projected.x - mouse.x;
+                        const float dy = projected.y - mouse.y;
+                        const float distance = std::sqrt(dx * dx + dy * dy);
+                        if (distance < closestDistance)
+                        {
+                            closestDistance = distance;
+                            clickedFlight = static_cast<int>(i);
+                        }
+                    }
+                    if (clickedFlight >= 0)
                     {
                         selectedGateId.clear();
-                        selectedFlightIndex = -1;
-                        float closestDistance = 34.0f;
-                        for (std::size_t i = 0; i < flights.size(); ++i)
+                        selectedFlightIndex = clickedFlight;
+                    }
+                    else
+                    {
+                        const AirportParkingStand* clickedGate =
+                            terminal.GetGateAtScreenPosition(mouse, cameraController.GetCamera3D());
+                        if (clickedGate != nullptr)
+                            selectGate(*clickedGate);
+                        else
                         {
-                            const FlightPlan& plan = flights[i];
-                            if (!plan.spawned || plan.airplane.state == AirplaneState::Departed) continue;
-                            const Vector2 projected = ProjectAirportPoint(plan.airplane.position,
-                                cameraController.GetCamera3D());
-                            const float dx = projected.x - mouse.x;
-                            const float dy = projected.y - mouse.y;
-                            const float distance = std::sqrt(dx * dx + dy * dy);
-                            if (distance < closestDistance)
-                            {
-                                closestDistance = distance;
-                                selectedFlightIndex = static_cast<int>(i);
-                            }
+                            selectedGateId.clear();
+                            selectedFlightIndex = -1;
                         }
                     }
                 }
@@ -737,6 +802,14 @@ int main()
                 plan.arrivalFlight = false;
                 occupiedNodes[plan.parkingStandId] = airplane.flightId;
             }
+            if (plan.departureFlight && plan.routeStarted &&
+                airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
+            {
+                releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
+                plan.activeRouteNodeIds.clear();
+                plan.routeStarted = false;
+                occupiedNodes[plan.departureHoldNodeId] = airplane.flightId;
+            }
             if (plan.departureFlight && airplane.state == AirplaneState::Departed)
             {
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
@@ -760,27 +833,7 @@ int main()
             }
             if (!plan.departureFlight || airplane.state == AirplaneState::Departed) continue;
 
-            if (airplane.state == AirplaneState::TakingOff && !airplane.hasTarget)
-            {
-                if (!plan.takeoffRollStarted)
-                {
-                    plan.takeoffRollStarted = true;
-                    const std::vector<Vector2> takeoffRoute = MakeTakeoffRoute(
-                        airportGround, plan.runwayId, plan.departureRunwayStart, airplane.position);
-                    airplane.SetWaypointRoute(takeoffRoute, 72.0f, AirplaneState::Departed);
-                }
-                continue;
-            }
-
-            if (airplane.state == AirplaneState::Parked && !airplane.hasTarget)
-            {
-                if (shiftClockSeconds >= plan.departureScheduledSeconds)
-                {
-                    airplane.TransitionTo(AirplaneState::PreparingForDeparture);
-                    plan.preparationTime = 3.0f;
-                }
-            }
-            else if (airplane.state == AirplaneState::PreparingForDeparture)
+            if (airplane.state == AirplaneState::PreparingForDeparture)
             {
                 plan.preparationTime -= deltaTime;
                 if (plan.preparationTime <= 0.0f)
@@ -843,9 +896,9 @@ int main()
                     airportGround.GetRunways().end(),
                     [&candidate](const AirportRunway& runway)
                     { return runway.id == candidate.runwayId; });
-                if (!taxiRequest && (selectedRunway == airportGround.GetRunways().end() ||
+                if (landingRequest && (selectedRunway == airportGround.GetRunways().end() ||
                     !selectedRunway->available)) continue;
-                if (!taxiRequest && runwayOwners.find(candidate.runwayId) != runwayOwners.end()) continue;
+                if (landingRequest && runwayOwners.find(candidate.runwayId) != runwayOwners.end()) continue;
                 std::vector<std::string> candidateRoute;
                 std::string assignedStandId = candidate.parkingStandId;
                 std::string assignedExitNodeId;
@@ -910,7 +963,7 @@ int main()
                 else
                 {
                     candidateRoute = airportGround.FindRouteNodeIds(
-                        start, candidate.departureRunwayStart);
+                        start, candidate.departureHoldNodeId);
                     if (candidateRoute.empty() ||
                         !routeCanBeReserved(candidateRoute, candidate.airplane.flightId)) continue;
                 }
@@ -941,7 +994,7 @@ int main()
             if (serveArrival) occupiedStands[plan.parkingStandId] = plan.airplane.flightId;
             plan.activeRouteNodeIds = routeNodeIds;
             plan.routeStarted = true;
-            if (!serveTaxiToStand)
+            if (serveArrival)
             {
                 plan.runwayReserved = true;
                 runwayOwners[plan.runwayId] = plan.airplane.flightId;
@@ -982,7 +1035,8 @@ int main()
                 if (plan.airplane.TransitionTo(AirplaneState::TaxiingToRunway))
                 {
                     const std::vector<Vector2> route = MakeWorldRoute(airportGround, routeNodeIds);
-                    plan.airplane.SetWaypointRoute(route, 11.0f, AirplaneState::TakingOff);
+                    plan.airplane.SetWaypointRoute(route, 11.0f,
+                        AirplaneState::AwaitingTakeoffAuthorization);
                 }
             }
         }
@@ -1082,13 +1136,16 @@ int main()
             if (routeIds.empty() && selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.landingExitNodeId, selected.parkingStandId);
+            else if (routeIds.empty() && selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
+                routeIds = airportGround.FindRouteNodeIds(
+                    selected.departureHoldNodeId, selected.departureRunwayStart);
             else if (routeIds.empty() && selected.arrivalFlight)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.arrivalStartNode, selected.parkingStandId);
             else if (routeIds.empty() && selected.departureFlight &&
                 selected.airplane.state != AirplaneState::Departed)
                 routeIds = airportGround.FindRouteNodeIds(
-                    selected.parkingStandId, selected.departureRunwayStart);
+                    selected.parkingStandId, selected.departureHoldNodeId);
             Vector2 previous{};
             bool havePrevious = false;
             for (const std::string& nodeId : routeIds)
@@ -1176,15 +1233,36 @@ int main()
             DrawText(TextFormat("Assigned stand: %s",
                 selected.standAssigned ? selected.parkingStandId.c_str() : "Pending assignment"),
                 infoX + 14, infoY + 228, 13, Color{203, 219, 224, 255});
+            const Rectangle taxiCommandButton{
+                static_cast<float>(infoX + 14), static_cast<float>(infoY + 250), 284.0f, 24.0f};
             if (selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization)
             {
-                const Rectangle taxiCommandButton{
-                    static_cast<float>(infoX + 14), static_cast<float>(infoY + 250), 284.0f, 24.0f};
                 DrawRectangleRec(taxiCommandButton, selected.taxiToStandQueued ?
                     Color{70, 87, 88, 255} : Color{28, 122, 112, 255});
                 DrawText(selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND",
                     infoX + 24, infoY + 256, 13, RAYWHITE);
             }
+            else if (selected.airplane.state == AirplaneState::Parked &&
+                selected.departureFlight)
+            {
+                DrawRectangleRec(taxiCommandButton, Color{28, 122, 112, 255});
+                DrawText("AUTHORIZE TAXI TO RUNWAY", infoX + 24, infoY + 256, 13, RAYWHITE);
+            }
+            else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
+            {
+                const auto runway = std::find_if(airportGround.GetRunways().begin(),
+                    airportGround.GetRunways().end(),
+                    [&selected](const AirportRunway& item) { return item.id == selected.runwayId; });
+                const bool runwayFree = runway != airportGround.GetRunways().end() &&
+                    runway->available && runwayOwners.find(selected.runwayId) == runwayOwners.end();
+                DrawRectangleRec(taxiCommandButton, runwayFree ?
+                    Color{28, 122, 112, 255} : Color{70, 87, 88, 255});
+                DrawText(runwayFree ? "AUTHORIZE TAKEOFF" : "RUNWAY UNAVAILABLE",
+                    infoX + 24, infoY + 256, 13, RAYWHITE);
+            }
+            else if (selected.airplane.state == AirplaneState::PreparingForDeparture)
+                DrawText("PREPARING FOR TAXI OUT...", infoX + 14, infoY + 256, 11,
+                    Color{145, 166, 174, 255});
             else
                 DrawText("No taxi command available in this state.",
                     infoX + 14, infoY + 256, 11, Color{145, 166, 174, 255});

@@ -97,7 +97,11 @@ bool Airplane::TransitionTo(AirplaneState nextState)
         allowed = nextState == AirplaneState::PreparingForDeparture;
         break;
     case AirplaneState::TaxiingToRunway:
-        allowed = nextState == AirplaneState::TakingOff || nextState == AirplaneState::Delayed;
+        allowed = nextState == AirplaneState::AwaitingTakeoffAuthorization ||
+            nextState == AirplaneState::TakingOff || nextState == AirplaneState::Delayed;
+        break;
+    case AirplaneState::AwaitingTakeoffAuthorization:
+        allowed = nextState == AirplaneState::TaxiingToRunway;
         break;
     case AirplaneState::TakingOff:
         allowed = nextState == AirplaneState::Departed;
@@ -171,6 +175,8 @@ void Airplane::Update(float deltaTime)
     float desiredSpeed = routeSpeed;
     if (state == AirplaneState::TaxiingToStand)
         desiredSpeed = std::min(desiredSpeed, 9.0f);
+    if (state == AirplaneState::TaxiingToRunway)
+        desiredSpeed = std::min(desiredSpeed, 11.0f);
     // Every routed movement ends at a hold point or a stand. Brake smoothly
     // using the remaining path length so the aircraft reaches it at rest.
     if (state != AirplaneState::TakingOff)

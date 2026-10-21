@@ -14,6 +14,7 @@ enum class AirplaneState
     Parked,
     PreparingForDeparture,
     TaxiingToRunway,
+    AwaitingTakeoffAuthorization,
     TakingOff,
     Departed,
     Holding,
