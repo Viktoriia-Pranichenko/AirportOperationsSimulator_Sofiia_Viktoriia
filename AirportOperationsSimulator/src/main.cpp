@@ -344,16 +344,16 @@ int main()
 
     // A single, spaced service set is shown beside the static GATE_4 aircraft.
     // Positions are outside the aircraft planform and away from the terminal.
-    BaggageTug baggageTugs[] = {{18.0f, -37.0f}};
-    AircraftRefuellingTanker refuellingTankers[] = {{49.0f, -27.0f}};
+    BaggageTug baggageTugs[] = {{44.5f, -37.0f}};
+    AircraftRefuellingTanker refuellingTankers[] = {{75.5f, -27.0f}};
     FollowMeCar followMeCars[] = {{FollowMeCarParkingPosition.x, FollowMeCarParkingPosition.y}};
-    AircraftPushbackTug pushbackTugs[] = {{34.0f, -47.0f}};
-    BaggageBeltLoader baggageBeltLoaders[] = {{49.0f, -13.0f}};
-    CateringTruck cateringTrucks[] = {{18.0f, -13.0f}};
-    WaterServiceTruck waterServiceTrucks[] = {{49.0f, -42.0f}};
-    MaintenancePickupTruck maintenancePickupTrucks[] = {{18.0f, -26.0f}};
+    AircraftPushbackTug pushbackTugs[] = {{60.5f, -47.0f}};
+    BaggageBeltLoader baggageBeltLoaders[] = {{75.5f, -13.0f}};
+    CateringTruck cateringTrucks[] = {{44.5f, -13.0f}};
+    WaterServiceTruck waterServiceTrucks[] = {{75.5f, -42.0f}};
+    MaintenancePickupTruck maintenancePickupTrucks[] = {{44.5f, -26.0f}};
     PassengerBoardingStairs passengerBoardingStairs[] = {
-        {23.5f, -17.0f}, {44.0f, -17.0f}
+        {50.0f, -17.0f}, {70.5f, -17.0f}
     };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;

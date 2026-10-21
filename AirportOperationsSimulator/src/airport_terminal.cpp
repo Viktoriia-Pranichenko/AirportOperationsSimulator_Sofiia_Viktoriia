@@ -66,13 +66,19 @@ namespace
     constexpr float BackFacadeZ = -8.0f;
     constexpr float MainHallRearZ = 57.0f;
     constexpr float TerminalZOffset = 8.0f;
-    constexpr float LeftInnerX = -56.0f;
-    constexpr float RightInnerX = 56.0f;
-    constexpr float SideWingCenterX = 65.0f;
-    constexpr float SideWingCenterZ = -68.0f;
-    constexpr float SideWingLength = 160.0f;
+    // Widen gate intervals while keeping the currently occupied GATE_4 stand
+    // and the middle East/West wing stands at their existing positions.
+    constexpr float BackGateXs[] = {-48.0f, -16.0f, 16.0f, 48.0f};
+    constexpr float WingGateZs[] = {-80.0f, -116.0f, -152.0f};
+    constexpr float LeftInnerX = -84.0f;
+    constexpr float RightInnerX = 84.0f;
+    constexpr float SideWingCenterX = 93.0f;
+    // Extend the far ends of both wings to leave clear apron beyond the outer
+    // gate stands; keep the inner ends attached to the central terminal.
+    constexpr float SideWingCenterZ = -88.0f;
+    constexpr float SideWingLength = 200.0f;
     constexpr float TerminalScale = 1.25f;
-    constexpr float SideStandCenterX = 42.0f;
+    constexpr float SideStandCenterX = 70.0f;
     constexpr Color BoardingDoorGlass{190, 105, 58, 255};
     constexpr Color BoardingDoorHighlight{239, 184, 119, 255};
 
@@ -136,39 +142,39 @@ namespace
     void DrawTerminal()
     {
         // Three connected, two-storey blocks make a U around the open central apron.
-        Box({0.0f, WallHeight * 0.5f, 0.0f}, {176.0f, WallHeight, 16.0f}, Wall);
+        Box({0.0f, WallHeight * 0.5f, 0.0f}, {216.0f, WallHeight, 16.0f}, Wall);
         Box({-SideWingCenterX, WallHeight * 0.5f, SideWingCenterZ},
             {18.0f, WallHeight, SideWingLength}, WallSide);
         Box({SideWingCenterX, WallHeight * 0.5f, SideWingCenterZ},
             {18.0f, WallHeight, SideWingLength}, WallSide);
         // A broader central terminal hall continues behind the U-shaped boarding concourse.
-        Box({0.0f, WallHeight * 0.5f, 31.0f}, {176.0f, WallHeight, 52.0f}, WallSide);
+        Box({0.0f, WallHeight * 0.5f, 31.0f}, {216.0f, WallHeight, 52.0f}, WallSide);
 
         // Roof slabs and fascia read clearly above the upper-storey glazing.
-        Box({0.0f, RoofY, 0.0f}, {178.0f, 1.3f, 18.0f}, Roof);
+        Box({0.0f, RoofY, 0.0f}, {218.0f, 1.3f, 18.0f}, Roof);
         Box({-SideWingCenterX, RoofY, SideWingCenterZ},
             {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
         Box({SideWingCenterX, RoofY, SideWingCenterZ},
             {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
-        Box({0.0f, RoofY, 31.0f}, {178.0f, 1.3f, 54.0f}, Roof);
+        Box({0.0f, RoofY, 31.0f}, {218.0f, 1.3f, 54.0f}, Roof);
 
         // The floor band wraps the apron-facing sides and makes the two levels distinct.
-        Box({0.0f, 6.0f, BackFacadeZ - 0.12f}, {176.0f, 0.55f, 0.38f}, Trim);
+        Box({0.0f, 6.0f, BackFacadeZ - 0.12f}, {216.0f, 0.55f, 0.38f}, Trim);
         Box({LeftInnerX + 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
         Box({RightInnerX - 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
 
         // Four evenly spaced boarding doors line the main apron-facing section.
-        constexpr float backDoorXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
-        for (float x : backDoorXs) DrawBackDoor(x);
-        constexpr float backGroundWindowXs[] = {-70.0f, -50.0f, -18.0f, 0.0f, 18.0f, 50.0f, 70.0f};
+        for (float x : BackGateXs) DrawBackDoor(x);
+        // Keep existing facade windows clear of the shifted gate portals.
+        constexpr float backGroundWindowXs[] = {-70.0f, -40.0f, -32.0f, 12.0f, 20.0f, 50.0f, 70.0f};
         for (float x : backGroundWindowXs)
             DrawBackWindow(x, 2.55f, 5.0f, 3.2f);
-        constexpr float backUpperWindowXs[] = {-76.0f, -56.0f, -36.0f, -18.0f, 0.0f, 18.0f, 36.0f, 56.0f, 76.0f};
+        constexpr float backUpperWindowXs[] = {-76.0f, -65.0f, -40.0f, -15.0f, 12.0f, 21.0f, 40.0f, 56.0f, 76.0f};
         for (float x : backUpperWindowXs)
         {
             DrawBackWindow(x, 9.0f, 7.0f, 3.2f);
         }
-        Box({0.0f, 6.0f, MainHallRearZ + 0.05f}, {172.0f, 0.55f, 0.38f}, Trim);
+        Box({0.0f, 6.0f, MainHallRearZ + 0.05f}, {212.0f, 0.55f, 0.38f}, Trim);
         constexpr float mainHallWindowXs[] = {-72.0f, -48.0f, -24.0f, 0.0f, 24.0f, 48.0f, 72.0f};
         for (float x : mainHallWindowXs)
         {
@@ -177,8 +183,7 @@ namespace
         }
 
         // Three evenly spaced gates on each extended wing, aligned to the side stands.
-        constexpr float wingDoorZs[] = {-72.0f, -104.0f, -136.0f};
-        for (float z : wingDoorZs)
+        for (float z : WingGateZs)
         {
             DrawSideDoor(LeftInnerX + 0.16f, z);
             DrawSideDoor(RightInnerX - 0.16f, z);
@@ -186,13 +191,13 @@ namespace
 
         // Ground-floor windows sit between gates; the extended upper row
         // continues toward the wing ends without adding second-storey doors.
-        constexpr float wingGroundWindowZs[] = {-40.0f, -88.0f, -120.0f};
+        constexpr float wingGroundWindowZs[] = {-40.0f, -98.0f, -134.0f};
         for (float z : wingGroundWindowZs)
         {
             DrawSideWindow(LeftInnerX + 0.13f, z, 2.55f, 8.0f, 3.2f);
             DrawSideWindow(RightInnerX - 0.13f, z, 2.55f, 8.0f, 3.2f);
         }
-        constexpr float wingUpperWindowZs[] = {-24.0f, -56.0f, -88.0f, -120.0f, -136.0f};
+        constexpr float wingUpperWindowZs[] = {-24.0f, -56.0f, -98.0f, -134.0f, -170.0f};
         for (float z : wingUpperWindowZs)
         {
             DrawSideWindow(LeftInnerX + 0.13f, z, 9.0f, 7.0f, 3.2f);
@@ -285,10 +290,8 @@ namespace
         // Four stands face the main section and three serve each wing (ten total).
         // The main row sits slightly closer to its boarding facade while leaving
         // a clear apron lane between the terminal canopy and stand markings.
-        constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
-        for (float x : backStandXs) DrawStand(x, -20.0f, 5.5f, 8.0f);
-        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
-        for (float z : wingStandZs)
+        for (float x : BackGateXs) DrawStand(x, -20.0f, 5.5f, 8.0f);
+        for (float z : WingGateZs)
         {
             DrawStand(-SideStandCenterX, z, 10.0f, 8.0f);
             DrawStand(SideStandCenterX, z, 10.0f, 8.0f);
@@ -307,26 +310,24 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
     static const std::vector<AirportParkingStand> stands = []
     {
         std::vector<AirportParkingStand> result;
-        constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
         for (int i = 0; i < 4; ++i)
             result.push_back({"GATE_" + std::to_string(i + 1),
-                {backStandXs[i] * TerminalScale, 0.035f,
+                {BackGateXs[i] * TerminalScale, 0.035f,
                     -20.0f * TerminalScale + TerminalZOffset}, 180.0f,
                 AircraftSize::Small, 1});
 
         // These coordinates match the painted side stands and their gate-view
         // hit targets. Keeping route nodes on the markings makes parked planes
         // stop in the actual stand rather than on the taxi lane.
-        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
         for (int row = 0; row < 3; ++row)
         {
             result.push_back({"WEST_" + std::to_string(row + 1),
                 {-SideStandCenterX * TerminalScale, 0.035f,
-                    wingStandZs[row] * TerminalScale + TerminalZOffset}, -90.0f,
+                    WingGateZs[row] * TerminalScale + TerminalZOffset}, -90.0f,
                 AircraftSize::Large, 1});
             result.push_back({"EAST_" + std::to_string(row + 1),
                 {SideStandCenterX * TerminalScale, 0.035f,
-                    wingStandZs[row] * TerminalScale + TerminalZOffset}, 90.0f,
+                    WingGateZs[row] * TerminalScale + TerminalZOffset}, 90.0f,
                 AircraftSize::Large, 1});
         }
         return result;
@@ -377,12 +378,11 @@ bool AirportTerminal::GetGateMarkingPosition(
             {
                 const std::size_t separator = gateId.find('_');
                 const int row = std::atoi(gateId.c_str() + separator + 1) - 1;
-                constexpr float markingWingZs[] = {-72.0f, -104.0f, -136.0f};
-                if (row < 0 || row >= static_cast<int>(sizeof(markingWingZs) / sizeof(markingWingZs[0])))
+                if (row < 0 || row >= static_cast<int>(sizeof(WingGateZs) / sizeof(WingGateZs[0])))
                     return false;
                 position.x = (gateId.rfind("WEST_", 0) == 0 ? -SideStandCenterX : SideStandCenterX) *
                     TerminalScale;
-                position.z = markingWingZs[row] * TerminalScale + TerminalZOffset;
+                position.z = WingGateZs[row] * TerminalScale + TerminalZOffset;
             }
             return true;
         }
