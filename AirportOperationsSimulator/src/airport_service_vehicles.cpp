@@ -1,7 +1,10 @@
 #include "airport_service_vehicles.h"
 
+#include "airport_terminal.h"
 #include "raylib.h"
 
+#include <algorithm>
+#include <cmath>
 #include <initializer_list>
 
 namespace
@@ -10,8 +13,6 @@ namespace
     constexpr Color WheelHub{162, 166, 155, 255};
     constexpr Color Glass{42, 100, 125, 255};
     constexpr Color Trim{195, 201, 192, 255};
-    constexpr Color FollowYellow{226, 181, 48, 255};
-    constexpr Color FollowBlack{39, 43, 43, 255};
     constexpr Color TugYellow{221, 177, 55, 255};
     constexpr Color TugShade{153, 123, 49, 255};
     constexpr Color LoaderWhite{210, 211, 198, 255};
@@ -57,47 +58,42 @@ namespace
     }
 }
 
-FollowMeCar::FollowMeCar(float positionX, float positionZ)
+ServiceVehiclePosition::ServiceVehiclePosition(float positionX, float positionZ)
     : positionX(positionX), positionZ(positionZ)
 {
 }
 
-void FollowMeCar::Draw() const
+bool ServiceVehiclePosition::MoveTowardsGate(
+    int gateNumber, const AirportTerminal& terminal, float deltaTime)
 {
-    const float x = positionX;
-    const float z = positionZ;
+    if (gateNumber < 1 || deltaTime <= 0.0f) return false;
 
-    DrawCubeV({x, 0.72f, z}, {2.08f, 0.48f, 4.55f}, FollowBlack);
-    DrawCubeV({x, 1.08f, z + 0.12f}, {2.0f, 0.78f, 3.58f}, FollowYellow);
-    DrawCubeV({x, 1.53f, z - 0.35f}, {1.84f, 0.86f, 1.82f}, FollowYellow);
-    DrawCubeV({x, 1.98f, z - 0.35f}, {1.9f, 0.12f, 1.9f}, FollowBlack);
-
-    DrawCubeV({x, 1.57f, z + 0.59f}, {1.5f, 0.55f, 0.05f}, Glass);
-    DrawCubeV({x - 0.94f, 1.5f, z - 0.35f}, {0.05f, 0.5f, 0.94f}, Glass);
-    DrawCubeV({x + 0.94f, 1.5f, z - 0.35f}, {0.05f, 0.5f, 0.94f}, Glass);
-
-    for (float side : {-1.0f, 1.0f})
+    const std::string gateId = "GATE_" + std::to_string(gateNumber);
+    const AirportParkingStand* targetGate = nullptr;
+    for (const AirportParkingStand& stand : terminal.GetParkingStands())
     {
-        for (float stripeZ : {-1.65f, -0.85f, 0.0f, 0.85f, 1.65f})
+        if (stand.id == gateId)
         {
-            DrawCubeV(
-                {x + side * 1.015f, 0.99f, z + stripeZ},
-                {0.035f, 0.28f, 0.46f},
-                FollowBlack);
+            targetGate = &stand;
+            break;
         }
-
-        for (float axleZ : {-1.48f, 1.48f})
-            DrawWheel(x + side * 1.04f, 0.38f, z + axleZ, 0.38f);
     }
+    if (targetGate == nullptr) return false;
 
-    DrawCubeV({x, 2.12f, z - 0.35f}, {0.32f, 0.08f, 0.3f}, FollowYellow);
-    DrawCubeV({x, 2.27f, z - 0.35f}, {0.24f, 0.2f, 0.22f}, Color{220, 52, 37, 255});
-    DrawCubeV({x - 0.68f, 1.14f, z + 2.34f}, {0.32f, 0.16f, 0.06f}, Trim);
-    DrawCubeV({x + 0.68f, 1.14f, z + 2.34f}, {0.32f, 0.16f, 0.06f}, Trim);
+    constexpr float MovementSpeed = 12.0f;
+    const float dx = targetGate->position.x - positionX;
+    const float dz = targetGate->position.z - positionZ;
+    const float distance = std::sqrt(dx * dx + dz * dz);
+    if (distance <= 0.001f) return true;
+
+    const float travelDistance = std::min(distance, MovementSpeed * deltaTime);
+    positionX += dx / distance * travelDistance;
+    positionZ += dz / distance * travelDistance;
+    return travelDistance >= distance;
 }
 
 AircraftPushbackTug::AircraftPushbackTug(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 
@@ -129,7 +125,7 @@ void AircraftPushbackTug::Draw() const
 }
 
 BaggageBeltLoader::BaggageBeltLoader(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 
@@ -173,7 +169,7 @@ void BaggageBeltLoader::Draw() const
 }
 
 CateringTruck::CateringTruck(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 
@@ -205,7 +201,7 @@ void CateringTruck::Draw() const
 }
 
 WaterServiceTruck::WaterServiceTruck(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 
@@ -256,7 +252,7 @@ void WaterServiceTruck::Draw() const
 }
 
 MaintenancePickupTruck::MaintenancePickupTruck(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 
@@ -286,7 +282,7 @@ void MaintenancePickupTruck::Draw() const
 }
 
 PassengerBoardingStairs::PassengerBoardingStairs(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 
@@ -346,7 +342,7 @@ void PassengerBoardingStairs::Draw() const
 }
 
 AircraftRefuellingTanker::AircraftRefuellingTanker(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+    : ServiceVehiclePosition(positionX, positionZ)
 {
 }
 

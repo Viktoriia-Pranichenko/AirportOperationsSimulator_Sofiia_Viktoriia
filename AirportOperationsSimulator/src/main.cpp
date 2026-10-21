@@ -5,6 +5,7 @@
 #include "airplane.h"
 #include "airport_fire_truck.h"
 #include "airport_service_vehicles.h"
+#include "follow_me_car.h"
 #include "baggage_tug.h"
 #include "camera_controller.h"
 #include "car_parking_lot.h"
@@ -495,6 +496,7 @@ int main()
         const float deltaTime = GetFrameTime();
         shiftClockSeconds += deltaTime * ShiftClockRate;
         cameraController.Update(deltaTime);
+        followMeCars[0].MoveTowardsGate(1, terminal, deltaTime);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();

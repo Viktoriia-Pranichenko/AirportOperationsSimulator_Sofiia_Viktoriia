@@ -309,9 +309,11 @@
     <ClInclude Include="src\baggage_tug.h" />
     <ClInclude Include="src\camera_controller.h" />
     <ClInclude Include="src\car_parking_lot.h" />
+    <ClInclude Include="src\follow_me_car.h" />
     <ClInclude Include="src\passenger_shuttle.h" />
     <ClInclude Include="src\resource_dir.h" />
     <ClInclude Include="src\service_building.h" />
+    <ClInclude Include="src\service_vehicle_route.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\airplane.cpp" />
@@ -321,9 +323,11 @@
     <ClCompile Include="src\airport_terminal.cpp" />
     <ClCompile Include="src\baggage_tug.cpp" />
     <ClCompile Include="src\car_parking_lot.cpp" />
+    <ClCompile Include="src\follow_me_car.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\passenger_shuttle.cpp" />
     <ClCompile Include="src\service_building.cpp" />
+    <ClCompile Include="src\service_vehicle_route.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\icon.ico" />

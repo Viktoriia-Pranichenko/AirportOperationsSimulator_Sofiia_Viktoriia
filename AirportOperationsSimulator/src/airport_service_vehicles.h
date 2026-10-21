@@ -1,89 +1,71 @@
 #pragma once
 
-class FollowMeCar
+class AirportTerminal;
+
+class ServiceVehiclePosition
 {
 public:
-    FollowMeCar(float positionX, float positionZ);
-    void Draw() const;
+    ServiceVehiclePosition(float positionX, float positionZ);
+    bool MoveTowardsGate(int gateNumber, const AirportTerminal& terminal,
+        float deltaTime);
 
-private:
+protected:
     float positionX;
     float positionZ;
 };
 
-class AircraftPushbackTug
+class AircraftPushbackTug : public ServiceVehiclePosition
 {
 public:
     AircraftPushbackTug(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
 
-class BaggageBeltLoader
+class BaggageBeltLoader : public ServiceVehiclePosition
 {
 public:
     BaggageBeltLoader(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
 
-class CateringTruck
+class CateringTruck : public ServiceVehiclePosition
 {
 public:
     CateringTruck(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
 
-class WaterServiceTruck
+class WaterServiceTruck : public ServiceVehiclePosition
 {
 public:
     WaterServiceTruck(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
 
-class MaintenancePickupTruck
+class MaintenancePickupTruck : public ServiceVehiclePosition
 {
 public:
     MaintenancePickupTruck(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
 
-class PassengerBoardingStairs
+class PassengerBoardingStairs : public ServiceVehiclePosition
 {
 public:
     PassengerBoardingStairs(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
 
-class AircraftRefuellingTanker
+class AircraftRefuellingTanker : public ServiceVehiclePosition
 {
 public:
     AircraftRefuellingTanker(float positionX, float positionZ);
     void Draw() const;
 
-private:
-    float positionX;
-    float positionZ;
 };
