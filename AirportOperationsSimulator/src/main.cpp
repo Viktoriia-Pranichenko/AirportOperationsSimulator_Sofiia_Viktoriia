@@ -243,7 +243,8 @@ namespace
         BeginTextureMode(previewTarget);
         ClearBackground(Color{27, 42, 51, 255});
         BeginMode3D(previewCamera);
-        airplane.Draw({0.0f, 0.0f}, 0.0f, 0.95f);
+        airplane.Draw({0.0f, 0.0f}, 0.0f,
+            airplane.size == AircraftSize::Large ? 0.78f : 0.62f);
         EndMode3D();
         EndTextureMode();
 
@@ -339,29 +340,31 @@ int main()
     // samples, so the aircraft can follow the authored bends smoothly.
     struct ArrivalSetup { const char* flight; const char* name; const char* airline;
         const char* origin; const char* destination; Color livery; const char* type; const char* approach;
-        const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
+        AircraftSize size; const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
         float arrivalMinute; float departureMinute; };
     const ArrivalSetup arrivals[] = {
-        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f, 0.0f, 12.0f},
-        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_W", "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f, 4.0f, 17.0f},
-        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_W", "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f, 8.0f, 22.0f},
-        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_W", "RUNWAY_A", "RUNWAY_START_W", "GATE_2", -507.0f, 15.0f, 29.0f}
+        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_W", AircraftSize::Large, "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f, 0.0f, 12.0f},
+        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_W", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f, 4.0f, 17.0f},
+        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_W", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f, 8.0f, 22.0f},
+        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_W", AircraftSize::Large, "RUNWAY_A", "RUNWAY_START_W", "GATE_2", -507.0f, 15.0f, 29.0f}
     };
     for (const ArrivalSetup& setup : arrivals)
     {
         FlightPlan plan;
         plan.airplane.flightId = setup.flight;
         plan.airplane.aircraftType = setup.type;
+        plan.airplane.size = setup.size;
         plan.flightName = setup.name;
         plan.airline = setup.airline;
         plan.origin = setup.origin;
         plan.destination = setup.destination;
         plan.livery = setup.livery;
+        plan.airplane.liveryColor = setup.livery;
         const TaxiwayNode* approach = airportGround.FindNode(setup.approach);
         if (approach == nullptr) continue;
         plan.airplane.position = {approach->position.x, approach->position.z};
         plan.airplane.headingDegrees = 90.0f;
-        plan.airplane.renderScale = 0.23f;
+        plan.airplane.renderScale = setup.size == AircraftSize::Large ? 0.21f : 0.17f;
         plan.airplane.isPriority = std::string(setup.flight) == "AO202";
         plan.hasArrivalSchedule = true;
         plan.arrivalScheduledSeconds = setup.arrivalMinute * 60.0f;
@@ -391,15 +394,17 @@ int main()
         FlightPlan plan;
         plan.airplane.flightId = "AO440";
         plan.airplane.aircraftType = "Narrow-body jet";
+        plan.airplane.size = AircraftSize::Small;
         plan.flightName = "Coastal 440";
         plan.airline = "Coastal Air";
         plan.origin = "Airport (HOME)";
         plan.destination = "Oslo (OSL)";
         plan.livery = {87, 158, 192, 255};
+        plan.airplane.liveryColor = plan.livery;
         plan.airplane.position = {stand->position.x, stand->position.z};
         plan.airplane.headingDegrees = 180.0f;
         plan.airplane.state = AirplaneState::Parked;
-        plan.airplane.renderScale = 0.23f;
+        plan.airplane.renderScale = 0.17f;
         for (const AirportParkingStand& parkingStand : terminal.GetParkingStands())
         {
             if (parkingStand.id == "GATE_4")
@@ -723,10 +728,31 @@ int main()
                 if (request.arrival)
                 {
                     std::vector<const AirportParkingStand*> standCandidates;
-                    for (const AirportParkingStand& stand : terminal.GetParkingStands())
-                        if (stand.id == candidate.parkingStandId) standCandidates.push_back(&stand);
-                    for (const AirportParkingStand& stand : terminal.GetParkingStands())
-                        if (stand.id != candidate.parkingStandId) standCandidates.push_back(&stand);
+                    const auto addStandCandidates = [&](AircraftSize preferredSize,
+                        bool preferredStandFirst)
+                    {
+                        if (preferredStandFirst)
+                        {
+                            for (const AirportParkingStand& stand : terminal.GetParkingStands())
+                                if (stand.id == candidate.parkingStandId && stand.capacity > 0 &&
+                                    stand.size == preferredSize &&
+                                    (candidate.airplane.size == AircraftSize::Small ||
+                                        stand.size == AircraftSize::Large))
+                                    standCandidates.push_back(&stand);
+                        }
+                        for (const AirportParkingStand& stand : terminal.GetParkingStands())
+                            if (stand.id != candidate.parkingStandId && stand.capacity > 0 &&
+                                stand.size == preferredSize &&
+                                (candidate.airplane.size == AircraftSize::Small ||
+                                    stand.size == AircraftSize::Large))
+                                standCandidates.push_back(&stand);
+                    };
+                    if (candidate.airplane.size == AircraftSize::Small)
+                    {
+                        addStandCandidates(AircraftSize::Small, true);
+                        addStandCandidates(AircraftSize::Large, true);
+                    }
+                    else addStandCandidates(AircraftSize::Large, true);
                     bool foundStand = false;
                     for (const AirportParkingStand* stand : standCandidates)
                     {

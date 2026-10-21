@@ -302,15 +302,21 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
         for (int i = 0; i < 4; ++i)
             result.push_back({"GATE_" + std::to_string(i + 1),
-                {backStandXs[i] * TerminalScale, 0.035f, -20.0f * TerminalScale}, 180.0f});
+                {backStandXs[i] * TerminalScale, 0.035f, -20.0f * TerminalScale}, 180.0f,
+                AircraftSize::Small, 1});
 
-        constexpr float wingStandZs[] = {-48.0f, -80.0f, -112.0f};
+        // These coordinates match the painted side stands and their gate-view
+        // hit targets. Keeping route nodes on the markings makes parked planes
+        // stop in the actual stand rather than on the taxi lane.
+        constexpr float wingStandZs[] = {-72.0f, -104.0f, -136.0f};
         for (int row = 0; row < 3; ++row)
         {
             result.push_back({"WEST_" + std::to_string(row + 1),
-                {-SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f});
+                {-SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f,
+                AircraftSize::Large, 1});
             result.push_back({"EAST_" + std::to_string(row + 1),
-                {SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f});
+                {SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f,
+                AircraftSize::Large, 1});
         }
         return result;
     }();

@@ -20,6 +20,8 @@ enum class AirplaneState
     Incident
 };
 
+enum class AircraftSize { Small, Large };
+
 // Flight data plus a low-poly 3D passenger aircraft. Heading 0 faces along -Z.
 // The simulation owns the airplane's state; Draw() only renders that state.
 class Airplane
@@ -27,6 +29,8 @@ class Airplane
 public:
     std::string flightId{"AO100"};
     std::string aircraftType{"Passenger jet"};
+    AircraftSize size{AircraftSize::Small};
+    Color liveryColor{48, 125, 160, 255};
     Vector2 position{0.0f, 0.0f};
     Vector2 targetPosition{0.0f, 0.0f};
     AirplaneState state{AirplaneState::Arriving};

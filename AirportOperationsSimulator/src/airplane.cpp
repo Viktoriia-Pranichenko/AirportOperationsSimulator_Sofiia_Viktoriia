@@ -6,15 +6,22 @@
 
 namespace
 {
-    constexpr Color WingTop{48, 125, 160, 255};
-    constexpr Color WingBottom{31, 82, 108, 255};
     constexpr Color Fuselage{224, 231, 226, 255};
     constexpr Color FuselageShade{170, 188, 190, 255};
     constexpr Color WindowColor{39, 116, 148, 255};
     constexpr Color EngineColor{55, 66, 72, 255};
     constexpr Color EngineInner{29, 38, 43, 255};
-    constexpr Color AccentColor{224, 151, 57, 255};
     constexpr Color GearColor{39, 46, 49, 255};
+
+    Color Darken(Color color, float amount)
+    {
+        return {
+            static_cast<unsigned char>(color.r * amount),
+            static_cast<unsigned char>(color.g * amount),
+            static_cast<unsigned char>(color.b * amount),
+            color.a
+        };
+    }
 
     Vector3 TransformLocal(Vector3 local, Vector2 position, float cosine, float sine, float scale)
     {
@@ -34,7 +41,8 @@ namespace
     }
 
     void Wing(Vector3 rootFront, Vector3 tipFront, Vector3 tipBack, Vector3 rootBack,
-        Vector2 position, float cosine, float sine, float scale)
+        Vector2 position, float cosine, float sine, float scale,
+        Color wingTop, Color wingBottom)
     {
         const float thickness = 0.7f;
         const Vector3 rootFrontBottom{rootFront.x, rootFront.y - thickness, rootFront.z};
@@ -42,14 +50,14 @@ namespace
         const Vector3 tipBackBottom{tipBack.x, tipBack.y - thickness, tipBack.z};
         const Vector3 rootBackBottom{rootBack.x, rootBack.y - thickness, rootBack.z};
 
-        Triangle(rootFront, tipFront, tipBack, position, cosine, sine, scale, WingTop);
-        Triangle(rootFront, tipBack, rootBack, position, cosine, sine, scale, WingTop);
-        Triangle(rootFrontBottom, tipBackBottom, tipFrontBottom, position, cosine, sine, scale, WingBottom);
-        Triangle(rootFrontBottom, rootBackBottom, tipBackBottom, position, cosine, sine, scale, WingBottom);
+        Triangle(rootFront, tipFront, tipBack, position, cosine, sine, scale, wingTop);
+        Triangle(rootFront, tipBack, rootBack, position, cosine, sine, scale, wingTop);
+        Triangle(rootFrontBottom, tipBackBottom, tipFrontBottom, position, cosine, sine, scale, wingBottom);
+        Triangle(rootFrontBottom, rootBackBottom, tipBackBottom, position, cosine, sine, scale, wingBottom);
         Triangle(rootFront, rootFrontBottom, tipFrontBottom, position, cosine, sine, scale, FuselageShade);
         Triangle(rootFront, tipFrontBottom, tipFront, position, cosine, sine, scale, FuselageShade);
-        Triangle(rootBack, tipBack, tipBackBottom, position, cosine, sine, scale, WingBottom);
-        Triangle(rootBack, tipBackBottom, rootBackBottom, position, cosine, sine, scale, WingBottom);
+        Triangle(rootBack, tipBack, tipBackBottom, position, cosine, sine, scale, wingBottom);
+        Triangle(rootBack, tipBackBottom, rootBackBottom, position, cosine, sine, scale, wingBottom);
     }
 }
 
@@ -169,20 +177,22 @@ void Airplane::Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale)
     const float radians = drawHeadingDegrees * DEG2RAD;
     const float cosine = std::cos(radians);
     const float sine = std::sin(radians);
+    const Color wingTop = liveryColor;
+    const Color wingBottom = Darken(liveryColor, 0.62f);
 
     // The broad wings and tailplane are thin 3D prisms with shaded undersides.
     Wing({-3.5f, 1.2f, -9.0f}, {-44.0f, 0.5f, 12.0f},
          {-39.0f, 0.5f, 20.0f}, {-3.5f, 1.2f, 4.0f},
-         drawPosition, cosine, sine, scale);
+         drawPosition, cosine, sine, scale, wingTop, wingBottom);
     Wing({3.5f, 1.2f, -9.0f}, {44.0f, 0.5f, 12.0f},
          {39.0f, 0.5f, 20.0f}, {3.5f, 1.2f, 4.0f},
-         drawPosition, cosine, sine, scale);
+         drawPosition, cosine, sine, scale, wingTop, wingBottom);
     Wing({-2.5f, 1.1f, 25.0f}, {-20.0f, 0.5f, 34.0f},
          {-17.0f, 0.5f, 38.0f}, {-2.5f, 1.1f, 32.0f},
-         drawPosition, cosine, sine, scale);
+         drawPosition, cosine, sine, scale, wingTop, wingBottom);
     Wing({2.5f, 1.1f, 25.0f}, {20.0f, 0.5f, 34.0f},
          {17.0f, 0.5f, 38.0f}, {2.5f, 1.1f, 32.0f},
-         drawPosition, cosine, sine, scale);
+         drawPosition, cosine, sine, scale, wingTop, wingBottom);
 
     // Rounded fuselage, tapered toward the nose and tail.
     DrawCylinderEx(TransformLocal({0.0f, 0.9f, -25.0f}, drawPosition, cosine, sine, scale),
@@ -197,9 +207,9 @@ void Airplane::Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale)
 
     // Tall vertical fin gives the tail a clear 3D profile.
     Triangle({-2.0f, 1.2f, 25.0f}, {0.0f, 9.0f, 36.0f}, {0.0f, 1.2f, 36.0f},
-        drawPosition, cosine, sine, scale, WingTop);
+        drawPosition, cosine, sine, scale, wingTop);
     Triangle({2.0f, 1.2f, 25.0f}, {0.0f, 1.2f, 36.0f}, {0.0f, 9.0f, 36.0f},
-        drawPosition, cosine, sine, scale, WingBottom);
+        drawPosition, cosine, sine, scale, wingBottom);
     Triangle({0.0f, 9.0f, 36.0f}, {0.0f, 1.2f, 36.0f}, {0.0f, 1.2f, 25.0f},
         drawPosition, cosine, sine, scale, FuselageShade);
 
@@ -227,7 +237,7 @@ void Airplane::Draw(Vector2 drawPosition, float drawHeadingDegrees, float scale)
     }
     DrawCylinderEx(TransformLocal({0.0f, 2.15f, 17.0f}, drawPosition, cosine, sine, scale),
         TransformLocal({0.0f, 2.15f, 22.0f}, drawPosition, cosine, sine, scale),
-        0.55f * scale, 0.42f * scale, 8, AccentColor);
+        0.55f * scale, 0.42f * scale, 8, liveryColor);
 
     // Simple landing gear makes the plane feel grounded on the airport surface.
     for (const float side : sides)

@@ -18,13 +18,19 @@
     <ClInclude Include="src\airplane.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\baggage_tug.h">
+    <ClInclude Include="src\airport_fire_truck.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\airport_ground.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\airport_service_vehicles.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\airport_terminal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\baggage_tug.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\camera_controller.h">
@@ -33,13 +39,7 @@
     <ClInclude Include="src\car_parking_lot.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\airport_fire_truck.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="src\passenger_shuttle.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\airport_service_vehicles.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\resource_dir.h">
@@ -53,28 +53,28 @@
     <ClCompile Include="src\airplane.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\baggage_tug.cpp">
+    <ClCompile Include="src\airport_fire_truck.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\airport_ground.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\airport_service_vehicles.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\airport_terminal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\baggage_tug.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\car_parking_lot.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\airport_fire_truck.cpp">
+    <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\passenger_shuttle.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\airport_service_vehicles.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\service_building.cpp">

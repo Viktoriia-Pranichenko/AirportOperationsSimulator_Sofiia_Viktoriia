@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raylib.h"
+#include "airplane.h"
 
 #include <string>
 #include <vector>
@@ -10,6 +11,8 @@ struct AirportParkingStand
     std::string id;
     Vector3 position;
     float headingDegrees;
+    AircraftSize size;
+    int capacity;
 };
 
 class AirportTerminal
