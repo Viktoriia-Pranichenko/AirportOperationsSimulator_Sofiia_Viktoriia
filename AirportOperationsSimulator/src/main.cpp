@@ -296,54 +296,51 @@ int main()
     AirportTerminal terminal;
     AirportGround airportGround(terminal);
     std::vector<FlightPlan> flights;
-    // Keep the original parking bays recorded for the later vehicle-movement
-    // work. For this temporary static servicing view, the active models below
-    // are staged around the already parked aircraft at GATE_4.
-    [[maybe_unused]] constexpr Vector2 BaggageTugParkingPositions[] = {
+    // Keep the original parking bays available for later vehicle-movement work.
+    constexpr Vector2 BaggageTugParkingPositions[] = {
         {230.85f, -112.25f},
         {225.75f, -112.25f},
         {220.65f, -112.25f},
         {215.55f, -112.25f},
         {210.45f, -112.25f}
     };
-    [[maybe_unused]] constexpr Vector2 PassengerShuttleParkingPositions[] = {
+    constexpr Vector2 PassengerShuttleParkingPositions[] = {
         {164.55f, -112.25f},
         {169.65f, -112.25f},
         {174.75f, -112.25f}
     };
-    [[maybe_unused]] constexpr Vector2 FireTruckParkingPositions[] = {
+    constexpr Vector2 FireTruckParkingPositions[] = {
         {179.85f, -112.25f},
         {184.95f, -112.25f}
     };
-    [[maybe_unused]] constexpr Vector2 RefuellingTankerParkingPositions[] = {
+    constexpr Vector2 RefuellingTankerParkingPositions[] = {
         {190.05f, -112.25f},
         {195.15f, -112.25f}
     };
     constexpr Vector2 FollowMeCarParkingPosition{190.05f, -39.75f};
-    [[maybe_unused]] constexpr Vector2 PushbackTugParkingPositions[] = {
+    constexpr Vector2 PushbackTugParkingPositions[] = {
         {200.25f, -39.75f}, {205.35f, -39.75f}, {210.45f, -39.75f}
     };
-    [[maybe_unused]] constexpr Vector2 BaggageBeltLoaderParkingPositions[] = {
+    constexpr Vector2 BaggageBeltLoaderParkingPositions[] = {
         {164.55f, -39.75f}, {169.65f, -39.75f}, {174.75f, -39.75f},
         {179.85f, -39.75f}, {184.95f, -39.75f}
     };
-    [[maybe_unused]] constexpr Vector2 CateringTruckParkingPositions[] = {
+    constexpr Vector2 CateringTruckParkingPositions[] = {
         {164.55f, -70.25f}, {169.65f, -70.25f}
     };
-    [[maybe_unused]] constexpr Vector2 WaterServiceTruckParkingPositions[] = {
+    constexpr Vector2 WaterServiceTruckParkingPositions[] = {
         {174.75f, -70.25f}, {179.85f, -70.25f}
     };
-    [[maybe_unused]] constexpr Vector2 MaintenancePickupParkingPositions[] = {
+    constexpr Vector2 MaintenancePickupParkingPositions[] = {
         {184.95f, -70.25f}, {190.05f, -70.25f}
     };
-    [[maybe_unused]] constexpr Vector2 BoardingStairsParkingPositions[] = {
+    constexpr Vector2 BoardingStairsParkingPositions[] = {
         {195.15f, -70.25f}, {200.25f, -70.25f}, {205.35f, -70.25f},
         {210.45f, -70.25f}, {215.55f, -70.25f}, {220.65f, -70.25f},
         {225.75f, -70.25f}, {230.85f, -70.25f}
     };
 
-    // A single, spaced service set is shown beside the static GATE_4 aircraft.
-    // Positions are outside the aircraft planform and away from the terminal.
+    // Preserve the temporary Gate 4 service scene and also display the parked fleet.
     BaggageTug baggageTugs[] = {{44.5f, -37.0f}};
     AircraftRefuellingTanker refuellingTankers[] = {{75.5f, -27.0f}};
     FollowMeCar followMeCars[] = {{FollowMeCarParkingPosition.x, FollowMeCarParkingPosition.y}};
@@ -354,6 +351,61 @@ int main()
     MaintenancePickupTruck maintenancePickupTrucks[] = {{44.5f, -26.0f}};
     PassengerBoardingStairs passengerBoardingStairs[] = {
         {50.0f, -17.0f}, {70.5f, -17.0f}
+    };
+
+    BaggageTug parkedBaggageTugs[] = {
+        {BaggageTugParkingPositions[0].x, BaggageTugParkingPositions[0].y},
+        {BaggageTugParkingPositions[1].x, BaggageTugParkingPositions[1].y},
+        {BaggageTugParkingPositions[2].x, BaggageTugParkingPositions[2].y},
+        {BaggageTugParkingPositions[3].x, BaggageTugParkingPositions[3].y},
+        {BaggageTugParkingPositions[4].x, BaggageTugParkingPositions[4].y}
+    };
+    PassengerShuttle passengerShuttles[] = {
+        {PassengerShuttleParkingPositions[0].x, PassengerShuttleParkingPositions[0].y},
+        {PassengerShuttleParkingPositions[1].x, PassengerShuttleParkingPositions[1].y},
+        {PassengerShuttleParkingPositions[2].x, PassengerShuttleParkingPositions[2].y}
+    };
+    AirportFireTruck airportFireTrucks[] = {
+        {FireTruckParkingPositions[0].x, FireTruckParkingPositions[0].y},
+        {FireTruckParkingPositions[1].x, FireTruckParkingPositions[1].y}
+    };
+    AircraftRefuellingTanker parkedRefuellingTankers[] = {
+        {RefuellingTankerParkingPositions[0].x, RefuellingTankerParkingPositions[0].y},
+        {RefuellingTankerParkingPositions[1].x, RefuellingTankerParkingPositions[1].y}
+    };
+    AircraftPushbackTug parkedPushbackTugs[] = {
+        {PushbackTugParkingPositions[0].x, PushbackTugParkingPositions[0].y},
+        {PushbackTugParkingPositions[1].x, PushbackTugParkingPositions[1].y},
+        {PushbackTugParkingPositions[2].x, PushbackTugParkingPositions[2].y}
+    };
+    BaggageBeltLoader parkedBaggageBeltLoaders[] = {
+        {BaggageBeltLoaderParkingPositions[0].x, BaggageBeltLoaderParkingPositions[0].y},
+        {BaggageBeltLoaderParkingPositions[1].x, BaggageBeltLoaderParkingPositions[1].y},
+        {BaggageBeltLoaderParkingPositions[2].x, BaggageBeltLoaderParkingPositions[2].y},
+        {BaggageBeltLoaderParkingPositions[3].x, BaggageBeltLoaderParkingPositions[3].y},
+        {BaggageBeltLoaderParkingPositions[4].x, BaggageBeltLoaderParkingPositions[4].y}
+    };
+    CateringTruck parkedCateringTrucks[] = {
+        {CateringTruckParkingPositions[0].x, CateringTruckParkingPositions[0].y},
+        {CateringTruckParkingPositions[1].x, CateringTruckParkingPositions[1].y}
+    };
+    WaterServiceTruck parkedWaterServiceTrucks[] = {
+        {WaterServiceTruckParkingPositions[0].x, WaterServiceTruckParkingPositions[0].y},
+        {WaterServiceTruckParkingPositions[1].x, WaterServiceTruckParkingPositions[1].y}
+    };
+    MaintenancePickupTruck parkedMaintenancePickupTrucks[] = {
+        {MaintenancePickupParkingPositions[0].x, MaintenancePickupParkingPositions[0].y},
+        {MaintenancePickupParkingPositions[1].x, MaintenancePickupParkingPositions[1].y}
+    };
+    PassengerBoardingStairs parkedPassengerBoardingStairs[] = {
+        {BoardingStairsParkingPositions[0].x, BoardingStairsParkingPositions[0].y},
+        {BoardingStairsParkingPositions[1].x, BoardingStairsParkingPositions[1].y},
+        {BoardingStairsParkingPositions[2].x, BoardingStairsParkingPositions[2].y},
+        {BoardingStairsParkingPositions[3].x, BoardingStairsParkingPositions[3].y},
+        {BoardingStairsParkingPositions[4].x, BoardingStairsParkingPositions[4].y},
+        {BoardingStairsParkingPositions[5].x, BoardingStairsParkingPositions[5].y},
+        {BoardingStairsParkingPositions[6].x, BoardingStairsParkingPositions[6].y},
+        {BoardingStairsParkingPositions[7].x, BoardingStairsParkingPositions[7].y}
     };
     ServiceBuilding serviceBuilding;
     CarParkingLot carParkingLot;
@@ -868,6 +920,26 @@ int main()
         if (!selectedGateId.empty())
             terminal.DrawGateHighlight(selectedGateId);
         serviceBuilding.Draw();
+        for (const BaggageTug& baggageTug : parkedBaggageTugs)
+            baggageTug.Draw();
+        for (const PassengerShuttle& shuttle : passengerShuttles)
+            shuttle.Draw();
+        for (const AirportFireTruck& fireTruck : airportFireTrucks)
+            fireTruck.Draw();
+        for (const AircraftRefuellingTanker& refuellingTanker : parkedRefuellingTankers)
+            refuellingTanker.Draw();
+        for (const AircraftPushbackTug& pushbackTug : parkedPushbackTugs)
+            pushbackTug.Draw();
+        for (const BaggageBeltLoader& baggageBeltLoader : parkedBaggageBeltLoaders)
+            baggageBeltLoader.Draw();
+        for (const CateringTruck& cateringTruck : parkedCateringTrucks)
+            cateringTruck.Draw();
+        for (const WaterServiceTruck& waterServiceTruck : parkedWaterServiceTrucks)
+            waterServiceTruck.Draw();
+        for (const MaintenancePickupTruck& maintenancePickupTruck : parkedMaintenancePickupTrucks)
+            maintenancePickupTruck.Draw();
+        for (const PassengerBoardingStairs& boardingStairs : parkedPassengerBoardingStairs)
+            boardingStairs.Draw();
         for (const BaggageTug& baggageTug : baggageTugs)
             baggageTug.Draw();
         for (const AircraftRefuellingTanker& refuellingTanker : refuellingTankers)
