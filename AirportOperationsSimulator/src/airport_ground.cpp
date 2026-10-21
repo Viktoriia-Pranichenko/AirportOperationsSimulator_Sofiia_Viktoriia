@@ -386,13 +386,13 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     // taxiway surfaces inside the marked apron network.
     AddNode("APRON_ENTRY", {0.0f, routeY, -220.0f});
     AddNode("APRON_GATEWAY", {0.0f, routeY, -190.0f});
-    AddNode("APRON_SIDE_FAR", {0.0f, routeY, -170.0f});
-    AddNode("WING_SPINE_3", {0.0f, routeY, -162.0f});
-    AddNode("APRON_SIDE_MIDDLE", {0.0f, routeY, -130.0f});
-    AddNode("WING_SPINE_2", {0.0f, routeY, -122.0f});
-    AddNode("APRON_SIDE_NEAR", {0.0f, routeY, -90.0f});
-    AddNode("WING_SPINE_1", {0.0f, routeY, -82.0f});
-    AddNode("APRON_BACK_ROW", {0.0f, routeY, -48.0f});
+    AddNode("APRON_SIDE_FAR", {0.0f, routeY, -180.0f});
+    AddNode("WING_SPINE_3", {0.0f, routeY, -174.0f});
+    AddNode("APRON_SIDE_MIDDLE", {0.0f, routeY, -140.0f});
+    AddNode("WING_SPINE_2", {0.0f, routeY, -134.0f});
+    AddNode("APRON_SIDE_NEAR", {0.0f, routeY, -100.0f});
+    AddNode("WING_SPINE_1", {0.0f, routeY, -94.0f});
+    AddNode("APRON_BACK_ROW", {0.0f, routeY, -60.0f});
     Connect("A_CENTER", "APRON_ENTRY", 15.0f);
     Connect("APRON_ENTRY", "APRON_GATEWAY", 14.0f, false);
     Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 12.0f, false);
@@ -405,12 +405,12 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
 
     // A separate gate-side apron lane gives all four facade stands an approach.
     constexpr float gateXs[] = {-33.75f, -11.25f, 11.25f, 33.75f};
-    AddNode("GATE_ROW_W", {-75.0f, routeY, -48.0f});
-    AddNode("GATE_ROW_1", {gateXs[0], routeY, -48.0f});
-    AddNode("GATE_ROW_2", {gateXs[1], routeY, -48.0f});
-    AddNode("GATE_ROW_3", {gateXs[2], routeY, -48.0f});
-    AddNode("GATE_ROW_4", {gateXs[3], routeY, -48.0f});
-    AddNode("GATE_ROW_E", {75.0f, routeY, -48.0f});
+    AddNode("GATE_ROW_W", {-75.0f, routeY, -60.0f});
+    AddNode("GATE_ROW_1", {gateXs[0], routeY, -60.0f});
+    AddNode("GATE_ROW_2", {gateXs[1], routeY, -60.0f});
+    AddNode("GATE_ROW_3", {gateXs[2], routeY, -60.0f});
+    AddNode("GATE_ROW_4", {gateXs[3], routeY, -60.0f});
+    AddNode("GATE_ROW_E", {75.0f, routeY, -60.0f});
     Connect("GATE_ROW_W", "GATE_ROW_1", 10.0f, false);
     Connect("GATE_ROW_1", "GATE_ROW_2", 10.0f, false);
     Connect("GATE_ROW_2", "APRON_BACK_ROW", 10.0f, false);
@@ -419,7 +419,7 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     Connect("GATE_ROW_4", "GATE_ROW_E", 10.0f, false);
 
     // Taxiway branches reach the six wing stands without crossing the stands.
-    const float wingTaxiZs[] = {-82.0f, -122.0f, -162.0f};
+    const float wingTaxiZs[] = {-94.0f, -134.0f, -174.0f};
     for (int row = 0; row < 3; ++row)
     {
         const float z = wingTaxiZs[row];

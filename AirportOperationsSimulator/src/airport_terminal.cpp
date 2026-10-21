@@ -54,7 +54,7 @@ namespace
         return {camera.position, direction};
     }
 
-        constexpr Color Wall{211, 204, 177, 255};
+    constexpr Color Wall{211, 204, 177, 255};
     constexpr Color WallSide{164, 180, 175, 255};
     constexpr Color Roof{43, 73, 94, 255};
     constexpr Color Trim{91, 127, 140, 255};
@@ -64,12 +64,15 @@ namespace
     constexpr float WallHeight = 12.0f;
     constexpr float RoofY = 12.65f;
     constexpr float BackFacadeZ = -8.0f;
-    constexpr float LeftInnerX = -42.0f;
-    constexpr float RightInnerX = 42.0f;
-    constexpr float SideWingCenterZ = -70.0f;
-    constexpr float SideWingLength = 156.0f;
+    constexpr float MainHallRearZ = 57.0f;
+    constexpr float TerminalZOffset = 8.0f;
+    constexpr float LeftInnerX = -56.0f;
+    constexpr float RightInnerX = 56.0f;
+    constexpr float SideWingCenterX = 65.0f;
+    constexpr float SideWingCenterZ = -68.0f;
+    constexpr float SideWingLength = 160.0f;
     constexpr float TerminalScale = 1.25f;
-    constexpr float SideStandCenterX = 28.0f;
+    constexpr float SideStandCenterX = 42.0f;
     constexpr Color BoardingDoorGlass{190, 105, 58, 255};
     constexpr Color BoardingDoorHighlight{239, 184, 119, 255};
 
@@ -78,6 +81,7 @@ namespace
         center.x *= TerminalScale;
         center.y *= TerminalScale;
         center.z *= TerminalScale;
+        center.z += TerminalZOffset;
         size.x *= TerminalScale;
         size.y *= TerminalScale;
         size.z *= TerminalScale;
@@ -104,7 +108,6 @@ namespace
 
     void DrawMainHallWindow(float x, float y)
     {
-        constexpr float MainHallRearZ = 53.0f;
         Box({x, y, MainHallRearZ + 0.12f}, {10.0f, 3.2f, 0.18f}, Glass);
         Box({x, y + 0.95f, MainHallRearZ + 0.23f}, {9.2f, 0.12f, 0.035f}, GlassHighlight);
         Box({x - 4.8f, y, MainHallRearZ + 0.24f}, {0.07f, 3.32f, 0.035f}, DoorFrame);
@@ -134,16 +137,20 @@ namespace
     {
         // Three connected, two-storey blocks make a U around the open central apron.
         Box({0.0f, WallHeight * 0.5f, 0.0f}, {176.0f, WallHeight, 16.0f}, Wall);
-        Box({-51.0f, WallHeight * 0.5f, SideWingCenterZ}, {18.0f, WallHeight, SideWingLength}, WallSide);
-        Box({51.0f, WallHeight * 0.5f, SideWingCenterZ}, {18.0f, WallHeight, SideWingLength}, WallSide);
+        Box({-SideWingCenterX, WallHeight * 0.5f, SideWingCenterZ},
+            {18.0f, WallHeight, SideWingLength}, WallSide);
+        Box({SideWingCenterX, WallHeight * 0.5f, SideWingCenterZ},
+            {18.0f, WallHeight, SideWingLength}, WallSide);
         // A broader central terminal hall continues behind the U-shaped boarding concourse.
-        Box({0.0f, WallHeight * 0.5f, 29.0f}, {176.0f, WallHeight, 48.0f}, WallSide);
+        Box({0.0f, WallHeight * 0.5f, 31.0f}, {176.0f, WallHeight, 52.0f}, WallSide);
 
         // Roof slabs and fascia read clearly above the upper-storey glazing.
         Box({0.0f, RoofY, 0.0f}, {178.0f, 1.3f, 18.0f}, Roof);
-        Box({-51.0f, RoofY, SideWingCenterZ}, {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
-        Box({51.0f, RoofY, SideWingCenterZ}, {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
-        Box({0.0f, RoofY, 29.0f}, {178.0f, 1.3f, 50.0f}, Roof);
+        Box({-SideWingCenterX, RoofY, SideWingCenterZ},
+            {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
+        Box({SideWingCenterX, RoofY, SideWingCenterZ},
+            {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
+        Box({0.0f, RoofY, 31.0f}, {178.0f, 1.3f, 54.0f}, Roof);
 
         // The floor band wraps the apron-facing sides and makes the two levels distinct.
         Box({0.0f, 6.0f, BackFacadeZ - 0.12f}, {176.0f, 0.55f, 0.38f}, Trim);
@@ -161,7 +168,7 @@ namespace
         {
             DrawBackWindow(x, 9.0f, 7.0f, 3.2f);
         }
-        Box({0.0f, 6.0f, 53.05f}, {172.0f, 0.55f, 0.38f}, Trim);
+        Box({0.0f, 6.0f, MainHallRearZ + 0.05f}, {172.0f, 0.55f, 0.38f}, Trim);
         constexpr float mainHallWindowXs[] = {-72.0f, -48.0f, -24.0f, 0.0f, 24.0f, 48.0f, 72.0f};
         for (float x : mainHallWindowXs)
         {
@@ -206,6 +213,7 @@ namespace
         constexpr float dashGap = 1.5f;
         centerX *= TerminalScale;
         centerZ *= TerminalScale;
+        centerZ += TerminalZOffset;
         halfX *= TerminalScale;
         halfZ *= TerminalScale;
 
@@ -302,7 +310,8 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         constexpr float backStandXs[] = {-27.0f, -9.0f, 9.0f, 27.0f};
         for (int i = 0; i < 4; ++i)
             result.push_back({"GATE_" + std::to_string(i + 1),
-                {backStandXs[i] * TerminalScale, 0.035f, -20.0f * TerminalScale}, 180.0f,
+                {backStandXs[i] * TerminalScale, 0.035f,
+                    -20.0f * TerminalScale + TerminalZOffset}, 180.0f,
                 AircraftSize::Small, 1});
 
         // These coordinates match the painted side stands and their gate-view
@@ -312,10 +321,12 @@ const std::vector<AirportParkingStand>& AirportTerminal::GetParkingStands() cons
         for (int row = 0; row < 3; ++row)
         {
             result.push_back({"WEST_" + std::to_string(row + 1),
-                {-SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, -90.0f,
+                {-SideStandCenterX * TerminalScale, 0.035f,
+                    wingStandZs[row] * TerminalScale + TerminalZOffset}, -90.0f,
                 AircraftSize::Large, 1});
             result.push_back({"EAST_" + std::to_string(row + 1),
-                {SideStandCenterX * TerminalScale, 0.035f, wingStandZs[row] * TerminalScale}, 90.0f,
+                {SideStandCenterX * TerminalScale, 0.035f,
+                    wingStandZs[row] * TerminalScale + TerminalZOffset}, 90.0f,
                 AircraftSize::Large, 1});
         }
         return result;
@@ -371,7 +382,7 @@ bool AirportTerminal::GetGateMarkingPosition(
                     return false;
                 position.x = (gateId.rfind("WEST_", 0) == 0 ? -SideStandCenterX : SideStandCenterX) *
                     TerminalScale;
-                position.z = markingWingZs[row] * TerminalScale;
+                position.z = markingWingZs[row] * TerminalScale + TerminalZOffset;
             }
             return true;
         }
