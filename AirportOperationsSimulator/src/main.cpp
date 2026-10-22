@@ -72,6 +72,7 @@ namespace
         Rectangle next;
         Rectangle overview;
         Rectangle bringServiceCrew;
+        Rectangle disembarkPassengers;
         Rectangle refuelAircraft;
         Rectangle cateringAndWater;
         Rectangle loadBaggage;
@@ -82,10 +83,12 @@ namespace
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
-        const float actionWidth = 170.0f;
-        const float actionGap = 8.0f;
+        const float actionWidth = std::min(174.0f,
+            (static_cast<float>(GetScreenWidth()) -
+                GateNavigationButtonMargin * 2.0f - 28.0f) / 5.0f);
+        const float actionGap = 7.0f;
         const float actionHeight = 40.0f;
-        const float actionRowWidth = actionWidth * 4.0f + actionGap * 3.0f;
+        const float actionRowWidth = actionWidth * 5.0f + actionGap * 4.0f;
         return {
             {GateNavigationButtonMargin, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
@@ -106,6 +109,9 @@ namespace
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
                 (actionWidth + actionGap) * 3.0f,
+                buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
+            {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
+                (actionWidth + actionGap) * 4.0f,
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight}
         };
     }
@@ -122,7 +128,7 @@ namespace
         DrawText(label, textX, textY, FontSize, RAYWHITE);
     }
 
-    enum class GateActionIcon { Fuel, Baggage, CateringAndWater, Boarding };
+    enum class GateActionIcon { Fuel, Baggage, CateringAndWater, Boarding, Disembark };
 
     void DrawGateActionButton(Rectangle bounds, const char* label,
         const char* subtitle, float progress, Color accent, GateActionIcon icon)
@@ -178,7 +184,7 @@ namespace
             DrawCircleV({cx + 1.0f, iconBox.y + 3.0f}, 2.4f,
                 Color{134, 228, 248, 255});
         }
-        else
+        else if (icon == GateActionIcon::Boarding)
         {
             for (int step = 0; step < 4; ++step)
                 DrawLineEx({cx - 9.0f + step * 4.0f,
@@ -188,12 +194,33 @@ namespace
             DrawLineEx({cx - 9.0f, iconBox.y + 23.0f},
                 {cx + 7.0f, iconBox.y + 7.0f}, 1.5f, accent);
         }
+        else
+        {
+            DrawCircleV({cx, iconBox.y + 8.0f}, 3.4f, accent);
+            DrawLineEx({cx, iconBox.y + 12.0f}, {cx, iconBox.y + 21.0f},
+                2.2f, accent);
+            DrawLineEx({cx - 5.0f, iconBox.y + 16.0f},
+                {cx + 5.0f, iconBox.y + 16.0f}, 2.0f, accent);
+            DrawLineEx({cx, iconBox.y + 19.0f},
+                {cx - 4.0f, iconBox.y + 23.0f}, 1.8f, accent);
+            DrawLineEx({cx, iconBox.y + 19.0f},
+                {cx + 4.0f, iconBox.y + 23.0f}, 1.8f, accent);
+        }
 
         const int labelX = static_cast<int>(bounds.x + 42.0f);
+        const int textRight = static_cast<int>(bounds.x + bounds.width - 6.0f);
+        int labelFontSize = 11;
+        while (labelFontSize > 7 &&
+            MeasureText(label, labelFontSize) > textRight - labelX)
+            --labelFontSize;
+        int subtitleFontSize = 8;
+        while (subtitleFontSize > 6 &&
+            MeasureText(subtitle, subtitleFontSize) > textRight - labelX)
+            --subtitleFontSize;
         DrawText(label, labelX, static_cast<int>(bounds.y + 8.0f),
-            11, Color{244, 249, 248, 255});
-        DrawText(subtitle, labelX, static_cast<int>(bounds.y + 23.0f),
-            8, Color{171, 204, 208, 255});
+            labelFontSize, Color{244, 249, 248, 255});
+        DrawText(subtitle, labelX, static_cast<int>(bounds.y + 24.0f),
+            subtitleFontSize, Color{171, 204, 208, 255});
         DrawRectangle(static_cast<int>(bounds.x + 5.0f),
             static_cast<int>(bounds.y + bounds.height - 4.0f),
             static_cast<int>(bounds.width - 10.0f), 2, Color{7, 19, 27, 255});
@@ -987,12 +1014,23 @@ int main()
     float gate1CateringWaterTimeRemaining = 0.0f;
     float eastWingCateringWaterTimeRemaining = 0.0f;
     std::string activeCateringWaterGate;
-    enum class BoardingState { Idle, Boarding, Complete };
+    enum class BoardingState { Idle, Boarding, ReturningStairs, Complete };
     BoardingState gate1Boarding = BoardingState::Idle;
     BoardingState eastWingBoarding = BoardingState::Idle;
     float gate1BoardingTimeRemaining = 0.0f;
     float eastWingBoardingTimeRemaining = 0.0f;
-    std::string activeBoardingGate;
+    enum class DisembarkingState { Idle, Disembarking, ReturningStairs, Complete };
+    DisembarkingState gate1Disembarking = DisembarkingState::Idle;
+    DisembarkingState eastWingDisembarking = DisembarkingState::Idle;
+    float gate1DisembarkingTimeRemaining = 0.0f;
+    float eastWingDisembarkingTimeRemaining = 0.0f;
+    std::string activePassengerServiceGate;
+    std::string boardingStairsGateId;
+    Vector2 boardingStairsCrewPositions[2]{};
+    float boardingStairsCrewHeadings[2]{};
+    std::vector<Vector2> boardingStairsReturnPaths[2];
+    std::size_t boardingStairsReturnWaypoints[2]{};
+    std::string passengerServiceCompletionMessage;
     std::vector<BoardingPassenger> boardingPassengers;
     float boardingPassengerSpawnTimer = 0.0f;
     int boardingPassengerSpawnWaves = 0;
@@ -1178,9 +1216,9 @@ int main()
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (!activeBoardingGate.empty())
+        if (!activePassengerServiceGate.empty())
         {
-            refuellingMessage = "Wait for passenger boarding to finish.";
+            refuellingMessage = "Wait for passenger service to finish.";
             refuellingMessageTime = 2.5f;
             return;
         }
@@ -1310,8 +1348,11 @@ int main()
             const std::size_t stairIndex = i - 7;
             passengerBoardingStairs[stairIndex].SetPosition(stairs.x, stairs.y);
             passengerBoardingStairs[stairIndex].SetHeadingDegrees(vehicleHeadingDegrees);
+            boardingStairsCrewPositions[stairIndex] = stairs;
+            boardingStairsCrewHeadings[stairIndex] = vehicleHeadingDegrees;
         }
         serviceCrewGateId = selectedGateId;
+        boardingStairsGateId = selectedGateId;
     };
     const auto getRefuellingApproachWaypoints = [&](const Airplane& aircraft,
         const AircraftRefuellingTanker& tanker)
@@ -1365,9 +1406,15 @@ int main()
     };
     const auto startBaggageLoading = [&](const std::string& gateId,
         const Airplane& aircraft, bool refuellingFinished,
-        bool cateringWaterFinished,
+        bool cateringWaterFinished, bool passengersDisembarked,
         BaggageLoadingState& state, float& timeRemaining)
     {
+        if (!passengersDisembarked)
+        {
+            refuellingMessage = "Disembark passengers before starting aircraft services.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (!refuellingFinished)
         {
             refuellingMessage = "Refuel the aircraft first, then complete catering and water before loading baggage.";
@@ -1446,9 +1493,16 @@ int main()
         activeBaggageLoadingGate = gateId;
     };
     const auto startCateringAndWater = [&](const std::string& gateId,
-        const Airplane& aircraft, bool refuellingFinished,
+        const Airplane& aircraft, bool passengersDisembarked,
+        bool refuellingFinished,
         CateringWaterState& state)
     {
+        if (!passengersDisembarked)
+        {
+            refuellingMessage = "Disembark passengers before starting aircraft services.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (!refuellingFinished)
         {
             refuellingMessage = "Refuel the aircraft before catering and water service.";
@@ -1528,8 +1582,66 @@ int main()
         activeCateringWaterGate = gateId;
         state = CateringWaterState::Approaching;
     };
+    const auto positionBoardingStairsAtAircraft = [&](const Airplane& aircraft)
+    {
+        const float radians = aircraft.headingDegrees * DEG2RAD;
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const auto aircraftLocalToWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                aircraft.position.x + localX * cosine - localZ * sine,
+                aircraft.position.y + localX * sine + localZ * cosine};
+        };
+        constexpr float side = 1.0f;
+        constexpr float sideOffset = 2.9f;
+        const float frontDoorZ = -20.0f * aircraft.renderScale;
+        const float rearDoorZ = 22.0f * aircraft.renderScale;
+        const float stairHeading = std::atan2(side * cosine, side * sine) / DEG2RAD;
+        const Vector2 frontPosition = aircraftLocalToWorld(side * sideOffset,
+            frontDoorZ);
+        const Vector2 rearPosition = aircraftLocalToWorld(side * sideOffset,
+            rearDoorZ);
+        passengerBoardingStairs[0].SetPosition(frontPosition.x, frontPosition.y);
+        passengerBoardingStairs[0].SetHeadingDegrees(stairHeading);
+        passengerBoardingStairs[1].SetPosition(rearPosition.x, rearPosition.y);
+        passengerBoardingStairs[1].SetHeadingDegrees(stairHeading);
+    };
+    const auto startBoardingStairsReturn = [&](const Airplane& aircraft)
+    {
+        const float radians = aircraft.headingDegrees * DEG2RAD;
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const auto toWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                aircraft.position.x + localX * cosine - localZ * sine,
+                aircraft.position.y + localX * sine + localZ * cosine};
+        };
+        for (std::size_t stair = 0; stair < 2 &&
+            stair < passengerBoardingStairs.size(); ++stair)
+        {
+            const Vector2 staging = boardingStairsCrewPositions[stair];
+            const float dx = staging.x - aircraft.position.x;
+            const float dz = staging.y - aircraft.position.y;
+            const float targetLocalX = dx * cosine + dz * sine;
+            const float targetLocalZ = -dx * sine + dz * cosine;
+            const float doorZ = stair == 0 ?
+                -20.0f * aircraft.renderScale : 22.0f * aircraft.renderScale;
+            const float targetSide = targetLocalX >= 0.0f ? 1.0f : -1.0f;
+            constexpr float clearSideDistance = 22.0f;
+            const float noseClearZ = -48.0f * aircraft.renderScale;
+            boardingStairsReturnPaths[stair] = {
+                toWorld(clearSideDistance, doorZ),
+                toWorld(clearSideDistance, noseClearZ),
+                toWorld(targetSide * clearSideDistance, noseClearZ),
+                toWorld(targetSide * clearSideDistance, targetLocalZ),
+                staging};
+            boardingStairsReturnWaypoints[stair] = 0;
+        }
+    };
     const auto spawnBoardingPassenger = [&](const std::string& gateId,
-        const Airplane& aircraft, int stairIndex, int wave)
+        const Airplane& aircraft, int stairIndex, int wave, bool reversePath)
     {
         const float radians = aircraft.headingDegrees * DEG2RAD;
         const float cosine = std::cos(radians);
@@ -1565,7 +1677,7 @@ int main()
             exitDx * cosine + exitDz * sine,
             -exitDx * sine + exitDz * cosine};
         BoardingPassenger passenger;
-        passenger.path.reserve(14);
+        passenger.path.reserve(15);
         passenger.path.push_back(toWorld(terminalExitLocal.x, 0.04f,
             terminalExitLocal.y));
         passenger.path.push_back(toWorld(laneX, 0.04f, noseClearZ));
@@ -1580,9 +1692,12 @@ int main()
                 1.13f + 1.25f * fraction, doorZ));
         }
         passenger.path.push_back(toWorld(sideOffset - 1.82f, 2.55f, doorZ));
+        passenger.path.push_back(toWorld(0.45f, 2.45f, doorZ));
         // Finish at the fuselage side so the passenger appears to enter the
         // correct door after climbing the matching set of stairs.
-        passenger.path.push_back(toWorld(0.45f, 2.45f, doorZ));
+        passenger.path.push_back(toWorld(0.0f, 2.45f, doorZ));
+        if (reversePath)
+            std::reverse(passenger.path.begin(), passenger.path.end());
         passenger.position = passenger.path.front();
         passenger.walkSpeed = stairIndex == 0 ? 4.5f : 6.5f;
         passenger.animationOffset = static_cast<float>(wave) * 1.73f +
@@ -1598,10 +1713,17 @@ int main()
         boardingPassengers.push_back(std::move(passenger));
     };
     const auto startPassengerBoarding = [&](const std::string& gateId,
-        const Airplane& aircraft, bool refuellingFinished,
+        const Airplane& aircraft, bool passengersDisembarked,
+        bool refuellingFinished,
         bool cateringWaterFinished, BaggageLoadingState baggageState,
         BoardingState& state, float& timeRemaining)
     {
+        if (!passengersDisembarked)
+        {
+            refuellingMessage = "Disembark passengers before starting aircraft services.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (!refuellingFinished || !cateringWaterFinished ||
             baggageState != BaggageLoadingState::Complete)
         {
@@ -1612,6 +1734,12 @@ int main()
         if (serviceCrewGateId != gateId)
         {
             refuellingMessage = "Bring the service crew with both Passenger Boarding Stairs to this gate first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (boardingStairsGateId != gateId)
+        {
+            refuellingMessage = "Bring the service crew and both Passenger Boarding Stairs to this gate first.";
             refuellingMessageTime = 2.5f;
             return;
         }
@@ -1627,48 +1755,80 @@ int main()
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (state == BoardingState::Boarding || !activeBoardingGate.empty())
+        if (state == BoardingState::Boarding ||
+            !activePassengerServiceGate.empty())
         {
-            refuellingMessage = activeBoardingGate == gateId ?
-                "Passenger boarding is already in progress." :
-                "Finish boarding at the other aircraft first.";
+            refuellingMessage = activePassengerServiceGate == gateId ?
+                "Passenger service is already in progress." :
+                "Finish passenger service at the other aircraft first.";
             refuellingMessageTime = 2.5f;
             return;
         }
-
-        // Directly place the two existing vehicles. A straight approach route
-        // could intersect aircraft or terminal geometry at other stands.
-        const float radians = aircraft.headingDegrees * DEG2RAD;
-        const float cosine = std::cos(radians);
-        const float sine = std::sin(radians);
-        const auto aircraftLocalToWorld = [&](float localX, float localZ)
-        {
-            return Vector2{
-                aircraft.position.x + localX * cosine - localZ * sine,
-                aircraft.position.y + localX * sine + localZ * cosine};
-        };
-        const float side = 1.0f;
-        const float sideOffset = 2.9f;
-        const float frontDoorZ = -20.0f * aircraft.renderScale;
-        const float rearDoorZ = 22.0f * aircraft.renderScale;
-        // The upper stair end is local -Z. This heading turns it inward,
-        // toward the aircraft, from the chosen side.
-        const float stairHeading = std::atan2(side * cosine, side * sine) / DEG2RAD;
-        const Vector2 frontPosition = aircraftLocalToWorld(side * sideOffset,
-            frontDoorZ);
-        const Vector2 rearPosition = aircraftLocalToWorld(side * sideOffset,
-            rearDoorZ);
-        passengerBoardingStairs[0].SetPosition(frontPosition.x, frontPosition.y);
-        passengerBoardingStairs[0].SetHeadingDegrees(stairHeading);
-        passengerBoardingStairs[1].SetPosition(rearPosition.x, rearPosition.y);
-        passengerBoardingStairs[1].SetHeadingDegrees(stairHeading);
+        positionBoardingStairsAtAircraft(aircraft);
         boardingPassengers.clear();
         boardingPassengerSpawnTimer = 0.0f;
         boardingPassengerSpawnWaves = 0;
         state = BoardingState::Boarding;
         timeRemaining = 10.0f;
-        activeBoardingGate = gateId;
+        activePassengerServiceGate = gateId;
         refuellingMessage = "Passenger boarding started.";
+        refuellingMessageTime = 2.5f;
+    };
+    const auto startPassengerDisembarking = [&](const std::string& gateId,
+        const Airplane& aircraft, DisembarkingState& state,
+        float& timeRemaining)
+    {
+        if (state == DisembarkingState::Complete)
+        {
+            refuellingMessage = "Passenger disembarking is already complete.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (state == DisembarkingState::Disembarking ||
+            !activePassengerServiceGate.empty())
+        {
+            refuellingMessage = activePassengerServiceGate == gateId ?
+                "Passenger service is already in progress." :
+                "Finish passenger service at the other aircraft first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        const bool otherServiceStarted = gateId == "GATE_1" ?
+            (gate1RefuellingStarted ||
+                gate1CateringWater != CateringWaterState::Idle ||
+                gate1BaggageLoading != BaggageLoadingState::Idle ||
+                gate1Boarding != BoardingState::Idle) :
+            (eastWingRefuellingStarted ||
+                eastWingCateringWater != CateringWaterState::Idle ||
+                eastWingBaggageLoading != BaggageLoadingState::Idle ||
+                eastWingBoarding != BoardingState::Idle);
+        if (otherServiceStarted)
+        {
+            refuellingMessage = "Passenger disembarking must be the first service.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (serviceCrewGateId != gateId || boardingStairsGateId != gateId)
+        {
+            refuellingMessage = "Bring both Passenger Boarding Stairs to this gate first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (passengerBoardingStairs.size() < 2)
+        {
+            refuellingMessage = "Passenger Boarding Stairs are unavailable at this gate.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+
+        positionBoardingStairsAtAircraft(aircraft);
+        boardingPassengers.clear();
+        boardingPassengerSpawnTimer = 0.0f;
+        boardingPassengerSpawnWaves = 0;
+        state = DisembarkingState::Disembarking;
+        timeRemaining = 10.0f;
+        activePassengerServiceGate = gateId;
+        refuellingMessage = "Passenger disembarking started.";
         refuellingMessageTime = 2.5f;
     };
     const auto moveServiceTruckToward = [](Vector2& current,
@@ -1973,12 +2133,10 @@ int main()
                 gate1CateringWaterTimeRemaining, "Gate 1");
             updateCateringAndWater(eastWingCateringWater,
                 eastWingCateringWaterTimeRemaining, "East Wing Gate 1");
-            const auto updatePassengerBoarding = [&](BoardingState& state,
-                float& timeRemaining, const std::string& gateId,
-                const Airplane& aircraft, const char* aircraftName)
+            const auto advancePassengerFlow = [&](const std::string& gateId,
+                const Airplane& aircraft, bool reversePath)
             {
-                if (state != BoardingState::Boarding) return;
-                if (activeBoardingGate == gateId)
+                if (activePassengerServiceGate == gateId)
                 {
                     constexpr int PassengerWaves = 14;
                     constexpr float PassengerWaveInterval = 0.38f;
@@ -1987,8 +2145,10 @@ int main()
                         boardingPassengerSpawnTimer <= 0.0f)
                     {
                         const int wave = boardingPassengerSpawnWaves++;
-                        spawnBoardingPassenger(gateId, aircraft, 0, wave);
-                        spawnBoardingPassenger(gateId, aircraft, 1, wave);
+                        spawnBoardingPassenger(gateId, aircraft, 0, wave,
+                            reversePath);
+                        spawnBoardingPassenger(gateId, aircraft, 1, wave,
+                            reversePath);
                         boardingPassengerSpawnTimer += PassengerWaveInterval;
                     }
 
@@ -2027,23 +2187,119 @@ int main()
                             ++passenger;
                     }
                 }
-                timeRemaining = std::max(0.0f, timeRemaining - deltaTime);
-                if (timeRemaining <= 0.0f)
+            };
+            const auto finishPassengerService = [&](const char* aircraftName,
+                const char* serviceName)
+            {
+                boardingPassengers.clear();
+                passengerServiceCompletionMessage = std::string(aircraftName) +
+                    " passenger " + serviceName + " complete.";
+                const bool gate1 = activePassengerServiceGate == "GATE_1";
+                startBoardingStairsReturn(gate1 ? staticGate1Aircraft :
+                    staticEastWingAircraft);
+                if (serviceName[0] == 'b')
                 {
-                    state = BoardingState::Complete;
-                    activeBoardingGate.clear();
-                    boardingPassengers.clear();
-                    refuellingMessage = std::string(aircraftName) +
-                        " passenger boarding complete.";
-                    refuellingMessageTime = 3.0f;
+                    if (gate1) gate1Boarding = BoardingState::ReturningStairs;
+                    else eastWingBoarding = BoardingState::ReturningStairs;
+                }
+                else
+                {
+                    if (gate1) gate1Disembarking =
+                        DisembarkingState::ReturningStairs;
+                    else eastWingDisembarking =
+                        DisembarkingState::ReturningStairs;
                 }
             };
-            updatePassengerBoarding(gate1Boarding,
-                gate1BoardingTimeRemaining, "GATE_1", staticGate1Aircraft,
-                "Gate 1");
-            updatePassengerBoarding(eastWingBoarding,
-                eastWingBoardingTimeRemaining, "EAST_1", staticEastWingAircraft,
-                "East Wing Gate 1");
+            if (gate1Boarding == BoardingState::Boarding)
+            {
+                advancePassengerFlow("GATE_1", staticGate1Aircraft, false);
+                gate1BoardingTimeRemaining = std::max(0.0f,
+                    gate1BoardingTimeRemaining - deltaTime);
+                if (gate1BoardingTimeRemaining <= 0.0f)
+                {
+                    finishPassengerService("Gate 1", "boarding");
+                }
+            }
+            if (eastWingBoarding == BoardingState::Boarding)
+            {
+                advancePassengerFlow("EAST_1", staticEastWingAircraft, false);
+                eastWingBoardingTimeRemaining = std::max(0.0f,
+                    eastWingBoardingTimeRemaining - deltaTime);
+                if (eastWingBoardingTimeRemaining <= 0.0f)
+                {
+                    finishPassengerService("East Wing Gate 1", "boarding");
+                }
+            }
+            if (gate1Disembarking == DisembarkingState::Disembarking)
+            {
+                advancePassengerFlow("GATE_1", staticGate1Aircraft, true);
+                gate1DisembarkingTimeRemaining = std::max(0.0f,
+                    gate1DisembarkingTimeRemaining - deltaTime);
+                if (gate1DisembarkingTimeRemaining <= 0.0f)
+                {
+                    finishPassengerService("Gate 1", "disembarking");
+                }
+            }
+            if (eastWingDisembarking == DisembarkingState::Disembarking)
+            {
+                advancePassengerFlow("EAST_1", staticEastWingAircraft, true);
+                eastWingDisembarkingTimeRemaining = std::max(0.0f,
+                    eastWingDisembarkingTimeRemaining - deltaTime);
+                if (eastWingDisembarkingTimeRemaining <= 0.0f)
+                {
+                    finishPassengerService("East Wing Gate 1", "disembarking");
+                }
+            }
+            const auto updateBoardingStairsReturn = [&](float frameTime)
+            {
+                bool allReturned = passengerBoardingStairs.size() >= 2;
+                for (std::size_t stair = 0; stair < 2 &&
+                    stair < passengerBoardingStairs.size(); ++stair)
+                {
+                    std::vector<Vector2>& path = boardingStairsReturnPaths[stair];
+                    std::size_t& waypoint = boardingStairsReturnWaypoints[stair];
+                    if (waypoint < path.size())
+                    {
+                        Vector2 current = passengerBoardingStairs[stair].GetPosition();
+                        const Vector2 target = path[waypoint];
+                        const float dx = target.x - current.x;
+                        const float dz = target.y - current.y;
+                        passengerBoardingStairs[stair].SetHeadingDegrees(
+                            std::atan2(-dx, -dz) / DEG2RAD);
+                        if (moveServiceTruckToward(current, target, frameTime))
+                            ++waypoint;
+                        passengerBoardingStairs[stair].SetPosition(current.x, current.y);
+                    }
+                    if (waypoint < path.size()) allReturned = false;
+                    else passengerBoardingStairs[stair].SetHeadingDegrees(
+                        boardingStairsCrewHeadings[stair]);
+                }
+                if (!allReturned) return;
+
+                const bool gate1 = activePassengerServiceGate == "GATE_1";
+                if (gate1)
+                {
+                    if (gate1Boarding == BoardingState::ReturningStairs)
+                        gate1Boarding = BoardingState::Complete;
+                    if (gate1Disembarking == DisembarkingState::ReturningStairs)
+                        gate1Disembarking = DisembarkingState::Complete;
+                }
+                else
+                {
+                    if (eastWingBoarding == BoardingState::ReturningStairs)
+                        eastWingBoarding = BoardingState::Complete;
+                    if (eastWingDisembarking == DisembarkingState::ReturningStairs)
+                        eastWingDisembarking = DisembarkingState::Complete;
+                }
+                activePassengerServiceGate.clear();
+                refuellingMessage = passengerServiceCompletionMessage;
+                refuellingMessageTime = 3.0f;
+            };
+            if (gate1Boarding == BoardingState::ReturningStairs ||
+                eastWingBoarding == BoardingState::ReturningStairs ||
+                gate1Disembarking == DisembarkingState::ReturningStairs ||
+                eastWingDisembarking == DisembarkingState::ReturningStairs)
+                updateBoardingStairsReturn(deltaTime);
             updateRefuelling(gate1RefuellingTimeRemaining,
                 gate1RefuellingFinished, "Gate 1", deltaTime);
             updateRefuelling(eastWingRefuellingTimeRemaining,
@@ -2083,21 +2339,47 @@ int main()
                 else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
                     bringServiceCrewToSelectedGate();
                 else if (selectedGateId == "GATE_1" &&
+                    CheckCollisionPointRec(mouse, buttons.disembarkPassengers))
+                    startPassengerDisembarking("GATE_1", staticGate1Aircraft,
+                        gate1Disembarking, gate1DisembarkingTimeRemaining);
+                else if (selectedGateId == "EAST_1" &&
+                    CheckCollisionPointRec(mouse, buttons.disembarkPassengers))
+                    startPassengerDisembarking("EAST_1", staticEastWingAircraft,
+                        eastWingDisembarking, eastWingDisembarkingTimeRemaining);
+                else if (selectedGateId == "GATE_1" &&
                     CheckCollisionPointRec(mouse, buttons.refuelAircraft))
+                {
+                    if (gate1Disembarking != DisembarkingState::Complete)
+                    {
+                        refuellingMessage = "Disembark passengers before refuelling.";
+                        refuellingMessageTime = 2.5f;
+                    }
+                    else
                     handleRefuellingClick("GATE_1", gate1RefuellingStarted,
                         gate1RefuellingFinished, gate1RefuellingTimeRemaining,
                         staticGate1Aircraft);
+                }
                 else if (selectedGateId == "EAST_1" &&
                     CheckCollisionPointRec(mouse, buttons.refuelAircraft))
+                {
+                    if (eastWingDisembarking != DisembarkingState::Complete)
+                    {
+                        refuellingMessage = "Disembark passengers before refuelling.";
+                        refuellingMessageTime = 2.5f;
+                    }
+                    else
                     handleRefuellingClick("EAST_1", eastWingRefuellingStarted,
                         eastWingRefuellingFinished, eastWingRefuellingTimeRemaining,
                         staticEastWingAircraft);
+                }
                 else if ((selectedGateId == "GATE_1" || selectedGateId == "EAST_1") &&
                     CheckCollisionPointRec(mouse, buttons.cateringAndWater))
                 {
                     const bool isGate1 = selectedGateId == "GATE_1";
                     startCateringAndWater(selectedGateId,
                         isGate1 ? staticGate1Aircraft : staticEastWingAircraft,
+                        (isGate1 ? gate1Disembarking : eastWingDisembarking) ==
+                            DisembarkingState::Complete,
                         isGate1 ? gate1RefuellingFinished :
                             eastWingRefuellingFinished,
                         isGate1 ? gate1CateringWater : eastWingCateringWater);
@@ -2107,6 +2389,7 @@ int main()
                     startBaggageLoading("GATE_1", staticGate1Aircraft,
                         gate1RefuellingFinished,
                         gate1CateringWater == CateringWaterState::Complete,
+                        gate1Disembarking == DisembarkingState::Complete,
                         gate1BaggageLoading,
                         gate1BaggageLoadingTimeRemaining);
                 else if (selectedGateId == "EAST_1" &&
@@ -2114,11 +2397,13 @@ int main()
                     startBaggageLoading("EAST_1", staticEastWingAircraft,
                         eastWingRefuellingFinished,
                         eastWingCateringWater == CateringWaterState::Complete,
+                        eastWingDisembarking == DisembarkingState::Complete,
                         eastWingBaggageLoading,
                         eastWingBaggageLoadingTimeRemaining);
                 else if (selectedGateId == "GATE_1" &&
                     CheckCollisionPointRec(mouse, buttons.boardPassengers))
                     startPassengerBoarding("GATE_1", staticGate1Aircraft,
+                        gate1Disembarking == DisembarkingState::Complete,
                         gate1RefuellingFinished,
                         gate1CateringWater == CateringWaterState::Complete,
                         gate1BaggageLoading, gate1Boarding,
@@ -2126,6 +2411,7 @@ int main()
                 else if (selectedGateId == "EAST_1" &&
                     CheckCollisionPointRec(mouse, buttons.boardPassengers))
                     startPassengerBoarding("EAST_1", staticEastWingAircraft,
+                        eastWingDisembarking == DisembarkingState::Complete,
                         eastWingRefuellingFinished,
                         eastWingCateringWater == CateringWaterState::Complete,
                         eastWingBaggageLoading, eastWingBoarding,
@@ -2778,11 +3064,13 @@ int main()
             if (!(gate1RefuellingFinished &&
                 gate1BaggageLoading == BaggageLoadingState::Complete &&
                 gate1CateringWater == CateringWaterState::Complete &&
+                gate1Disembarking == DisembarkingState::Complete &&
                 gate1Boarding == BoardingState::Complete))
                 drawServiceNeededMarker(staticGate1Aircraft);
             if (!(eastWingRefuellingFinished &&
                 eastWingBaggageLoading == BaggageLoadingState::Complete &&
                 eastWingCateringWater == CateringWaterState::Complete &&
+                eastWingDisembarking == DisembarkingState::Complete &&
                 eastWingBoarding == BoardingState::Complete))
                 drawServiceNeededMarker(staticEastWingAircraft);
         }
@@ -2838,7 +3126,9 @@ int main()
             }
         }
         if ((gate1Boarding == BoardingState::Boarding ||
-            eastWingBoarding == BoardingState::Boarding) &&
+            eastWingBoarding == BoardingState::Boarding ||
+            gate1Disembarking == DisembarkingState::Disembarking ||
+            eastWingDisembarking == DisembarkingState::Disembarking) &&
             passengerBoardingStairs.size() >= 2)
         {
             const float pulse = 0.5f + 0.5f * std::sin(
@@ -2853,7 +3143,11 @@ int main()
                 DrawCircleLines(static_cast<int>(center.x),
                     static_cast<int>(center.y), 6.0f + pulse * 2.0f,
                     Color{117, 205, 239, 255});
-                DrawText("BOARDING", static_cast<int>(center.x - 27.0f),
+                const bool disembarking =
+                    gate1Disembarking == DisembarkingState::Disembarking ||
+                    eastWingDisembarking == DisembarkingState::Disembarking;
+                const char* passengerAction = disembarking ? "EXITING" : "BOARDING";
+                DrawText(passengerAction, static_cast<int>(center.x - 27.0f),
                     static_cast<int>(center.y - 20.0f), 8,
                     Color{199, 240, 248, 255});
             }
@@ -2881,6 +3175,11 @@ int main()
                     eastWingRefuellingStarted;
                 const float fuelRemaining = isGate1 ? gate1RefuellingTimeRemaining :
                     eastWingRefuellingTimeRemaining;
+                const DisembarkingState disembarkingState = isGate1 ?
+                    gate1Disembarking : eastWingDisembarking;
+                const float disembarkingRemaining = isGate1 ?
+                    gate1DisembarkingTimeRemaining :
+                    eastWingDisembarkingTimeRemaining;
                 const BaggageLoadingState baggageState = isGate1 ?
                     gate1BaggageLoading : eastWingBaggageLoading;
                 const float baggageRemaining = isGate1 ?
@@ -2895,6 +3194,32 @@ int main()
                     gate1Boarding : eastWingBoarding;
                 const float boardingRemaining = isGate1 ?
                     gate1BoardingTimeRemaining : eastWingBoardingTimeRemaining;
+                std::string disembarkLabel = "DISEMBARK PAX";
+                float disembarkProgress = -1.0f;
+                if (disembarkingState == DisembarkingState::Disembarking)
+                {
+                    disembarkProgress = std::clamp(
+                        1.0f - disembarkingRemaining / 10.0f, 0.0f, 1.0f);
+                    disembarkLabel = "EXITING " + std::to_string(
+                        static_cast<int>(disembarkProgress * 100.0f)) + "%";
+                }
+                else if (disembarkingState == DisembarkingState::ReturningStairs)
+                {
+                    disembarkLabel = "STAIRS RETURNING";
+                    disembarkProgress = 1.0f;
+                }
+                else if (disembarkingState == DisembarkingState::Complete)
+                {
+                    disembarkLabel = "DISEMBARKED";
+                    disembarkProgress = 1.0f;
+                }
+                const Color disembarkAccent =
+                    disembarkingState == DisembarkingState::Complete ?
+                    Color{137, 235, 172, 255} : Color{117, 205, 239, 255};
+                DrawGateActionButton(buttons.disembarkPassengers,
+                    disembarkLabel.c_str(), "PASSENGERS", disembarkProgress,
+                    disembarkAccent, GateActionIcon::Disembark);
+
                 std::string fuelLabel = "REFUEL AIRCRAFT";
                 float fuelProgress = -1.0f;
                 if (fuelFinished)
@@ -2912,9 +3237,14 @@ int main()
                 }
                 else if (fuelStarted)
                     fuelLabel = "TANKER EN ROUTE";
+                else if (disembarkingState != DisembarkingState::Complete)
+                    fuelLabel = "DISEMBARK FIRST";
+                const Color fuelAccent =
+                    disembarkingState == DisembarkingState::Complete ?
+                    Color{247, 184, 68, 255} : Color{100, 118, 124, 255};
                 DrawGateActionButton(buttons.refuelAircraft, fuelLabel.c_str(),
                     "AIRCRAFT FUEL", fuelProgress,
-                    Color{247, 184, 68, 255}, GateActionIcon::Fuel);
+                    fuelAccent, GateActionIcon::Fuel);
 
                 std::string baggageLabel = "LOAD BAGGAGE";
                 float baggageProgress = -1.0f;
@@ -2931,7 +3261,9 @@ int main()
                     baggageProgress = 1.0f;
                 }
                 const Color baggageAccent = baggageState == BaggageLoadingState::Complete ?
-                    Color{137, 235, 172, 255} : Color{105, 244, 220, 255};
+                    Color{137, 235, 172, 255} :
+                    disembarkingState == DisembarkingState::Complete ?
+                        Color{105, 244, 220, 255} : Color{100, 118, 124, 255};
                 DrawGateActionButton(buttons.loadBaggage, baggageLabel.c_str(),
                     "BAGGAGE HANDLING", baggageProgress, baggageAccent,
                     GateActionIcon::Baggage);
@@ -2959,7 +3291,9 @@ int main()
                 }
                 const Color cateringWaterAccent =
                     cateringWaterState == CateringWaterState::Complete ?
-                    Color{137, 235, 172, 255} : Color{117, 205, 239, 255};
+                    Color{137, 235, 172, 255} :
+                    disembarkingState == DisembarkingState::Complete ?
+                        Color{117, 205, 239, 255} : Color{100, 118, 124, 255};
                 DrawGateActionButton(buttons.cateringAndWater,
                     cateringWaterLabel.c_str(), "CATERING + WATER",
                     cateringWaterProgress, cateringWaterAccent,
@@ -2974,12 +3308,19 @@ int main()
                     boardingLabel = "BOARDING " + std::to_string(
                         static_cast<int>(boardingProgress * 100.0f)) + "%";
                 }
-                else if (boardingState == BoardingState::Complete)
+                else if (boardingState == BoardingState::ReturningStairs)
                 {
-                    boardingLabel = "BOARDING COMPLETE";
+                    boardingLabel = "STAIRS RETURNING";
                     boardingProgress = 1.0f;
                 }
-                const bool boardingReady = fuelFinished &&
+                else if (boardingState == BoardingState::Complete)
+                {
+                    boardingLabel = "BOARDING DONE";
+                    boardingProgress = 1.0f;
+                }
+                const bool boardingReady =
+                    disembarkingState == DisembarkingState::Complete &&
+                    fuelFinished &&
                     cateringWaterState == CateringWaterState::Complete &&
                     baggageState == BaggageLoadingState::Complete;
                 const Color boardingAccent = boardingState == BoardingState::Complete ?
