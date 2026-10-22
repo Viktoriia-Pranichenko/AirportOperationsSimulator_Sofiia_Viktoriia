@@ -60,6 +60,88 @@ namespace
             0.065f, 0.05f, 6, passenger.shirtColor);
     }
 
+    void DrawAnimatedRouteArrows(const std::vector<Vector2>& points, float time)
+    {
+        struct RouteSegment
+        {
+            Vector2 start;
+            Vector2 delta;
+            float length;
+            float startDistance;
+        };
+
+        std::vector<RouteSegment> segments;
+        float routeLength = 0.0f;
+        for (std::size_t i = 1; i < points.size(); ++i)
+        {
+            const Vector2 delta{points[i].x - points[i - 1].x,
+                points[i].y - points[i - 1].y};
+            const float segmentLength = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+            if (segmentLength < 1.0f) continue;
+            segments.push_back({points[i - 1], delta, segmentLength, routeLength});
+            routeLength += segmentLength;
+        }
+        if (segments.empty()) return;
+
+        const auto pointAtDistance = [&segments, routeLength](float distance)
+        {
+            distance = std::clamp(distance, 0.0f, routeLength);
+            for (const RouteSegment& segment : segments)
+            {
+                if (distance > segment.startDistance + segment.length) continue;
+                const float progress = std::clamp(
+                    (distance - segment.startDistance) / segment.length, 0.0f, 1.0f);
+                return Vector2{segment.start.x + segment.delta.x * progress,
+                    segment.start.y + segment.delta.y * progress};
+            }
+            const RouteSegment& last = segments.back();
+            return Vector2{last.start.x + last.delta.x, last.start.y + last.delta.y};
+        };
+
+        constexpr float ArrowSpacing = 42.0f;
+        constexpr float ArrowSpeed = 48.0f;
+        constexpr float TurnSmoothingDistance = 9.0f;
+        const float animationOffset = std::fmod(time * ArrowSpeed, ArrowSpacing);
+        for (float distance = animationOffset; distance <= routeLength;
+            distance += ArrowSpacing)
+        {
+            const Vector2 center = pointAtDistance(distance);
+            const Vector2 before = pointAtDistance(
+                std::max(0.0f, distance - TurnSmoothingDistance));
+            const Vector2 after = pointAtDistance(
+                std::min(routeLength, distance + TurnSmoothingDistance));
+            const float tangentX = after.x - before.x;
+            const float tangentY = after.y - before.y;
+            const float tangentLength = std::sqrt(
+                tangentX * tangentX + tangentY * tangentY);
+            if (tangentLength < 0.001f) continue;
+
+            const Vector2 forward{tangentX / tangentLength, tangentY / tangentLength};
+            const Vector2 normal{-forward.y, forward.x};
+            const Vector2 tip{center.x + forward.x * 8.0f,
+                center.y + forward.y * 8.0f};
+            const Vector2 rear{center.x - forward.x * 5.0f,
+                center.y - forward.y * 5.0f};
+            const Vector2 side{normal.x * 5.5f, normal.y * 5.5f};
+            const Vector2 upperRear{rear.x + side.x, rear.y + side.y};
+            const Vector2 lowerRear{rear.x - side.x, rear.y - side.y};
+            const float pulse = 0.5f + 0.5f *
+                std::sin(time * 3.0f - distance * 0.025f);
+            const Color glow{42, 151, 255,
+                static_cast<unsigned char>(24.0f + pulse * 16.0f)};
+            const Color midGlow{71, 179, 255,
+                static_cast<unsigned char>(90.0f + pulse * 35.0f)};
+            const auto drawStroke = [&](Vector2 from, Vector2 to)
+            {
+                DrawLineEx(from, to, 9.0f, glow);
+                DrawLineEx(from, to, 4.5f, midGlow);
+                DrawLineEx(from, to, 2.0f, Color{188, 231, 255, 245});
+            };
+            drawStroke(upperRear, tip);
+            drawStroke(tip, lowerRear);
+        }
+    }
+
     constexpr float GateNavigationButtonWidth = 144.0f;
     constexpr float GateNavigationButtonHeight = 32.0f;
     constexpr float GateNavigationButtonGap = 8.0f;
@@ -3437,19 +3519,16 @@ int main()
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.parkingStandId, selected.departureHoldNodeId,
                     routePurposeForTraffic(TaxiRoutePurpose::Departure));
-            Vector2 previous{};
-            bool havePrevious = false;
+            std::vector<Vector2> routePoints;
+            routePoints.reserve(routeIds.size());
             for (const std::string& nodeId : routeIds)
             {
                 const TaxiwayNode* node = airportGround.FindNode(nodeId);
                 if (node == nullptr) continue;
-                const Vector2 point = GetWorldToScreen(
-                    {node->position.x, 1.5f, node->position.z}, activeCamera);
-                if (havePrevious)
-                    DrawLineEx(previous, point, 4.0f, Color{48, 227, 198, 235});
-                previous = point;
-                havePrevious = true;
+                routePoints.push_back(GetWorldToScreen(
+                    {node->position.x, 1.5f, node->position.z}, activeCamera));
             }
+            DrawAnimatedRouteArrows(routePoints, static_cast<float>(GetTime()));
             const Vector2 aircraftScreen = ProjectAirportPoint(
                 selected.airplane.position, activeCamera);
             DrawCircleLines(static_cast<int>(aircraftScreen.x),
