@@ -1,5 +1,7 @@
 #pragma once
 
+#include "raylib.h"
+
 class AirportTerminal;
 
 class ServiceVehiclePosition
@@ -8,6 +10,7 @@ public:
     ServiceVehiclePosition(float positionX, float positionZ);
     void SetPosition(float positionX, float positionZ);
     void SetHeadingDegrees(float headingDegrees);
+    Vector2 GetPosition() const;
     bool MoveTowardsGate(int gateNumber, const AirportTerminal& terminal,
         float deltaTime);
 

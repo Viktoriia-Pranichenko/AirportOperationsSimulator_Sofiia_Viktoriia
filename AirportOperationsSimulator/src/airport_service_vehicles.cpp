@@ -92,6 +92,11 @@ void ServiceVehiclePosition::SetHeadingDegrees(float headingDegrees)
     this->headingDegrees = headingDegrees;
 }
 
+Vector2 ServiceVehiclePosition::GetPosition() const
+{
+    return {positionX, positionZ};
+}
+
 bool ServiceVehiclePosition::MoveTowardsGate(
     int gateNumber, const AirportTerminal& terminal, float deltaTime)
 {

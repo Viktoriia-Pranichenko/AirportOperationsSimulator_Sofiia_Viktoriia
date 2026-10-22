@@ -566,6 +566,20 @@ int main()
     bool eastWingRefuellingFinished = false;
     float gate1RefuellingTimeRemaining = 0.0f;
     float eastWingRefuellingTimeRemaining = 0.0f;
+    enum class RefuellingTankerMotion
+    {
+        Parked,
+        ApproachingRear,
+        ApproachingAircraft,
+        Refuelling,
+        ReturningBehindAircraft,
+        ReturningToCrewPosition
+    };
+    RefuellingTankerMotion refuellingTankerMotion = RefuellingTankerMotion::Parked;
+    std::string activeRefuellingGate;
+    Vector2 refuellingTankerCrewPosition{};
+    Vector2 refuellingTankerRearStagingPosition{};
+    Vector2 refuellingTankerAircraftPosition{};
     constexpr float ShiftClockRate = 15.0f; // 15 simulated seconds per real second.
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
@@ -627,6 +641,14 @@ int main()
     };
     const auto bringServiceCrewToSelectedGate = [&]()
     {
+        if (refuellingTankerMotion != RefuellingTankerMotion::Parked ||
+            (gate1RefuellingStarted && !gate1RefuellingFinished) ||
+            (eastWingRefuellingStarted && !eastWingRefuellingFinished))
+        {
+            refuellingMessage = "The tanker must stay here until refuelling finishes.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (selectedGateId.empty()) return;
 
         const AirportParkingStand* selectedGate = nullptr;
@@ -715,6 +737,7 @@ int main()
         const Vector2 tanker = place(placements[1], WingVehicleSpacingScale);
         refuellingTankers.front().SetPosition(tanker.x, tanker.y);
         refuellingTankers.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        refuellingTankerCrewPosition = tanker;
         const Vector2 pushback = place(placements[2], WingVehicleSpacingScale);
         pushbackTugs.front().SetPosition(pushback.x, pushback.y);
         pushbackTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
@@ -745,23 +768,53 @@ int main()
             cameraController.GetCamera3D());
         return Rectangle{screen.x - 26.0f, screen.y - 70.0f, 52.0f, 58.0f};
     };
+    const auto getRefuellingApproachWaypoints = [&](const Airplane& aircraft,
+        const AircraftRefuellingTanker& tanker)
+    {
+        const Vector2 tankerPosition = tanker.GetPosition();
+        const float radians = aircraft.headingDegrees * DEG2RAD;
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const float dx = tankerPosition.x - aircraft.position.x;
+        const float dz = tankerPosition.y - aircraft.position.y;
+        const float localSide = dx * cosine + dz * sine;
+        const float localLongitudinal = -dx * sine + dz * cosine;
+        const float side = localSide >= 0.0f ? 1.0f : -1.0f;
+        const float stagingX = side * (44.0f * aircraft.renderScale + 4.5f);
+        const float rearZ = std::max(localLongitudinal,
+            38.0f * aircraft.renderScale + 6.0f);
+        const auto toWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                aircraft.position.x + localX * cosine - localZ * sine,
+                aircraft.position.y + localX * sine + localZ * cosine
+            };
+        };
+        return std::pair<Vector2, Vector2>{
+            toWorld(stagingX, rearZ), toWorld(0.0f, rearZ)};
+    };
     const auto handleRefuellingClick = [&](const std::string& gateId,
         bool& refuellingStarted, bool& refuellingFinished,
-        float& refuellingTimeRemaining)
+        float& refuellingTimeRemaining, const Airplane& aircraft)
     {
         if (serviceCrewGateId != gateId || refuellingTankers.empty())
         {
             refuellingMessage = "Bring the fuel tanker to this gate first.";
         }
-        else if (refuellingStarted || refuellingFinished)
+        else if (refuellingStarted || refuellingFinished ||
+            refuellingTankerMotion != RefuellingTankerMotion::Parked)
         {
             refuellingMessage = "Refuelling has already started.";
         }
         else
         {
-            refuellingStarted = true;
-            refuellingTimeRemaining = 6.0f;
-            refuellingMessage = "Refuelling started.";
+            const auto waypoints = getRefuellingApproachWaypoints(
+                aircraft, refuellingTankers.front());
+            refuellingTankerRearStagingPosition = waypoints.first;
+            refuellingTankerAircraftPosition = waypoints.second;
+            activeRefuellingGate = gateId;
+            refuellingTankerMotion = RefuellingTankerMotion::ApproachingRear;
+            refuellingMessage = "Fuel tanker approaching from behind.";
         }
         refuellingMessageTime = 2.5f;
     };
@@ -777,6 +830,67 @@ int main()
             refuellingMessageTime = 2.5f;
         }
     };
+    const auto moveTankerToward = [&](Vector2 target, float deltaTime)
+    {
+        if (refuellingTankers.empty()) return false;
+        constexpr float TankerApproachSpeed = 9.0f;
+        const Vector2 position = refuellingTankers.front().GetPosition();
+        const float dx = target.x - position.x;
+        const float dz = target.y - position.y;
+        const float distance = std::sqrt(dx * dx + dz * dz);
+        const float step = TankerApproachSpeed * deltaTime;
+        if (distance <= step || distance <= 0.05f)
+        {
+            refuellingTankers.front().SetPosition(target.x, target.y);
+            return true;
+        }
+        refuellingTankers.front().SetPosition(
+            position.x + dx / distance * step,
+            position.y + dz / distance * step);
+        return false;
+    };
+    const auto updateTankerMotion = [&](float deltaTime)
+    {
+        switch (refuellingTankerMotion)
+        {
+        case RefuellingTankerMotion::ApproachingRear:
+            if (moveTankerToward(refuellingTankerRearStagingPosition, deltaTime))
+                refuellingTankerMotion = RefuellingTankerMotion::ApproachingAircraft;
+            break;
+        case RefuellingTankerMotion::ApproachingAircraft:
+            if (moveTankerToward(refuellingTankerAircraftPosition, deltaTime))
+            {
+                refuellingTankerMotion = RefuellingTankerMotion::Refuelling;
+                if (activeRefuellingGate == "GATE_1")
+                {
+                    gate1RefuellingStarted = true;
+                    gate1RefuellingTimeRemaining = 6.0f;
+                }
+                else if (activeRefuellingGate == "EAST_1")
+                {
+                    eastWingRefuellingStarted = true;
+                    eastWingRefuellingTimeRemaining = 6.0f;
+                }
+                refuellingMessage = "Refuelling started.";
+                refuellingMessageTime = 2.5f;
+            }
+            break;
+        case RefuellingTankerMotion::ReturningBehindAircraft:
+            if (moveTankerToward(refuellingTankerRearStagingPosition, deltaTime))
+                refuellingTankerMotion = RefuellingTankerMotion::ReturningToCrewPosition;
+            break;
+        case RefuellingTankerMotion::ReturningToCrewPosition:
+            if (moveTankerToward(refuellingTankerCrewPosition, deltaTime))
+            {
+                refuellingTankerMotion = RefuellingTankerMotion::Parked;
+                activeRefuellingGate.clear();
+            }
+            break;
+        case RefuellingTankerMotion::Parked:
+        case RefuellingTankerMotion::Refuelling:
+            break;
+        }
+    };
 
     while (!WindowShouldClose())
     {
@@ -787,6 +901,11 @@ int main()
             "Gate 1", deltaTime);
         updateRefuelling(eastWingRefuellingTimeRemaining, eastWingRefuellingFinished,
             "East Wing Gate 1", deltaTime);
+        if (refuellingTankerMotion == RefuellingTankerMotion::Refuelling &&
+            ((activeRefuellingGate == "GATE_1" && gate1RefuellingFinished) ||
+                (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
+            refuellingTankerMotion = RefuellingTankerMotion::ReturningBehindAircraft;
+        updateTankerMotion(deltaTime);
         cameraController.Update(deltaTime);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -794,11 +913,13 @@ int main()
             if (!gate1RefuellingFinished && CheckCollisionPointRec(mouse,
                 refuellingIndicatorBounds(staticGate1Aircraft)))
                 handleRefuellingClick("GATE_1", gate1RefuellingStarted,
-                    gate1RefuellingFinished, gate1RefuellingTimeRemaining);
+                    gate1RefuellingFinished, gate1RefuellingTimeRemaining,
+                    staticGate1Aircraft);
             else if (!eastWingRefuellingFinished && CheckCollisionPointRec(mouse,
                 refuellingIndicatorBounds(staticEastWingAircraft)))
                 handleRefuellingClick("EAST_1", eastWingRefuellingStarted,
-                    eastWingRefuellingFinished, eastWingRefuellingTimeRemaining);
+                    eastWingRefuellingFinished, eastWingRefuellingTimeRemaining,
+                    staticEastWingAircraft);
             else if (cameraController.IsGateViewActive())
             {
                 const GateNavigationButtons buttons = GetGateNavigationButtons();
@@ -1307,6 +1428,41 @@ int main()
         EndMode3D();
 
         const Camera3D& activeCamera = cameraController.GetCamera3D();
+        const auto drawRefuellingProgress = [&](const Airplane& aircraft,
+            float timeRemaining)
+        {
+            const Vector2 screen = ProjectAirportPoint(aircraft.position, activeCamera);
+            const Vector2 center{screen.x, screen.y - 8.0f};
+            const float progress = std::clamp(1.0f - timeRemaining / 6.0f,
+                0.0f, 1.0f);
+            DrawCircleV(center, 20.0f, Color{13, 26, 34, 230});
+            DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y),
+                19.0f, Color{105, 130, 135, 255});
+            constexpr int ProgressSegments = 48;
+            const int completedSegments = static_cast<int>(
+                std::ceil(progress * ProgressSegments));
+            for (int segment = 0; segment < completedSegments; ++segment)
+            {
+                const float startAngle = (-90.0f +
+                    360.0f * segment / ProgressSegments) * DEG2RAD;
+                const float endAngle = (-90.0f +
+                    360.0f * (segment + 1) / ProgressSegments) * DEG2RAD;
+                DrawLineEx(
+                    {center.x + std::cos(startAngle) * 17.0f,
+                        center.y + std::sin(startAngle) * 17.0f},
+                    {center.x + std::cos(endAngle) * 17.0f,
+                        center.y + std::sin(endAngle) * 17.0f},
+                    3.5f, Color{255, 200, 70, 255});
+            }
+            DrawText("FUEL", static_cast<int>(center.x - MeasureText("FUEL", 10) * 0.5f),
+                static_cast<int>(center.y - 5.0f), 10, RAYWHITE);
+        };
+        if (activeRefuellingGate == "GATE_1" &&
+            refuellingTankerMotion == RefuellingTankerMotion::Refuelling)
+            drawRefuellingProgress(staticGate1Aircraft, gate1RefuellingTimeRemaining);
+        if (activeRefuellingGate == "EAST_1" &&
+            refuellingTankerMotion == RefuellingTankerMotion::Refuelling)
+            drawRefuellingProgress(staticEastWingAircraft, eastWingRefuellingTimeRemaining);
         if (!selectedGateId.empty())
         {
             std::string gateLabel = selectedGateId;
