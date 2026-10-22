@@ -2,6 +2,7 @@
 
 #include "airport_terminal.h"
 #include "raylib.h"
+#include "rlgl.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,6 +30,23 @@ namespace
     constexpr Color TankerAccent{218, 171, 55, 255};
     constexpr Color FuelTank{202, 207, 193, 255};
     constexpr Color FuelTankShade{152, 165, 161, 255};
+
+    class ServiceVehicleDrawTransform
+    {
+    public:
+        ServiceVehicleDrawTransform(float x, float z, float headingDegrees)
+        {
+            rlPushMatrix();
+            rlTranslatef(x, 0.0f, z);
+            rlRotatef(headingDegrees, 0.0f, 1.0f, 0.0f);
+            rlTranslatef(-x, 0.0f, -z);
+        }
+
+        ~ServiceVehicleDrawTransform()
+        {
+            rlPopMatrix();
+        }
+    };
 
     void DrawWheel(float x, float y, float z, float radius)
     {
@@ -61,6 +79,11 @@ namespace
 ServiceVehiclePosition::ServiceVehiclePosition(float positionX, float positionZ)
     : positionX(positionX), positionZ(positionZ)
 {
+}
+
+void ServiceVehiclePosition::SetHeadingDegrees(float headingDegrees)
+{
+    this->headingDegrees = headingDegrees;
 }
 
 bool ServiceVehiclePosition::MoveTowardsGate(
@@ -101,6 +124,7 @@ void AircraftPushbackTug::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.82f, z}, {2.65f, 0.82f, 5.75f}, TugShade);
     DrawCubeV({x, 1.26f, z + 0.62f}, {2.58f, 0.68f, 3.45f}, TugYellow);
@@ -133,6 +157,7 @@ void BaggageBeltLoader::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.76f, z + 0.25f}, {2.35f, 0.62f, 4.8f}, LoaderShade);
     DrawCubeV({x, 1.12f, z + 0.25f}, {2.28f, 0.2f, 4.45f}, LoaderWhite);
@@ -177,6 +202,7 @@ void CateringTruck::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.69f, z}, {2.55f, 0.45f, 7.7f}, CateringAccent);
     DrawCubeV({x, 1.93f, z - 0.72f}, {2.52f, 2.12f, 4.6f}, CateringWhite);
@@ -209,6 +235,7 @@ void WaterServiceTruck::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.69f, z}, {2.5f, 0.45f, 8.25f}, LoaderShade);
     DrawCubeV({x, 1.48f, z + 2.75f}, {2.42f, 1.6f, 2.15f}, CateringWhite);
@@ -260,6 +287,7 @@ void MaintenancePickupTruck::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.67f, z}, {2.15f, 0.4f, 4.95f}, UtilityGreen);
     DrawCubeV({x, 1.03f, z - 1.1f}, {2.0f, 0.45f, 2.15f}, CateringAccent);
@@ -290,6 +318,7 @@ void PassengerBoardingStairs::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.62f, z + 0.05f}, {2.45f, 0.38f, 4.75f}, StairYellow);
     DrawCubeV({x, 0.87f, z + 1.72f}, {2.25f, 0.16f, 1.12f}, StairMetal);
@@ -350,6 +379,7 @@ void AircraftRefuellingTanker::Draw() const
 {
     const float x = positionX;
     const float z = positionZ;
+    const ServiceVehicleDrawTransform transform(x, z, headingDegrees);
 
     DrawCubeV({x, 0.72f, z}, {2.55f, 0.44f, 9.15f}, LoaderShade);
     DrawCubeV({x, 1.48f, z + 2.72f}, {2.48f, 1.55f, 2.3f}, TankerBody);

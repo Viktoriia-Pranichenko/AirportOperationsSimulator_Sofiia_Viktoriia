@@ -158,6 +158,11 @@ BaggageTug::BaggageTug(float x, float z)
 {
 }
 
+void BaggageTug::SetHeadingDegrees(float headingDegrees)
+{
+    this->headingDegrees = headingDegrees;
+}
+
 bool BaggageTug::MoveTowardsGate(int gateNumber,
     const AirportTerminal& terminal, float deltaTime)
 {

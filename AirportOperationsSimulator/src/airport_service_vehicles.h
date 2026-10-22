@@ -6,12 +6,14 @@ class ServiceVehiclePosition
 {
 public:
     ServiceVehiclePosition(float positionX, float positionZ);
+    void SetHeadingDegrees(float headingDegrees);
     bool MoveTowardsGate(int gateNumber, const AirportTerminal& terminal,
         float deltaTime);
 
 protected:
     float positionX;
     float positionZ;
+    float headingDegrees{0.0f};
 };
 
 class AircraftPushbackTug : public ServiceVehiclePosition

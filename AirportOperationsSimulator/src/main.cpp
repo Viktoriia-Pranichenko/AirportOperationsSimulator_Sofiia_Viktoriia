@@ -29,12 +29,14 @@ namespace
     constexpr float GateNavigationButtonHeight = 32.0f;
     constexpr float GateNavigationButtonGap = 8.0f;
     constexpr float GateNavigationButtonMargin = 16.0f;
+    constexpr float ServiceCrewButtonWidth = 200.0f;
 
     struct GateNavigationButtons
     {
         Rectangle previous;
         Rectangle next;
         Rectangle overview;
+        Rectangle bringServiceCrew;
     };
 
     GateNavigationButtons GetGateNavigationButtons()
@@ -48,7 +50,9 @@ namespace
                 buttonY, GateNavigationButtonWidth, GateNavigationButtonHeight},
             {static_cast<float>(GetScreenWidth()) - GateNavigationButtonMargin -
                 GateNavigationButtonWidth, buttonY,
-                GateNavigationButtonWidth, GateNavigationButtonHeight}
+                GateNavigationButtonWidth, GateNavigationButtonHeight},
+            {(static_cast<float>(GetScreenWidth()) - ServiceCrewButtonWidth) * 0.5f,
+                buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight}
         };
     }
 
@@ -340,18 +344,16 @@ int main()
         {225.75f, -70.25f}, {230.85f, -70.25f}
     };
 
-    // Preserve the temporary Gate 4 service scene and also display the parked fleet.
-    BaggageTug baggageTugs[] = {{44.5f, -37.0f}};
-    AircraftRefuellingTanker refuellingTankers[] = {{75.5f, -27.0f}};
+    // These temporary gate-side crews are populated only when requested from the UI.
+    std::vector<BaggageTug> baggageTugs;
+    std::vector<AircraftRefuellingTanker> refuellingTankers;
     FollowMeCar followMeCars[] = {{FollowMeCarParkingPosition.x, FollowMeCarParkingPosition.y}};
-    AircraftPushbackTug pushbackTugs[] = {{60.5f, -47.0f}};
-    BaggageBeltLoader baggageBeltLoaders[] = {{75.5f, -13.0f}};
-    CateringTruck cateringTrucks[] = {{44.5f, -13.0f}};
-    WaterServiceTruck waterServiceTrucks[] = {{75.5f, -42.0f}};
-    MaintenancePickupTruck maintenancePickupTrucks[] = {{44.5f, -26.0f}};
-    PassengerBoardingStairs passengerBoardingStairs[] = {
-        {50.0f, -17.0f}, {70.5f, -17.0f}
-    };
+    std::vector<AircraftPushbackTug> pushbackTugs;
+    std::vector<BaggageBeltLoader> baggageBeltLoaders;
+    std::vector<CateringTruck> cateringTrucks;
+    std::vector<WaterServiceTruck> waterServiceTrucks;
+    std::vector<MaintenancePickupTruck> maintenancePickupTrucks;
+    std::vector<PassengerBoardingStairs> passengerBoardingStairs;
 
     BaggageTug parkedBaggageTugs[] = {
         {BaggageTugParkingPositions[0].x, BaggageTugParkingPositions[0].y},
@@ -563,6 +565,95 @@ int main()
             terminal.GetAdjacentGate(selectedGateId, direction))
             selectGate(*gate);
     };
+    const auto bringServiceCrewToSelectedGate = [&]()
+    {
+        if (selectedGateId.empty()) return;
+
+        const AirportParkingStand* selectedGate = nullptr;
+        const AirportParkingStand* referenceGate = nullptr;
+        for (const AirportParkingStand& stand : terminal.GetParkingStands())
+        {
+            if (stand.id == selectedGateId) selectedGate = &stand;
+            if (stand.id == "GATE_4") referenceGate = &stand;
+        }
+        if (selectedGate == nullptr || referenceGate == nullptr) return;
+
+        baggageTugs.clear();
+        refuellingTankers.clear();
+        pushbackTugs.clear();
+        baggageBeltLoaders.clear();
+        cateringTrucks.clear();
+        waterServiceTrucks.clear();
+        maintenancePickupTrucks.clear();
+        passengerBoardingStairs.clear();
+
+        // Preserve the existing temporary Gate 4 service layout as offsets from
+        // its stand, then rotate those placements to match the selected gate.
+        constexpr Vector2 placements[] = {
+            {-15.5f, -20.0f}, // baggage tug
+            {15.5f, -10.0f},  // refuelling tanker
+            {0.5f, -30.0f},   // pushback tug
+            {15.5f, 4.0f},    // belt loader
+            {-15.5f, 4.0f},   // catering truck
+            {15.5f, -25.0f},  // water service truck
+            {-15.5f, -9.0f},  // maintenance pickup
+            {-10.0f, 0.0f},   // boarding stairs
+            {10.5f, 0.0f}     // boarding stairs
+        };
+        const bool isWingGate = selectedGateId.rfind("EAST_", 0) == 0 ||
+            selectedGateId.rfind("WEST_", 0) == 0;
+        constexpr float WingVehicleSpacingScale = 1.3f;
+        constexpr float WingStairsSpacingScale = 1.5f;
+        const float angle = (selectedGate->headingDegrees -
+            referenceGate->headingDegrees) * DEG2RAD;
+        // Raylib's Y rotation is opposite to the aircraft's local-coordinate
+        // transform, so invert the heading delta for the vehicle models.
+        const float vehicleHeadingDegrees = referenceGate->headingDegrees -
+            selectedGate->headingDegrees;
+        const float cosine = std::cos(angle);
+        const float sine = std::sin(angle);
+        const auto place = [&](Vector2 offset, float wingSpacingScale)
+        {
+            if (isWingGate)
+            {
+                offset.x *= wingSpacingScale;
+                offset.y *= wingSpacingScale;
+            }
+            // Match Airplane::DrawPose's positive-heading rotation convention.
+            // The old inverse rotation mirrored the layout on the wing stands.
+            const float x = offset.x * cosine - offset.y * sine;
+            const float z = offset.x * sine + offset.y * cosine;
+            return Vector2{selectedGate->position.x + x,
+                selectedGate->position.z + z};
+        };
+        const Vector2 tug = place(placements[0], WingVehicleSpacingScale);
+        baggageTugs.emplace_back(tug.x, tug.y);
+        baggageTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        const Vector2 tanker = place(placements[1], WingVehicleSpacingScale);
+        refuellingTankers.emplace_back(tanker.x, tanker.y);
+        refuellingTankers.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        const Vector2 pushback = place(placements[2], WingVehicleSpacingScale);
+        pushbackTugs.emplace_back(pushback.x, pushback.y);
+        pushbackTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        const Vector2 beltLoader = place(placements[3], WingVehicleSpacingScale);
+        baggageBeltLoaders.emplace_back(beltLoader.x, beltLoader.y);
+        baggageBeltLoaders.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        const Vector2 catering = place(placements[4], WingVehicleSpacingScale);
+        cateringTrucks.emplace_back(catering.x, catering.y);
+        cateringTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        const Vector2 water = place(placements[5], WingVehicleSpacingScale);
+        waterServiceTrucks.emplace_back(water.x, water.y);
+        waterServiceTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        const Vector2 maintenance = place(placements[6], WingVehicleSpacingScale);
+        maintenancePickupTrucks.emplace_back(maintenance.x, maintenance.y);
+        maintenancePickupTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        for (std::size_t i = 7; i < 9; ++i)
+        {
+            const Vector2 stairs = place(placements[i], WingStairsSpacingScale);
+            passengerBoardingStairs.emplace_back(stairs.x, stairs.y);
+            passengerBoardingStairs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        }
+    };
 
     while (!WindowShouldClose())
     {
@@ -579,6 +670,8 @@ int main()
                     selectAdjacentGate(-1);
                 else if (CheckCollisionPointRec(mouse, buttons.next))
                     selectAdjacentGate(1);
+                else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
+                    bringServiceCrewToSelectedGate();
                 else if (CheckCollisionPointRec(mouse, buttons.overview))
                 {
                     cameraController.ReturnToOverview();
@@ -977,6 +1070,7 @@ int main()
             DrawGateNavigationButton(buttons.previous, "PREV GATE");
             DrawGateNavigationButton(buttons.next, "NEXT GATE");
             DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
+            DrawGateNavigationButton(buttons.bringServiceCrew, "Bring Service Crew");
         }
         // Keep map labels compact: flight ID, next destination and a live state glyph.
         for (const FlightPlan& plan : flights)
