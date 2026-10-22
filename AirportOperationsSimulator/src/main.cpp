@@ -1897,6 +1897,38 @@ int main()
         const Camera3D& activeCamera = sceneCamera;
         if (!showMainMenu)
         {
+        if (!cameraController.IsGateViewActive())
+        {
+            const auto drawServiceNeededMarker = [&](const Airplane& aircraft)
+            {
+                const Vector2 aircraftScreen = ProjectAirportPoint(
+                    aircraft.position, activeCamera);
+                const Vector2 center{aircraftScreen.x, aircraftScreen.y - 38.0f};
+                const float pulse = 0.5f + 0.5f * std::sin(
+                    static_cast<float>(GetTime()) * 3.4f);
+                DrawCircleV(center, 21.0f,
+                    Fade(Color{255, 78, 101, 255}, 0.09f + pulse * 0.09f));
+                DrawCircleV(center, 16.0f,
+                    Fade(Color{255, 99, 117, 255}, 0.10f + pulse * 0.10f));
+                DrawCircleV({center.x + 1.0f, center.y + 2.0f}, 12.0f,
+                    Color{5, 17, 25, 220});
+                DrawCircleV(center, 11.0f, Color{255, 86, 108, 255});
+                DrawCircleLines(static_cast<int>(center.x),
+                    static_cast<int>(center.y), 11.0f,
+                    Color{255, 221, 226, 255});
+                // Draw the alert glyph from shapes so it stays sharp at map scale.
+                DrawRectangleRounded({center.x - 1.7f, center.y - 6.0f,
+                    3.4f, 8.5f}, 0.45f, 4, Color{44, 39, 27, 255});
+                DrawCircleV({center.x, center.y + 5.0f}, 1.9f,
+                    Color{44, 39, 27, 255});
+            };
+            if (!(gate1RefuellingFinished &&
+                gate1BaggageLoading == BaggageLoadingState::Complete))
+                drawServiceNeededMarker(staticGate1Aircraft);
+            if (!(eastWingRefuellingFinished &&
+                eastWingBaggageLoading == BaggageLoadingState::Complete))
+                drawServiceNeededMarker(staticEastWingAircraft);
+        }
         const bool baggageLoadingActive =
             gate1BaggageLoading == BaggageLoadingState::Loading ||
             eastWingBaggageLoading == BaggageLoadingState::Loading;
