@@ -37,12 +37,18 @@ namespace
         Rectangle next;
         Rectangle overview;
         Rectangle bringServiceCrew;
+        Rectangle refuelAircraft;
+        Rectangle loadBaggage;
     };
 
     GateNavigationButtons GetGateNavigationButtons()
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
+        const float actionWidth = 144.0f;
+        const float actionGap = 8.0f;
+        const float actionHeight = 40.0f;
+        const float actionRowWidth = actionWidth * 2.0f + actionGap;
         return {
             {GateNavigationButtonMargin, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
@@ -52,7 +58,11 @@ namespace
                 GateNavigationButtonWidth, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
             {(static_cast<float>(GetScreenWidth()) - ServiceCrewButtonWidth) * 0.5f,
-                buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight}
+                buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight},
+            {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f,
+                buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
+            {(static_cast<float>(GetScreenWidth()) + actionGap) * 0.5f,
+                buttonY - actionHeight - 16.0f, actionWidth, actionHeight}
         };
     }
 
@@ -66,6 +76,66 @@ namespace
         const int textY = static_cast<int>(
             bounds.y + (bounds.height - FontSize) * 0.5f);
         DrawText(label, textX, textY, FontSize, RAYWHITE);
+    }
+
+    enum class GateActionIcon { Fuel, Baggage };
+
+    void DrawGateActionButton(Rectangle bounds, const char* label,
+        const char* subtitle, float progress, Color accent, GateActionIcon icon)
+    {
+        const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+        const Color border = hovered ? Color{235, 250, 247, 255} : accent;
+        DrawRectangleRounded({bounds.x + 2.0f, bounds.y + 3.0f,
+            bounds.width, bounds.height}, 0.22f, 8, Color{5, 14, 20, 180});
+        DrawRectangleGradientV(static_cast<int>(bounds.x),
+            static_cast<int>(bounds.y), static_cast<int>(bounds.width),
+            static_cast<int>(bounds.height),
+            hovered ? Color{38, 87, 100, 255} : Color{25, 67, 82, 255},
+            Color{12, 36, 49, 255});
+        DrawRectangleRoundedLinesEx(bounds, 0.22f, 8, 2.0f, border);
+
+        const Rectangle iconBox{bounds.x + 6.0f, bounds.y + 6.0f, 30.0f, 27.0f};
+        DrawRectangleRounded(iconBox, 0.22f, 6, Fade(accent, 0.18f));
+        DrawRectangleRoundedLinesEx(iconBox, 0.22f, 6, 1.3f, Fade(accent, 0.75f));
+        const float cx = iconBox.x + iconBox.width * 0.5f;
+        if (icon == GateActionIcon::Fuel)
+        {
+            DrawTriangle({cx, iconBox.y + 4.0f},
+                {cx - 8.0f, iconBox.y + 15.0f},
+                {cx + 8.0f, iconBox.y + 15.0f}, accent);
+            DrawCircleV({cx, iconBox.y + 16.0f}, 7.0f, accent);
+            DrawCircleV({cx - 2.0f, iconBox.y + 13.0f}, 2.0f,
+                Color{255, 248, 213, 255});
+        }
+        else
+        {
+            DrawRectangleLinesEx({cx - 9.0f, iconBox.y + 11.0f,
+                18.0f, 12.0f}, 1.7f, accent);
+            DrawLineEx({cx - 4.0f, iconBox.y + 11.0f},
+                {cx - 4.0f, iconBox.y + 7.0f}, 1.7f, accent);
+            DrawLineEx({cx + 4.0f, iconBox.y + 11.0f},
+                {cx + 4.0f, iconBox.y + 7.0f}, 1.7f, accent);
+            DrawLineEx({cx - 4.0f, iconBox.y + 7.0f},
+                {cx + 4.0f, iconBox.y + 7.0f}, 1.7f, accent);
+            DrawRectangle(static_cast<int>(cx - 1.0f),
+                static_cast<int>(iconBox.y + 14.0f),
+                3, 6, Color{255, 224, 157, 255});
+        }
+
+        const int labelX = static_cast<int>(bounds.x + 42.0f);
+        DrawText(label, labelX, static_cast<int>(bounds.y + 8.0f),
+            11, Color{244, 249, 248, 255});
+        DrawText(subtitle, labelX, static_cast<int>(bounds.y + 23.0f),
+            8, Color{171, 204, 208, 255});
+        DrawRectangle(static_cast<int>(bounds.x + 5.0f),
+            static_cast<int>(bounds.y + bounds.height - 4.0f),
+            static_cast<int>(bounds.width - 10.0f), 2, Color{7, 19, 27, 255});
+        if (progress >= 0.0f)
+            DrawRectangle(static_cast<int>(bounds.x + 5.0f),
+                static_cast<int>(bounds.y + bounds.height - 4.0f),
+                static_cast<int>((bounds.width - 10.0f) *
+                    std::clamp(progress, 0.0f, 1.0f)),
+                2, accent);
     }
 
     struct FlightPlan
@@ -566,6 +636,18 @@ int main()
     bool eastWingRefuellingFinished = false;
     float gate1RefuellingTimeRemaining = 0.0f;
     float eastWingRefuellingTimeRemaining = 0.0f;
+    enum class BaggageLoadingState { Idle, Loading, Complete };
+    BaggageLoadingState gate1BaggageLoading = BaggageLoadingState::Idle;
+    BaggageLoadingState eastWingBaggageLoading = BaggageLoadingState::Idle;
+    float gate1BaggageLoadingTimeRemaining = 0.0f;
+    float eastWingBaggageLoadingTimeRemaining = 0.0f;
+    std::string activeBaggageLoadingGate;
+    Vector2 baggageBeltAnimationStart{};
+    Vector2 baggageBeltAnimationEnd{};
+    Vector2 baggageTugCrewPosition{};
+    Vector2 baggageBeltLoaderCrewPosition{};
+    float baggageTugCrewHeading = 0.0f;
+    float baggageBeltLoaderCrewHeading = 0.0f;
     enum class RefuellingTankerMotion
     {
         Parked,
@@ -641,6 +723,12 @@ int main()
     };
     const auto bringServiceCrewToSelectedGate = [&]()
     {
+        if (!activeBaggageLoadingGate.empty())
+        {
+            refuellingMessage = "Wait for baggage loading to finish.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (refuellingTankerMotion != RefuellingTankerMotion::Parked ||
             (gate1RefuellingStarted && !gate1RefuellingFinished) ||
             (eastWingRefuellingStarted && !eastWingRefuellingFinished))
@@ -734,6 +822,8 @@ int main()
         const Vector2 tug = place(placements[0], WingVehicleSpacingScale);
         baggageTugs.front().SetPosition(tug.x, tug.y);
         baggageTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        baggageTugCrewPosition = tug;
+        baggageTugCrewHeading = vehicleHeadingDegrees;
         const Vector2 tanker = place(placements[1], WingVehicleSpacingScale);
         refuellingTankers.front().SetPosition(tanker.x, tanker.y);
         refuellingTankers.back().SetHeadingDegrees(vehicleHeadingDegrees);
@@ -744,6 +834,8 @@ int main()
         const Vector2 beltLoader = place(placements[3], WingVehicleSpacingScale);
         baggageBeltLoaders.front().SetPosition(beltLoader.x, beltLoader.y);
         baggageBeltLoaders.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        baggageBeltLoaderCrewPosition = beltLoader;
+        baggageBeltLoaderCrewHeading = vehicleHeadingDegrees;
         const Vector2 catering = place(placements[4], WingVehicleSpacingScale);
         cateringTrucks.front().SetPosition(catering.x, catering.y);
         cateringTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
@@ -761,12 +853,6 @@ int main()
             passengerBoardingStairs[stairIndex].SetHeadingDegrees(vehicleHeadingDegrees);
         }
         serviceCrewGateId = selectedGateId;
-    };
-    const auto refuellingIndicatorBounds = [&](const Airplane& aircraft)
-    {
-        const Vector2 screen = ProjectAirportPoint(aircraft.position,
-            cameraController.GetCamera3D());
-        return Rectangle{screen.x - 26.0f, screen.y - 70.0f, 52.0f, 58.0f};
     };
     const auto getRefuellingApproachWaypoints = [&](const Airplane& aircraft,
         const AircraftRefuellingTanker& tanker)
@@ -817,6 +903,81 @@ int main()
             refuellingMessage = "Fuel tanker approaching from behind.";
         }
         refuellingMessageTime = 2.5f;
+    };
+    const auto startBaggageLoading = [&](const std::string& gateId,
+        const Airplane& aircraft, bool refuellingFinished,
+        BaggageLoadingState& state, float& timeRemaining)
+    {
+        if (!refuellingFinished)
+        {
+            refuellingMessage = "Refuel the aircraft before loading baggage.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        std::string missing;
+        if (serviceCrewGateId != gateId || baggageTugs.empty())
+            missing = "Baggage Tug";
+        if (serviceCrewGateId != gateId || baggageBeltLoaders.empty())
+            missing += missing.empty() ? "Belt Loader" : " and Belt Loader";
+        if (!missing.empty())
+        {
+            refuellingMessage = "Missing " + missing + " at this gate. Bring them here first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (state == BaggageLoadingState::Complete)
+        {
+            refuellingMessage = "Baggage loading is already complete.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (state == BaggageLoadingState::Loading)
+        {
+            refuellingMessage = "Baggage loading is already in progress.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (!activeBaggageLoadingGate.empty())
+        {
+            refuellingMessage = "Finish the other aircraft's baggage loading first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+
+        // Place the existing loader beside the baggage hold, with its raised end
+        // pointing inward. Keep the tug and its attached carts nearby.
+        const float heading = aircraft.headingDegrees;
+        const float headingRadians = heading * DEG2RAD;
+        const float cosine = std::cos(headingRadians);
+        const float sine = std::sin(headingRadians);
+        const float side = 1.0f;
+        const auto aircraftLocalToWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                aircraft.position.x + localX * cosine - localZ * sine,
+                aircraft.position.y + localX * sine + localZ * cosine};
+        };
+        const Vector2 loaderPosition = aircraftLocalToWorld(side * 7.0f, 7.0f);
+        const Vector2 tugPosition = aircraftLocalToWorld(side * 13.0f, 18.0f);
+        const float loaderHeading = std::atan2(side * cosine, side * sine) / DEG2RAD;
+        baggageBeltLoaders.front().SetPosition(loaderPosition.x, loaderPosition.y);
+        baggageBeltLoaders.front().SetHeadingDegrees(loaderHeading);
+        baggageTugs.front().SetPosition(tugPosition.x, tugPosition.y);
+        baggageTugs.front().SetHeadingDegrees(loaderHeading);
+
+        // The loader's conveyor runs from local z=-0.65 up to z=-4.05.
+        const float vehicleRadians = loaderHeading * DEG2RAD;
+        const auto loaderLocalToWorld = [&](float localZ)
+        {
+            return Vector2{
+                loaderPosition.x + localZ * std::sin(vehicleRadians),
+                loaderPosition.y + localZ * std::cos(vehicleRadians)};
+        };
+        baggageBeltAnimationStart = loaderLocalToWorld(-0.65f);
+        baggageBeltAnimationEnd = loaderLocalToWorld(-4.05f);
+        state = BaggageLoadingState::Loading;
+        timeRemaining = 8.0f;
+        activeBaggageLoadingGate = gateId;
     };
     const auto updateRefuelling = [&](float& timeRemaining, bool& finished,
         const char* aircraftName, float deltaTime)
@@ -897,6 +1058,38 @@ int main()
         const float deltaTime = GetFrameTime();
         shiftClockSeconds += deltaTime * ShiftClockRate;
         refuellingMessageTime = std::max(0.0f, refuellingMessageTime - deltaTime);
+        const auto updateBaggageLoading = [&](BaggageLoadingState& state,
+            float& timeRemaining, const char* aircraftName)
+        {
+            if (state != BaggageLoadingState::Loading) return;
+            timeRemaining = std::max(0.0f, timeRemaining - deltaTime);
+            if (timeRemaining <= 0.0f)
+            {
+                state = BaggageLoadingState::Complete;
+                if (!baggageTugs.empty())
+                {
+                    baggageTugs.front().SetPosition(
+                        baggageTugCrewPosition.x, baggageTugCrewPosition.y);
+                    baggageTugs.front().SetHeadingDegrees(baggageTugCrewHeading);
+                }
+                if (!baggageBeltLoaders.empty())
+                {
+                    baggageBeltLoaders.front().SetPosition(
+                        baggageBeltLoaderCrewPosition.x,
+                        baggageBeltLoaderCrewPosition.y);
+                    baggageBeltLoaders.front().SetHeadingDegrees(
+                        baggageBeltLoaderCrewHeading);
+                }
+                activeBaggageLoadingGate.clear();
+                refuellingMessage = std::string(aircraftName) +
+                    " baggage loading complete.";
+                refuellingMessageTime = 3.0f;
+            }
+        };
+        updateBaggageLoading(gate1BaggageLoading,
+            gate1BaggageLoadingTimeRemaining, "Gate 1");
+        updateBaggageLoading(eastWingBaggageLoading,
+            eastWingBaggageLoadingTimeRemaining, "East Wing Gate 1");
         updateRefuelling(gate1RefuellingTimeRemaining, gate1RefuellingFinished,
             "Gate 1", deltaTime);
         updateRefuelling(eastWingRefuellingTimeRemaining, eastWingRefuellingFinished,
@@ -910,17 +1103,7 @@ int main()
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            if (!gate1RefuellingFinished && CheckCollisionPointRec(mouse,
-                refuellingIndicatorBounds(staticGate1Aircraft)))
-                handleRefuellingClick("GATE_1", gate1RefuellingStarted,
-                    gate1RefuellingFinished, gate1RefuellingTimeRemaining,
-                    staticGate1Aircraft);
-            else if (!eastWingRefuellingFinished && CheckCollisionPointRec(mouse,
-                refuellingIndicatorBounds(staticEastWingAircraft)))
-                handleRefuellingClick("EAST_1", eastWingRefuellingStarted,
-                    eastWingRefuellingFinished, eastWingRefuellingTimeRemaining,
-                    staticEastWingAircraft);
-            else if (cameraController.IsGateViewActive())
+            if (cameraController.IsGateViewActive())
             {
                 const GateNavigationButtons buttons = GetGateNavigationButtons();
                 if (CheckCollisionPointRec(mouse, buttons.previous))
@@ -929,6 +1112,26 @@ int main()
                     selectAdjacentGate(1);
                 else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
                     bringServiceCrewToSelectedGate();
+                else if (selectedGateId == "GATE_1" &&
+                    CheckCollisionPointRec(mouse, buttons.refuelAircraft))
+                    handleRefuellingClick("GATE_1", gate1RefuellingStarted,
+                        gate1RefuellingFinished, gate1RefuellingTimeRemaining,
+                        staticGate1Aircraft);
+                else if (selectedGateId == "EAST_1" &&
+                    CheckCollisionPointRec(mouse, buttons.refuelAircraft))
+                    handleRefuellingClick("EAST_1", eastWingRefuellingStarted,
+                        eastWingRefuellingFinished, eastWingRefuellingTimeRemaining,
+                        staticEastWingAircraft);
+                else if (selectedGateId == "GATE_1" &&
+                    CheckCollisionPointRec(mouse, buttons.loadBaggage))
+                    startBaggageLoading("GATE_1", staticGate1Aircraft,
+                        gate1RefuellingFinished, gate1BaggageLoading,
+                        gate1BaggageLoadingTimeRemaining);
+                else if (selectedGateId == "EAST_1" &&
+                    CheckCollisionPointRec(mouse, buttons.loadBaggage))
+                    startBaggageLoading("EAST_1", staticEastWingAircraft,
+                        eastWingRefuellingFinished, eastWingBaggageLoading,
+                        eastWingBaggageLoadingTimeRemaining);
                 else if (CheckCollisionPointRec(mouse, buttons.overview))
                 {
                     cameraController.ReturnToOverview();
@@ -1428,41 +1631,31 @@ int main()
         EndMode3D();
 
         const Camera3D& activeCamera = cameraController.GetCamera3D();
-        const auto drawRefuellingProgress = [&](const Airplane& aircraft,
-            float timeRemaining)
+        const bool baggageLoadingActive =
+            gate1BaggageLoading == BaggageLoadingState::Loading ||
+            eastWingBaggageLoading == BaggageLoadingState::Loading;
+        if (baggageLoadingActive)
         {
-            const Vector2 screen = ProjectAirportPoint(aircraft.position, activeCamera);
-            const Vector2 center{screen.x, screen.y - 8.0f};
-            const float progress = std::clamp(1.0f - timeRemaining / 6.0f,
-                0.0f, 1.0f);
-            DrawCircleV(center, 20.0f, Color{13, 26, 34, 230});
-            DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y),
-                19.0f, Color{105, 130, 135, 255});
-            constexpr int ProgressSegments = 48;
-            const int completedSegments = static_cast<int>(
-                std::ceil(progress * ProgressSegments));
-            for (int segment = 0; segment < completedSegments; ++segment)
+            const Vector2 start = ProjectAirportPoint(
+                baggageBeltAnimationStart, activeCamera);
+            const Vector2 end = ProjectAirportPoint(
+                baggageBeltAnimationEnd, activeCamera);
+            DrawLineEx(start, end, 3.0f, Color{255, 201, 91, 190});
+            const float phase = static_cast<float>(GetTime()) * 0.85f;
+            for (int bag = 0; bag < 3; ++bag)
             {
-                const float startAngle = (-90.0f +
-                    360.0f * segment / ProgressSegments) * DEG2RAD;
-                const float endAngle = (-90.0f +
-                    360.0f * (segment + 1) / ProgressSegments) * DEG2RAD;
-                DrawLineEx(
-                    {center.x + std::cos(startAngle) * 17.0f,
-                        center.y + std::sin(startAngle) * 17.0f},
-                    {center.x + std::cos(endAngle) * 17.0f,
-                        center.y + std::sin(endAngle) * 17.0f},
-                    3.5f, Color{255, 200, 70, 255});
+                const float travel = std::fmod(phase + bag * 0.34f, 1.0f);
+                const Vector2 position{
+                    start.x + (end.x - start.x) * travel,
+                    start.y + (end.y - start.y) * travel};
+                DrawRectangle(static_cast<int>(position.x - 5.0f),
+                    static_cast<int>(position.y - 4.0f), 10, 8,
+                    Color{205, 145, 70, 255});
+                DrawRectangleLines(static_cast<int>(position.x - 5.0f),
+                    static_cast<int>(position.y - 4.0f), 10, 8,
+                    Color{255, 224, 157, 255});
             }
-            DrawText("FUEL", static_cast<int>(center.x - MeasureText("FUEL", 10) * 0.5f),
-                static_cast<int>(center.y - 5.0f), 10, RAYWHITE);
-        };
-        if (activeRefuellingGate == "GATE_1" &&
-            refuellingTankerMotion == RefuellingTankerMotion::Refuelling)
-            drawRefuellingProgress(staticGate1Aircraft, gate1RefuellingTimeRemaining);
-        if (activeRefuellingGate == "EAST_1" &&
-            refuellingTankerMotion == RefuellingTankerMotion::Refuelling)
-            drawRefuellingProgress(staticEastWingAircraft, eastWingRefuellingTimeRemaining);
+        }
         if (!selectedGateId.empty())
         {
             std::string gateLabel = selectedGateId;
@@ -1477,6 +1670,61 @@ int main()
             DrawGateNavigationButton(buttons.next, "NEXT GATE");
             DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
             DrawGateNavigationButton(buttons.bringServiceCrew, "Bring Service Crew");
+            if (selectedGateId == "GATE_1" || selectedGateId == "EAST_1")
+            {
+                const bool isGate1 = selectedGateId == "GATE_1";
+                const bool fuelFinished = isGate1 ? gate1RefuellingFinished :
+                    eastWingRefuellingFinished;
+                const bool fuelStarted = isGate1 ? gate1RefuellingStarted :
+                    eastWingRefuellingStarted;
+                const float fuelRemaining = isGate1 ? gate1RefuellingTimeRemaining :
+                    eastWingRefuellingTimeRemaining;
+                const BaggageLoadingState baggageState = isGate1 ?
+                    gate1BaggageLoading : eastWingBaggageLoading;
+                const float baggageRemaining = isGate1 ?
+                    gate1BaggageLoadingTimeRemaining :
+                    eastWingBaggageLoadingTimeRemaining;
+                std::string fuelLabel = "REFUEL AIRCRAFT";
+                float fuelProgress = -1.0f;
+                if (fuelFinished)
+                {
+                    fuelLabel = "FUEL COMPLETE";
+                    fuelProgress = 1.0f;
+                }
+                else if (activeRefuellingGate == selectedGateId &&
+                    refuellingTankerMotion == RefuellingTankerMotion::Refuelling)
+                {
+                    fuelProgress = std::clamp(1.0f - fuelRemaining / 6.0f,
+                        0.0f, 1.0f);
+                    fuelLabel = "REFUELLING " + std::to_string(
+                        static_cast<int>(fuelProgress * 100.0f)) + "%";
+                }
+                else if (fuelStarted)
+                    fuelLabel = "TANKER EN ROUTE";
+                DrawGateActionButton(buttons.refuelAircraft, fuelLabel.c_str(),
+                    "AIRCRAFT FUEL", fuelProgress,
+                    Color{247, 184, 68, 255}, GateActionIcon::Fuel);
+
+                std::string baggageLabel = "LOAD BAGGAGE";
+                float baggageProgress = -1.0f;
+                if (baggageState == BaggageLoadingState::Loading)
+                {
+                    baggageProgress = std::clamp(1.0f - baggageRemaining / 8.0f,
+                        0.0f, 1.0f);
+                    baggageLabel = "LOADING " + std::to_string(
+                        static_cast<int>(baggageProgress * 100.0f)) + "%";
+                }
+                else if (baggageState == BaggageLoadingState::Complete)
+                {
+                    baggageLabel = "BAGGAGE LOADED";
+                    baggageProgress = 1.0f;
+                }
+                const Color baggageAccent = baggageState == BaggageLoadingState::Complete ?
+                    Color{137, 235, 172, 255} : Color{105, 244, 220, 255};
+                DrawGateActionButton(buttons.loadBaggage, baggageLabel.c_str(),
+                    "BAGGAGE HANDLING", baggageProgress, baggageAccent,
+                    GateActionIcon::Baggage);
+            }
         }
         // Keep map labels compact: flight ID, next destination and a live state glyph.
         for (const FlightPlan& plan : flights)
@@ -1659,47 +1907,12 @@ int main()
                 gateLabel = "GATE " + selectedGateId.substr(5);
             const int labelWidth = MeasureText(gateLabel.c_str(), 22) + 32;
             const int labelX = (GetScreenWidth() - labelWidth) / 2;
-            const int labelY = GetScreenHeight() - 100;
+            const int labelY = GetScreenHeight() - 192;
             DrawRectangle(labelX, labelY, labelWidth, 36, Color{20, 54, 67, 245});
             DrawRectangleLines(labelX, labelY, labelWidth, 36, Color{112, 211, 213, 255});
             DrawText(gateLabel.c_str(), labelX + 16, labelY + 7, 22,
                 Color{105, 244, 220, 255});
         }
-
-        const auto drawRefuellingIndicator = [&](const Airplane& aircraft)
-        {
-            const Rectangle bounds = refuellingIndicatorBounds(aircraft);
-            const Vector2 center{bounds.x + bounds.width * 0.5f,
-                bounds.y + 24.0f};
-            const Rectangle badge{bounds.x, bounds.y + 1.0f,
-                bounds.width, 45.0f};
-            DrawRectangleRounded({badge.x + 2.0f, badge.y + 3.0f,
-                badge.width, badge.height}, 0.35f, 8, Color{8, 19, 26, 170});
-            DrawRectangleRounded(badge, 0.35f, 8, Color{19, 53, 65, 250});
-            DrawRectangleRoundedLinesEx(badge, 0.35f, 8, 2.5f,
-                Color{105, 244, 220, 255});
-            DrawTriangle({center.x, center.y - 25.0f},
-                {center.x - 13.0f, center.y + 2.0f},
-                {center.x + 13.0f, center.y + 2.0f},
-                Color{247, 184, 68, 255});
-            DrawCircleV({center.x, center.y + 3.0f}, 13.0f,
-                Color{247, 184, 68, 255});
-            DrawTriangle({center.x, center.y - 21.0f},
-                {center.x - 9.5f, center.y + 1.0f},
-                {center.x + 9.5f, center.y + 1.0f},
-                Color{255, 210, 82, 255});
-            DrawCircleV({center.x, center.y + 3.0f}, 9.5f,
-                Color{255, 210, 82, 255});
-            DrawCircleV({center.x - 4.0f, center.y - 1.0f}, 2.2f,
-                Color{255, 246, 203, 255});
-            const int fuelLabelWidth = MeasureText("FUEL", 10);
-            DrawText("FUEL", static_cast<int>(center.x - fuelLabelWidth * 0.5f),
-                static_cast<int>(bounds.y + 36.0f), 10, RAYWHITE);
-        };
-        if (!gate1RefuellingFinished)
-            drawRefuellingIndicator(staticGate1Aircraft);
-        if (!eastWingRefuellingFinished)
-            drawRefuellingIndicator(staticEastWingAircraft);
 
         if (refuellingMessageTime > 0.0f)
         {
