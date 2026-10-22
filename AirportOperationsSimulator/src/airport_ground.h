@@ -39,7 +39,8 @@ enum class TaxiRoutePurpose
 {
     General,
     Arrival,
-    Departure
+    Departure,
+    SharedTaxiway
 };
 
 // Runway and taxiway geometry share their coordinates with the terminal's stands.
@@ -58,6 +59,7 @@ public:
         const std::string& toNodeId, bool open);
     bool SetNodeBlocked(const std::string& nodeId, bool blocked);
     bool SetRunwayAvailable(const std::string& runwayId, bool available);
+    bool IsRunwayOrApproachNode(const std::string& nodeId) const;
     std::vector<std::string> FindRouteNodeIds(
         const std::string& startNodeId, const std::string& destinationNodeId,
         TaxiRoutePurpose purpose = TaxiRoutePurpose::General) const;

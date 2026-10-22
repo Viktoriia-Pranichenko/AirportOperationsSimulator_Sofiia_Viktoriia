@@ -17,6 +17,7 @@ namespace
     constexpr Color TaxiwaySurface{75, 83, 85, 255};
     constexpr Color TaxiwayCenterline{241, 195, 70, 255};
     constexpr Color RunwayMarking{235, 236, 226, 255};
+    constexpr float SharedTaxiwayLanePenalty = 10000.0f;
 
     void DrawQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
     {
@@ -588,6 +589,20 @@ bool AirportGround::SetRunwayAvailable(const std::string& runwayId, bool availab
     return true;
 }
 
+bool AirportGround::IsRunwayOrApproachNode(const std::string& id) const
+{
+    if (id.rfind("APPROACH_", 0) == 0) return true;
+    for (const char* prefix : {"RUNWAY", "RUNWAY_A", "RUNWAY_B", "RUNWAY_C"})
+    {
+        const std::string name(prefix);
+        if (id == name + "_START_W" || id == name + "_W" ||
+            id == name + "_CENTER" || id == name + "_E" ||
+            id == name + "_END_E")
+            return true;
+    }
+    return false;
+}
+
 std::vector<std::string> AirportGround::FindRouteNodeIds(
     const std::string& startNodeId, const std::string& destinationNodeId,
     TaxiRoutePurpose purpose) const
@@ -625,6 +640,14 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
         {
             const TaxiwayNode* neighbor = FindNode(neighborId);
             if (neighbor == nullptr || neighbor->blockedByObstacle) continue;
+            // Shared detours stay on taxiways; runway nodes may only be route endpoints.
+            if (purpose == TaxiRoutePurpose::SharedTaxiway &&
+                ((IsRunwayOrApproachNode(currentId) && currentId != startNodeId) ||
+                    (IsRunwayOrApproachNode(neighborId) &&
+                        neighborId != destinationNodeId) ||
+                    (IsRunwayOrApproachNode(currentId) &&
+                        IsRunwayOrApproachNode(neighborId))))
+                continue;
             const bool sectionOpen = std::any_of(edges.begin(), edges.end(),
                 [&currentId, &neighborId](const TaxiwayEdge& edge)
                 {
@@ -654,8 +677,13 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
             };
             const bool usesWestLane = isWestLane(currentId) || isWestLane(neighborId);
             const bool usesEastLane = isEastLane(currentId) || isEastLane(neighborId);
-            if (purpose == TaxiRoutePurpose::Arrival && usesEastLane) edgeCost += 280.0f;
-            if (purpose == TaxiRoutePurpose::Departure && usesWestLane) edgeCost += 280.0f;
+            if (purpose == TaxiRoutePurpose::SharedTaxiway && usesWestLane)
+                edgeCost += SharedTaxiwayLanePenalty;
+            else
+            {
+                if (purpose == TaxiRoutePurpose::Arrival && usesEastLane) edgeCost += 280.0f;
+                if (purpose == TaxiRoutePurpose::Departure && usesWestLane) edgeCost += 280.0f;
+            }
 
             const float nextDistance = currentDistance + edgeCost;
             const auto oldDistance = distance.find(neighborId);

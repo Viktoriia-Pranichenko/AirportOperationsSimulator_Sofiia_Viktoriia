@@ -255,6 +255,7 @@ namespace
         bool taxiToStandQueued{false};
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
+        bool landingRouteActive{false};
         bool scoreRecorded{false};
         bool arrivalResultRecorded{false};
         bool safetyViolationRecorded{false};
@@ -1125,9 +1126,18 @@ int main()
     bool taxiwayClosureAttempted = false;
     bool taxiwayClosureWaitingForTraffic = false;
     float taxiwayClosureEndSeconds = -1.0f;
+    const auto routePurposeForTraffic = [&taxiwayClosureActive](TaxiRoutePurpose normalPurpose)
+    {
+        return taxiwayClosureActive ? TaxiRoutePurpose::SharedTaxiway : normalPurpose;
+    };
 
     const auto tryRerouteForClosure = [&](FlightPlan& plan)
     {
+        if (plan.landingRouteActive)
+        {
+            plan.closureReroutePending = false;
+            return true;
+        }
         if (plan.airplane.state != AirplaneState::TaxiingToStand &&
             plan.airplane.state != AirplaneState::TaxiingToRunway)
         {
@@ -1152,19 +1162,48 @@ int main()
                     break;
                 }
             }
-            if (closedEdgeIndex == plan.activeRouteNodeIds.size()) return true;
+            bool taxiwayOnlyRoute = true;
+            std::size_t firstRunwayNodeIndex = plan.activeRouteNodeIds.size();
+            for (std::size_t index = 0; index < plan.activeRouteNodeIds.size(); ++index)
+            {
+                if (!airportGround.IsRunwayOrApproachNode(
+                    plan.activeRouteNodeIds[index])) continue;
+                if (firstRunwayNodeIndex == plan.activeRouteNodeIds.size())
+                    firstRunwayNodeIndex = index;
+                if ((index > 0 && index + 1 < plan.activeRouteNodeIds.size()) ||
+                    (index + 1 < plan.activeRouteNodeIds.size() &&
+                        airportGround.IsRunwayOrApproachNode(
+                            plan.activeRouteNodeIds[index + 1])) ||
+                    (index > 0 && airportGround.IsRunwayOrApproachNode(
+                        plan.activeRouteNodeIds[index - 1])))
+                    taxiwayOnlyRoute = false;
+            }
+            if (closedEdgeIndex == plan.activeRouteNodeIds.size() && taxiwayOnlyRoute)
+                return true;
+
             const std::size_t nextIndex = plan.airplane.GetNextWaypointIndex();
-            if (nextIndex > closedEdgeIndex) return true;
-            if (nextIndex >= plan.activeRouteNodeIds.size()) return true;
-            plan.closureRerouteStartNodeId = plan.activeRouteNodeIds[nextIndex];
+            if (closedEdgeIndex < plan.activeRouteNodeIds.size() &&
+                nextIndex <= closedEdgeIndex + 1)
+            {
+                plan.closureRerouteStartNodeId = plan.activeRouteNodeIds[
+                    std::min(nextIndex, closedEdgeIndex)];
+            }
+            else if (!taxiwayOnlyRoute)
+            {
+                const std::size_t safeNodeIndex = firstRunwayNodeIndex > 0 ?
+                    firstRunwayNodeIndex - 1 : 0;
+                plan.closureRerouteStartNodeId =
+                    plan.activeRouteNodeIds[safeNodeIndex];
+            }
+            else return true;
         }
 
         const std::string startNodeId = plan.closureRerouteStartNodeId;
         const std::vector<std::string> oldRoute = plan.activeRouteNodeIds;
         const std::vector<std::string> newRoute = airportGround.FindRouteNodeIds(
             startNodeId, destinationNodeId,
-            plan.airplane.state == AirplaneState::TaxiingToStand ?
-                TaxiRoutePurpose::Arrival : TaxiRoutePurpose::Departure);
+            routePurposeForTraffic(plan.airplane.state == AirplaneState::TaxiingToStand ?
+                TaxiRoutePurpose::Arrival : TaxiRoutePurpose::Departure));
         releaseRoute(oldRoute, plan.airplane.flightId);
         if (newRoute.empty() || !routeCanBeReserved(newRoute, plan.airplane.flightId))
         {
@@ -1955,8 +1994,27 @@ int main()
                     const float segmentLengthSquared = sx * sx + sz * sz;
                     for (const FlightPlan& plan : flights)
                     {
-                        if (!plan.spawned || (plan.airplane.state != AirplaneState::TaxiingToStand &&
-                            plan.airplane.state != AirplaneState::TaxiingToRunway)) continue;
+                        if (!plan.spawned) continue;
+                        if (plan.landingRouteActive)
+                        {
+                            for (std::size_t i = 0;
+                                i + 1 < plan.activeRouteNodeIds.size(); ++i)
+                            {
+                                const bool usesClosedSection =
+                                    (plan.activeRouteNodeIds[i] == closureFromNode &&
+                                        plan.activeRouteNodeIds[i + 1] == closureToNode) ||
+                                    (plan.activeRouteNodeIds[i] == closureToNode &&
+                                        plan.activeRouteNodeIds[i + 1] == closureFromNode);
+                                if (usesClosedSection)
+                                {
+                                    sectionOccupied = true;
+                                    break;
+                                }
+                            }
+                            if (sectionOccupied) break;
+                        }
+                        if (plan.airplane.state != AirplaneState::TaxiingToStand &&
+                            plan.airplane.state != AirplaneState::TaxiingToRunway) continue;
                         const float px = plan.airplane.position.x - closureStart->position.x;
                         const float pz = plan.airplane.position.y - closureStart->position.z;
                         const float t = segmentLengthSquared > 0.0f ?
@@ -1979,8 +2037,6 @@ int main()
                     taxiwayClosureWaitingForTraffic = false;
                     taxiwayClosureEndSeconds = std::min(BusyStageEndSeconds,
                         shiftClockSeconds + TaxiwayClosureDurationSeconds);
-                    for (FlightPlan& plan : flights)
-                        if (plan.spawned) tryRerouteForClosure(plan);
                     priorityNotification = "TAXIWAY A WEST CLOSED - AIRCRAFT REROUTED";
                     priorityNotificationTime = 4.0f;
                 }
@@ -1995,7 +2051,11 @@ int main()
                 priorityNotificationTime = 3.0f;
             }
             for (FlightPlan& plan : flights)
-                if (plan.spawned && plan.closureReroutePending) tryRerouteForClosure(plan);
+            {
+                if (plan.spawned && (plan.closureReroutePending ||
+                    (taxiwayClosureActive && plan.routeStarted)))
+                    tryRerouteForClosure(plan);
+            }
             refuellingMessageTime = std::max(0.0f,
                 refuellingMessageTime - realDeltaTime);
             priorityNotificationTime = std::max(0.0f,
@@ -2453,7 +2513,7 @@ int main()
                                 { return item.id == selected.runwayId; });
                             const auto route = airportGround.FindRouteNodeIds(
                                 selected.departureHoldNodeId, selected.departureRunwayStart,
-                                TaxiRoutePurpose::Departure);
+                                routePurposeForTraffic(TaxiRoutePurpose::Departure));
                             if (runway != airportGround.GetRunways().end() && runway->available &&
                                 runwayOwners.find(selected.runwayId) == runwayOwners.end() &&
                                 routeCanBeReserved(route, selected.airplane.flightId))
@@ -2646,6 +2706,7 @@ int main()
             if (plan.arrivalFlight && plan.routeStarted &&
                 airplane.state == AirplaneState::AwaitingTaxiAuthorization)
             {
+                plan.landingRouteActive = false;
                 if (!plan.arrivalResultRecorded)
                 {
                     const float arrivalLateness = std::max(0.0f,
@@ -2671,6 +2732,7 @@ int main()
             }
             if (plan.arrivalFlight && plan.routeStarted && airplane.state == AirplaneState::Parked)
             {
+                plan.landingRouteActive = false;
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
                 plan.routeStarted = false;
@@ -2849,7 +2911,7 @@ int main()
                             start, westRunwayExit, TaxiRoutePurpose::Arrival);
                         const std::vector<std::string> taxiToStand =
                             airportGround.FindRouteNodeIds(westRunwayExit, stand->id,
-                                TaxiRoutePurpose::Arrival);
+                                routePurposeForTraffic(TaxiRoutePurpose::Arrival));
                         if (!route.empty() && !taxiToStand.empty())
                             route.insert(route.end(), taxiToStand.begin() + 1, taxiToStand.end());
                         else route.clear();
@@ -2872,14 +2934,16 @@ int main()
                 {
                     if (candidate.landingExitNodeId.empty() || !candidate.standAssigned) continue;
                     candidateRoute = airportGround.FindRouteNodeIds(start,
-                        candidate.parkingStandId, TaxiRoutePurpose::Arrival);
+                        candidate.parkingStandId,
+                        routePurposeForTraffic(TaxiRoutePurpose::Arrival));
                     if (candidateRoute.empty() ||
                         !routeCanBeReserved(candidateRoute, candidate.airplane.flightId)) continue;
                 }
                 else
                 {
                     candidateRoute = airportGround.FindRouteNodeIds(
-                        start, candidate.departureHoldNodeId, TaxiRoutePurpose::Departure);
+                        start, candidate.departureHoldNodeId,
+                        routePurposeForTraffic(TaxiRoutePurpose::Departure));
                     if (candidateRoute.empty() ||
                         !routeCanBeReserved(candidateRoute, candidate.airplane.flightId)) continue;
                 }
@@ -2914,6 +2978,7 @@ int main()
             {
                 plan.runwayReserved = true;
                 runwayOwners[plan.runwayId] = plan.airplane.flightId;
+                plan.landingRouteActive = true;
             }
             if (serveArrival)
             {
@@ -3358,11 +3423,11 @@ int main()
             if (routeIds.empty() && selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.landingExitNodeId, selected.parkingStandId,
-                    TaxiRoutePurpose::Arrival);
+                    routePurposeForTraffic(TaxiRoutePurpose::Arrival));
             else if (routeIds.empty() && selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.departureHoldNodeId, selected.departureRunwayStart,
-                    TaxiRoutePurpose::Departure);
+                    routePurposeForTraffic(TaxiRoutePurpose::Departure));
             else if (routeIds.empty() && selected.arrivalFlight)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.arrivalStartNode, selected.parkingStandId,
@@ -3371,7 +3436,7 @@ int main()
                 selected.airplane.state != AirplaneState::Departed)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.parkingStandId, selected.departureHoldNodeId,
-                    TaxiRoutePurpose::Departure);
+                    routePurposeForTraffic(TaxiRoutePurpose::Departure));
             Vector2 previous{};
             bool havePrevious = false;
             for (const std::string& nodeId : routeIds)
