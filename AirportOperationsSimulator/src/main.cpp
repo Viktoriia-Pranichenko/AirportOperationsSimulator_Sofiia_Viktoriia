@@ -229,6 +229,8 @@ namespace
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
         bool scoreRecorded{false};
+        bool arrivalResultRecorded{false};
+        bool safetyViolationRecorded{false};
         int scenarioStage{0};
         bool closureReroutePending{false};
         std::string closureRerouteStartNodeId;
@@ -950,6 +952,12 @@ int main()
     float shiftClockSeconds = 0.0f;
     int shiftScore = 0;
     int completedFlights = 0;
+    int completedArrivals = 0;
+    int punctualOperations = 0;
+    int safetyViolations = 0;
+    float totalDelaySeconds = 0.0f;
+    float totalWaitingSeconds = 0.0f;
+    int completedWaitTasks = 0;
     int priorityFlightsCompleted = 0;
     int priorityFlightsOnTime = 0;
     int priorityTasksHandledOnTime = 0;
@@ -1756,14 +1764,22 @@ int main()
 
     while (!WindowShouldClose())
     {
+        const bool shiftComplete = std::all_of(flights.begin(), flights.end(),
+            [](const FlightPlan& plan)
+            {
+                return !plan.departureFlight ||
+                    plan.airplane.state == AirplaneState::Departed ||
+                    plan.airplane.state == AirplaneState::Incident;
+            });
         const float realDeltaTime = GetFrameTime();
-        const float deltaTime = realDeltaTime * SimulationSpeed;
+        const float deltaTime = shiftComplete ? 0.0f : realDeltaTime * SimulationSpeed;
         if (exitRequested) break;
         if (showMainMenu)
             menuAnimationTime += realDeltaTime;
         else
         {
-            shiftClockSeconds += deltaTime * ShiftClockRate;
+            if (!shiftComplete)
+                shiftClockSeconds += deltaTime * ShiftClockRate;
             const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
                 (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
             if (scenarioStage == 1 && !taxiwayClosureAttempted &&
@@ -2053,7 +2069,8 @@ int main()
         }
         else if (showMainMenu && IsKeyPressed(KEY_ENTER)) showMainMenu = false;
         else if (showMainMenu && IsKeyPressed(KEY_ESCAPE)) exitRequested = true;
-        else if (!showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        else if (!showMainMenu && !shiftComplete &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
             if (cameraController.IsGateViewActive())
@@ -2289,6 +2306,12 @@ int main()
             }
             if (!plan.spawned) continue;
             airplane.Update(deltaTime);
+            if (airplane.state == AirplaneState::Incident &&
+                !plan.safetyViolationRecorded)
+            {
+                ++safetyViolations;
+                plan.safetyViolationRecorded = true;
+            }
             if (airplane.state == AirplaneState::Parked)
                 airplane.headingDegrees = plan.parkingHeadingDegrees;
 
@@ -2304,16 +2327,17 @@ int main()
 
             if (availableTask != plan.activeTaskKey)
             {
-                if (!plan.activeTaskKey.empty() && plan.taskAvailableAtSeconds >= 0.0f &&
-                    airplane.isPriority)
+                if (!plan.activeTaskKey.empty() && plan.taskAvailableAtSeconds >= 0.0f)
                 {
                     const float responseTime = shiftClockSeconds - plan.taskAvailableAtSeconds;
-                    if (responseTime <= PriorityTaskResponseSeconds)
+                    totalWaitingSeconds += responseTime;
+                    ++completedWaitTasks;
+                    if (airplane.isPriority && responseTime <= PriorityTaskResponseSeconds)
                     {
                         shiftScore += 20;
                         ++priorityTasksHandledOnTime;
                     }
-                    else
+                    else if (airplane.isPriority)
                     {
                         shiftScore -= 10;
                         ++priorityTasksHandledLate;
@@ -2336,6 +2360,16 @@ int main()
             if (plan.arrivalFlight && plan.routeStarted &&
                 airplane.state == AirplaneState::AwaitingTaxiAuthorization)
             {
+                if (!plan.arrivalResultRecorded)
+                {
+                    const float arrivalLateness = std::max(0.0f,
+                        shiftClockSeconds - plan.arrivalScheduledSeconds);
+                    ++completedArrivals;
+                    totalDelaySeconds += arrivalLateness;
+                    if (arrivalLateness <= 300.0f)
+                        ++punctualOperations;
+                    plan.arrivalResultRecorded = true;
+                }
                 if (plan.runwayReserved)
                 {
                     const auto owner = runwayOwners.find(plan.runwayId);
@@ -2372,6 +2406,9 @@ int main()
                     const float departureLateness = std::max(0.0f,
                         shiftClockSeconds - plan.departureScheduledSeconds);
                     ++completedFlights;
+                    totalDelaySeconds += departureLateness;
+                    if (departureLateness <= 300.0f)
+                        ++punctualOperations;
                     if (airplane.isPriority)
                     {
                         ++priorityFlightsCompleted;
@@ -3039,9 +3076,6 @@ int main()
             Color{124, 204, 207, 255});
         DrawText(FormatShiftTime(shiftClockSeconds).c_str(), timePanelX + 48,
             timePanelY + 24, 24, RAYWHITE);
-        const bool shiftComplete = std::all_of(flights.begin(), flights.end(),
-            [](const FlightPlan& plan)
-            { return !plan.departureFlight || plan.airplane.state == AirplaneState::Departed; });
         const int priorityFlightTotal = static_cast<int>(std::count_if(flights.begin(), flights.end(),
             [](const FlightPlan& plan) { return plan.airplane.isPriority; }));
         DrawText(TextFormat("%s %d F%d/%d P%d/%d O%d T%d/%d",
@@ -3355,6 +3389,115 @@ int main()
             DrawRectangleLines(messageX, 68, messageWidth, 32,
                 Color{112, 211, 213, 255});
             DrawText(refuellingMessage.c_str(), messageX + 14, 76, 16, RAYWHITE);
+        }
+
+        if (shiftComplete)
+        {
+            const int scheduledArrivals = static_cast<int>(std::count_if(flights.begin(),
+                flights.end(), [](const FlightPlan& plan) { return plan.hasArrivalSchedule; }));
+            const int scheduledDepartures = static_cast<int>(std::count_if(flights.begin(),
+                flights.end(), [](const FlightPlan& plan) { return plan.departureFlight; }));
+            const int scheduledFlights = scheduledDepartures;
+            const int totalScheduledEvents = scheduledArrivals + scheduledDepartures;
+            const int completedEvents = completedArrivals + completedFlights;
+            const float punctualityScore = completedEvents > 0 ?
+                40.0f * static_cast<float>(punctualOperations) /
+                    static_cast<float>(completedEvents) : 0.0f;
+            const float completionScore = totalScheduledEvents > 0 ?
+                40.0f * static_cast<float>(completedEvents) /
+                    static_cast<float>(totalScheduledEvents) : 0.0f;
+            const float safetyScore = scheduledFlights > 0 ?
+                20.0f * std::clamp(1.0f -
+                    static_cast<float>(safetyViolations) /
+                        static_cast<float>(scheduledFlights), 0.0f, 1.0f) : 0.0f;
+            const int finalScore = static_cast<int>(std::lround(
+                punctualityScore + completionScore + safetyScore));
+
+            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Fade(Color{4, 12, 18, 255}, 0.82f));
+            const float panelWidth = std::min(760.0f,
+                static_cast<float>(GetScreenWidth()) - 32.0f);
+            const float panelHeight = std::min(590.0f,
+                static_cast<float>(GetScreenHeight()) - 32.0f);
+            const Rectangle panel{
+                (static_cast<float>(GetScreenWidth()) - panelWidth) * 0.5f,
+                (static_cast<float>(GetScreenHeight()) - panelHeight) * 0.5f,
+                panelWidth, panelHeight};
+            DrawRectangleRounded(panel, 0.035f, 12, Color{13, 29, 39, 255});
+            DrawRectangleRoundedLinesEx(panel, 0.035f, 12, 2.0f,
+                Color{76, 224, 211, 255});
+            DrawText("SHIFT RESULTS", static_cast<int>(panel.x + 28.0f),
+                static_cast<int>(panel.y + 22.0f), 24, RAYWHITE);
+            DrawText(TextFormat("OPERATIONS COMPLETE  |  SHIFT ENDED %s",
+                FormatShiftTime(shiftClockSeconds).c_str()),
+                static_cast<int>(panel.x + 30.0f), static_cast<int>(panel.y + 55.0f),
+                11, Color{124, 204, 207, 255});
+
+            const Rectangle scorePanel{panel.x + 24.0f, panel.y + 82.0f,
+                panel.width - 48.0f, 94.0f};
+            DrawRectangleRounded(scorePanel, 0.08f, 8, Color{24, 53, 64, 255});
+            DrawText("FINAL SCORE", static_cast<int>(scorePanel.x + 18.0f),
+                static_cast<int>(scorePanel.y + 15.0f), 11,
+                Color{124, 204, 207, 255});
+            DrawText(TextFormat("%d", finalScore),
+                static_cast<int>(scorePanel.x + 18.0f),
+                static_cast<int>(scorePanel.y + 32.0f), 38, RAYWHITE);
+            DrawText("/ 100", static_cast<int>(scorePanel.x + 86.0f),
+                static_cast<int>(scorePanel.y + 57.0f), 15,
+                Color{161, 185, 194, 255});
+            DrawText(TextFormat("PUNCTUALITY  %.0f/40     COMPLETION  %.0f/40     SAFETY  %.0f/20",
+                punctualityScore, completionScore, safetyScore),
+                static_cast<int>(scorePanel.x + 180.0f),
+                static_cast<int>(scorePanel.y + 39.0f), 13,
+                Color{222, 232, 229, 255});
+
+            const float tileGap = 14.0f;
+            const float tileWidth = (panel.width - 48.0f - tileGap) * 0.5f;
+            const float tileHeight = 66.0f;
+            const float tileStartX = panel.x + 24.0f;
+            const float tileStartY = panel.y + 194.0f;
+            const char* tileLabels[] = {
+                "COMPLETED ARRIVALS", "COMPLETED DEPARTURES",
+                "TOTAL DELAY", "AVG WAITING TIME (AUTH)",
+                "PRIORITY FLIGHTS COMPLETED", "SAFETY VIOLATIONS"
+            };
+            char tileValueBuffers[6][32]{};
+            std::snprintf(tileValueBuffers[0], sizeof(tileValueBuffers[0]), "%d / %d",
+                completedArrivals, scheduledArrivals);
+            std::snprintf(tileValueBuffers[1], sizeof(tileValueBuffers[1]), "%d / %d",
+                completedFlights, scheduledDepartures);
+            std::snprintf(tileValueBuffers[2], sizeof(tileValueBuffers[2]), "%.1f min",
+                totalDelaySeconds / 60.0f);
+            std::snprintf(tileValueBuffers[3], sizeof(tileValueBuffers[3]), "%.1f min",
+                completedWaitTasks > 0 ?
+                    totalWaitingSeconds / static_cast<float>(completedWaitTasks) / 60.0f : 0.0f);
+            std::snprintf(tileValueBuffers[4], sizeof(tileValueBuffers[4]), "%d",
+                priorityFlightsCompleted);
+            std::snprintf(tileValueBuffers[5], sizeof(tileValueBuffers[5]), "%d",
+                safetyViolations);
+            for (int i = 0; i < 6; ++i)
+            {
+                const int column = i % 2;
+                const int row = i / 2;
+                const Rectangle tile{
+                    tileStartX + static_cast<float>(column) * (tileWidth + tileGap),
+                    tileStartY + static_cast<float>(row) * (tileHeight + 10.0f),
+                    tileWidth, tileHeight};
+                DrawRectangleRounded(tile, 0.08f, 8, Color{21, 43, 53, 255});
+                DrawText(tileLabels[i], static_cast<int>(tile.x + 14.0f),
+                    static_cast<int>(tile.y + 10.0f), 10,
+                    Color{144, 190, 197, 255});
+                DrawText(tileValueBuffers[i], static_cast<int>(tile.x + 14.0f),
+                    static_cast<int>(tile.y + 31.0f), 20, RAYWHITE);
+            }
+            DrawText("ON-TIME OPERATIONS (within 5 min)",
+                static_cast<int>(panel.x + 28.0f),
+                static_cast<int>(panel.y + panel.height - 31.0f), 10,
+                Color{161, 185, 194, 255});
+            DrawText(TextFormat("%d / %d", punctualOperations, completedEvents),
+                static_cast<int>(panel.x + panel.width - 105.0f),
+                static_cast<int>(panel.y + panel.height - 33.0f), 12,
+                Color{116, 226, 202, 255});
         }
 
         EndDrawing();
