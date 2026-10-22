@@ -1,4 +1,5 @@
 #include "raylib.h"
+#include "rlgl.h"
 
 #include "airport_terminal.h"
 #include "airport_ground.h"
@@ -154,6 +155,7 @@ namespace
         Rectangle next;
         Rectangle overview;
         Rectangle bringServiceCrew;
+        Rectangle departure;
         Rectangle disembarkPassengers;
         Rectangle maintenanceInspection;
         Rectangle refuelAircraft;
@@ -162,7 +164,7 @@ namespace
         Rectangle boardPassengers;
     };
 
-    GateNavigationButtons GetGateNavigationButtons()
+    GateNavigationButtons GetGateNavigationButtons(bool departureVisible)
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
@@ -174,6 +176,23 @@ namespace
         const float actionHeight = 40.0f;
         const float actionRowWidth = actionWidth * actionCount +
             actionGap * (actionCount - 1.0f);
+        Rectangle bringServiceCrew{
+            (static_cast<float>(GetScreenWidth()) - ServiceCrewButtonWidth) * 0.5f,
+            buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight};
+        Rectangle departure{0.0f, 0.0f, 0.0f, 0.0f};
+        if (departureVisible)
+        {
+            constexpr float DepartureButtonWidth = 254.0f;
+            constexpr float ButtonGap = 10.0f;
+            const float groupWidth = ServiceCrewButtonWidth + ButtonGap +
+                DepartureButtonWidth;
+            const float groupX = (static_cast<float>(GetScreenWidth()) -
+                groupWidth) * 0.5f;
+            bringServiceCrew.x = groupX;
+            departure = {groupX + ServiceCrewButtonWidth + ButtonGap,
+                buttonY - 96.0f, DepartureButtonWidth,
+                GateNavigationButtonHeight};
+        }
         return {
             {GateNavigationButtonMargin, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
@@ -182,8 +201,8 @@ namespace
             {static_cast<float>(GetScreenWidth()) - GateNavigationButtonMargin -
                 GateNavigationButtonWidth, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
-            {(static_cast<float>(GetScreenWidth()) - ServiceCrewButtonWidth) * 0.5f,
-                buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight},
+            bringServiceCrew,
+            departure,
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f,
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
@@ -214,6 +233,38 @@ namespace
         const int textY = static_cast<int>(
             bounds.y + (bounds.height - FontSize) * 0.5f);
         DrawText(label, textX, textY, FontSize, RAYWHITE);
+    }
+
+    void DrawDepartureButton(Rectangle bounds)
+    {
+        const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+        const Color accent{129, 235, 163, 255};
+        DrawRectangleRounded({bounds.x + 2.0f, bounds.y + 3.0f,
+            bounds.width, bounds.height}, 0.22f, 8, Color{5, 14, 20, 180});
+        DrawRectangleGradientV(static_cast<int>(bounds.x),
+            static_cast<int>(bounds.y), static_cast<int>(bounds.width),
+            static_cast<int>(bounds.height),
+            hovered ? Color{39, 119, 78, 255} : Color{24, 88, 62, 255},
+            Color{14, 61, 48, 255});
+        DrawRectangleRoundedLinesEx(bounds, 0.22f, 8, 2.0f,
+            hovered ? Color{231, 255, 237, 255} : accent);
+        const float centerX = bounds.x + 22.0f;
+        const float centerY = bounds.y + bounds.height * 0.5f;
+        // Simple top-down aircraft glyph.
+        DrawTriangle({centerX, centerY - 10.0f},
+            {centerX - 3.2f, centerY + 8.0f},
+            {centerX + 3.2f, centerY + 8.0f}, Color{226, 255, 233, 255});
+        DrawTriangle({centerX - 13.0f, centerY + 1.0f},
+            {centerX, centerY - 2.0f}, {centerX, centerY + 4.0f}, accent);
+        DrawTriangle({centerX + 13.0f, centerY + 1.0f},
+            {centerX, centerY - 2.0f}, {centerX, centerY + 4.0f}, accent);
+        const char* label = "Aircraft ready for departure";
+        int fontSize = 12;
+        while (fontSize > 9 && MeasureText(label, fontSize) > bounds.width - 48.0f)
+            --fontSize;
+        DrawText(label, static_cast<int>(bounds.x + 42.0f),
+            static_cast<int>(bounds.y + (bounds.height - fontSize) * 0.5f),
+            fontSize, Color{239, 255, 242, 255});
     }
 
     enum class GateActionIcon { Fuel, Baggage, CateringAndWater, Boarding, Disembark, Maintenance };
@@ -1427,6 +1478,10 @@ int main()
     float gate1DisembarkingTimeRemaining = 0.0f;
     float eastWingDisembarkingTimeRemaining = 0.0f;
     std::string activePassengerServiceGate;
+    enum class PushbackTugMotion { Parked, InPosition };
+    PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
+    std::string pushbackTugPositioningGate;
+    float pushbackTugNoseHeading = 0.0f;
     std::string boardingStairsGateId;
     Vector2 boardingStairsCrewPositions[2]{};
     float boardingStairsCrewHeadings[2]{};
@@ -1436,6 +1491,24 @@ int main()
     std::vector<BoardingPassenger> boardingPassengers;
     float boardingPassengerSpawnTimer = 0.0f;
     int boardingPassengerSpawnWaves = 0;
+    const auto aircraftServicesComplete = [&](const std::string& gateId)
+    {
+        if (gateId == "GATE_1")
+            return gate1Disembarking == DisembarkingState::Complete &&
+                gate1MaintenanceInspection == MaintenanceInspectionState::Complete &&
+                gate1RefuellingFinished &&
+                gate1CateringWater == CateringWaterState::Complete &&
+                gate1BaggageLoading == BaggageLoadingState::Complete &&
+                gate1Boarding == BoardingState::Complete;
+        if (gateId == "EAST_1")
+            return eastWingDisembarking == DisembarkingState::Complete &&
+                eastWingMaintenanceInspection == MaintenanceInspectionState::Complete &&
+                eastWingRefuellingFinished &&
+                eastWingCateringWater == CateringWaterState::Complete &&
+                eastWingBaggageLoading == BaggageLoadingState::Complete &&
+                eastWingBoarding == BoardingState::Complete;
+        return false;
+    };
     Vector2 cateringTruckCrewPosition{};
     Vector2 waterTruckCrewPosition{};
     Vector2 cateringTruckApproachPosition{};
@@ -1644,6 +1717,13 @@ int main()
     };
     const auto bringServiceCrewToSelectedGate = [&]()
     {
+        if (pushbackTugMotion == PushbackTugMotion::InPosition &&
+            pushbackTugPositioningGate == selectedGateId)
+        {
+            refuellingMessage = "The pushback tug is already at the aircraft nose.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (!activeBaggageLoadingGate.empty())
         {
             refuellingMessage = "Wait for baggage loading to finish.";
@@ -1686,6 +1766,13 @@ int main()
             if (stand.id == "GATE_4") referenceGate = &stand;
         }
         if (selectedGate == nullptr || referenceGate == nullptr) return;
+
+        if (serviceCrewGateId != selectedGateId &&
+            pushbackTugMotion == PushbackTugMotion::InPosition)
+        {
+            pushbackTugMotion = PushbackTugMotion::Parked;
+            pushbackTugPositioningGate.clear();
+        }
 
         if (baggageTugs.empty())
         {
@@ -2297,6 +2384,51 @@ int main()
         current.x += dx / distance * step;
         current.y += dz / distance * step;
         return false;
+    };
+    const auto startDepartureTugPositioning = [&](const std::string& gateId,
+        const Airplane& aircraft)
+    {
+        if (!aircraftServicesComplete(gateId))
+        {
+            refuellingMessage = "Complete all services and boarding before departure.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (serviceCrewGateId != gateId || pushbackTugs.empty())
+        {
+            refuellingMessage = "Bring the service crew to this gate first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (pushbackTugMotion == PushbackTugMotion::InPosition &&
+            pushbackTugPositioningGate == gateId)
+        {
+            refuellingMessage = "The pushback tug is already at the aircraft nose.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+
+        const float radians = aircraft.headingDegrees * DEG2RAD;
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const auto localToWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                aircraft.position.x + localX * cosine - localZ * sine,
+                aircraft.position.y + localX * sine + localZ * cosine};
+        };
+        // The tug's tow point is at local +Z. Place that rear point at the
+        // aircraft's -42 nose tip, leaving the cab pointing away from the plane.
+        const float noseTipZ = -42.0f * aircraft.renderScale;
+        const float noseClearZ = noseTipZ - 3.5f;
+        pushbackTugNoseHeading = -aircraft.headingDegrees;
+        const Vector2 nosePosition = localToWorld(0.0f, noseClearZ);
+        pushbackTugs.front().SetPosition(nosePosition.x, nosePosition.y);
+        pushbackTugs.front().SetHeadingDegrees(pushbackTugNoseHeading);
+        pushbackTugPositioningGate = gateId;
+        pushbackTugMotion = PushbackTugMotion::InPosition;
+        refuellingMessage = "Pushback tug is positioned at the aircraft nose.";
+        refuellingMessageTime = 3.0f;
     };
     const auto startMaintenanceInspection = [&](const std::string& gateId,
         const Airplane& aircraft, bool passengersDisembarked,
@@ -3088,13 +3220,24 @@ int main()
             const Vector2 mouse = GetMousePosition();
             if (cameraController.IsGateViewActive())
             {
-                const GateNavigationButtons buttons = GetGateNavigationButtons();
+                const bool departureAvailable =
+                    aircraftServicesComplete(selectedGateId);
+                const GateNavigationButtons buttons =
+                    GetGateNavigationButtons(departureAvailable);
                 if (CheckCollisionPointRec(mouse, buttons.previous))
                     selectAdjacentGate(-1);
                 else if (CheckCollisionPointRec(mouse, buttons.next))
                     selectAdjacentGate(1);
                 else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
                     bringServiceCrewToSelectedGate();
+                else if (departureAvailable &&
+                    CheckCollisionPointRec(mouse, buttons.departure))
+                {
+                    if (selectedGateId == "GATE_1")
+                        startDepartureTugPositioning("GATE_1", staticGate1Aircraft);
+                    else if (selectedGateId == "EAST_1")
+                        startDepartureTugPositioning("EAST_1", staticEastWingAircraft);
+                }
                 else if (selectedGateId == "GATE_1" &&
                     CheckCollisionPointRec(mouse, buttons.disembarkPassengers))
                     startPassengerDisembarking("GATE_1", staticGate1Aircraft,
@@ -3799,8 +3942,6 @@ int main()
             refuellingTanker.Draw();
         for (const FollowMeCar& followMeCar : followMeCars)
             followMeCar.Draw();
-        for (const AircraftPushbackTug& pushbackTug : pushbackTugs)
-            pushbackTug.Draw();
         for (const BaggageBeltLoader& baggageBeltLoader : baggageBeltLoaders)
             baggageBeltLoader.Draw();
         for (const CateringTruck& cateringTruck : cateringTrucks)
@@ -3811,11 +3952,31 @@ int main()
             maintenancePickupTruck.Draw();
         for (const PassengerBoardingStairs& boardingStairs : passengerBoardingStairs)
             boardingStairs.Draw();
+        // Keep every assigned service vehicle in the same draw pass before
+        // any aircraft, including the active pushback tug at the nose.
+        for (const AircraftPushbackTug& pushbackTug : pushbackTugs)
+            pushbackTug.Draw();
         for (const FlightPlan& plan : flights)
             if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
                 plan.airplane.Draw(plan.airplane.renderScale);
         staticGate1Aircraft.Draw(staticGate1Aircraft.renderScale);
         staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
+        if (pushbackTugPositioningGate == "GATE_1" &&
+            pushbackTugMotion == PushbackTugMotion::InPosition)
+        {
+            // The tug sits low beneath the aircraft nose; redraw the aircraft
+            // last so its silhouette visibly occludes the tug in top-down view.
+            rlDisableDepthTest();
+            staticGate1Aircraft.Draw(staticGate1Aircraft.renderScale);
+            rlEnableDepthTest();
+        }
+        else if (pushbackTugPositioningGate == "EAST_1" &&
+            pushbackTugMotion == PushbackTugMotion::InPosition)
+        {
+            rlDisableDepthTest();
+            staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
+            rlEnableDepthTest();
+        }
         for (const BoardingPassenger& passenger : boardingPassengers)
             DrawBoardingPassenger(passenger, static_cast<float>(GetTime()));
         for (const BoardingPassenger& technician : maintenanceTechnicians)
@@ -3851,20 +4012,43 @@ int main()
                 DrawCircleV({center.x, center.y + 5.0f}, 1.9f,
                     Color{44, 39, 27, 255});
             };
-            if (!(gate1RefuellingFinished &&
-                gate1MaintenanceInspection == MaintenanceInspectionState::Complete &&
-                gate1BaggageLoading == BaggageLoadingState::Complete &&
-                gate1CateringWater == CateringWaterState::Complete &&
-                gate1Disembarking == DisembarkingState::Complete &&
-                gate1Boarding == BoardingState::Complete))
+            const auto drawDepartureReadyMarker = [&](const Airplane& aircraft)
+            {
+                const Vector2 aircraftScreen = ProjectAirportPoint(
+                    aircraft.position, activeCamera);
+                const Vector2 center{aircraftScreen.x, aircraftScreen.y - 38.0f};
+                const float pulse = 0.5f + 0.5f * std::sin(
+                    static_cast<float>(GetTime()) * 3.4f);
+                const Color green{112, 235, 151, 255};
+                DrawCircleV(center, 21.0f,
+                    Fade(green, 0.10f + pulse * 0.12f));
+                DrawCircleV(center, 15.0f, Color{11, 43, 31, 225});
+                DrawCircleV(center, 11.0f, Color{49, 161, 93, 255});
+                DrawCircleLines(static_cast<int>(center.x),
+                    static_cast<int>(center.y), 11.0f,
+                    Color{221, 255, 229, 255});
+                DrawTriangle({center.x, center.y - 7.0f},
+                    {center.x - 3.0f, center.y + 6.0f},
+                    {center.x + 3.0f, center.y + 6.0f},
+                    Color{241, 255, 244, 255});
+                DrawTriangle({center.x - 8.0f, center.y + 1.0f},
+                    {center.x, center.y - 2.0f},
+                    {center.x, center.y + 4.0f}, green);
+                DrawTriangle({center.x + 8.0f, center.y + 1.0f},
+                    {center.x, center.y - 2.0f},
+                    {center.x, center.y + 4.0f}, green);
+                DrawText("READY", static_cast<int>(center.x - 17.0f),
+                    static_cast<int>(center.y + 13.0f), 8,
+                    Color{227, 255, 233, 255});
+            };
+            if (!aircraftServicesComplete("GATE_1"))
                 drawServiceNeededMarker(staticGate1Aircraft);
-            if (!(eastWingRefuellingFinished &&
-                eastWingMaintenanceInspection == MaintenanceInspectionState::Complete &&
-                eastWingBaggageLoading == BaggageLoadingState::Complete &&
-                eastWingCateringWater == CateringWaterState::Complete &&
-                eastWingDisembarking == DisembarkingState::Complete &&
-                eastWingBoarding == BoardingState::Complete))
+            else
+                drawDepartureReadyMarker(staticGate1Aircraft);
+            if (!aircraftServicesComplete("EAST_1"))
                 drawServiceNeededMarker(staticEastWingAircraft);
+            else
+                drawDepartureReadyMarker(staticEastWingAircraft);
         }
         const bool cateringWaterActive =
             gate1CateringWater == CateringWaterState::Working ||
@@ -3953,11 +4137,16 @@ int main()
                 gateLabel = "EAST WING GATE " + selectedGateId.substr(5);
             else if (selectedGateId.rfind("GATE_", 0) == 0)
                 gateLabel = "GATE " + selectedGateId.substr(5);
-            const GateNavigationButtons buttons = GetGateNavigationButtons();
+            const bool departureAvailable =
+                aircraftServicesComplete(selectedGateId);
+            const GateNavigationButtons buttons =
+                GetGateNavigationButtons(departureAvailable);
             DrawGateNavigationButton(buttons.previous, "PREV GATE");
             DrawGateNavigationButton(buttons.next, "NEXT GATE");
             DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
             DrawGateNavigationButton(buttons.bringServiceCrew, "Bring Service Crew");
+            if (departureAvailable)
+                DrawDepartureButton(buttons.departure);
             if (selectedGateId == "GATE_1" || selectedGateId == "EAST_1")
             {
                 const bool isGate1 = selectedGateId == "GATE_1";
