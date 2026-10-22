@@ -791,6 +791,105 @@ namespace
         }
         EndMode3D();
     }
+
+    Color ScenarioGrassColor(int stage)
+    {
+        if (stage == 0) return Color{91, 116, 86, 255};
+        if (stage == 1) return Color{82, 126, 79, 255};
+        return Color{66, 84, 75, 255};
+    }
+
+    void DrawScenarioSky(int stage, float shiftClockSeconds)
+    {
+        const int width = GetScreenWidth();
+        const int height = GetScreenHeight();
+        const float screenWidth = static_cast<float>(width);
+        const float screenHeight = static_cast<float>(height);
+        Color skyTop{83, 137, 177, 255};
+        Color horizon{241, 177, 133, 255};
+        Color sunColor{255, 194, 128, 255};
+        float sunHeight = 0.40f;
+        if (stage == 1)
+        {
+            skyTop = Color{84, 160, 214, 255};
+            horizon = Color{206, 229, 234, 255};
+            sunColor = Color{255, 243, 201, 255};
+            sunHeight = 0.10f;
+        }
+        else if (stage == 2)
+        {
+            skyTop = Color{45, 57, 94, 255};
+            horizon = Color{221, 133, 102, 255};
+            sunColor = Color{255, 156, 102, 255};
+            sunHeight = 0.40f;
+        }
+
+        ClearBackground(skyTop);
+        const int horizonY = static_cast<int>(screenHeight * 0.36f);
+        DrawRectangleGradientV(0, 0, width, horizonY, skyTop, horizon);
+        DrawRectangle(0, horizonY, width, height - horizonY, horizon);
+
+        const float nightProgress = stage == 2 ?
+            std::clamp((shiftClockSeconds - 18.0f * 60.0f * 60.0f) /
+                (2.0f * 60.0f * 60.0f), 0.0f, 1.0f) : 0.0f;
+        const float sunOpacity = stage == 2 ? 1.0f - nightProgress : 1.0f;
+        const Vector2 sunCenter{screenWidth * 0.63f,
+            screenHeight * (sunHeight + nightProgress * 0.025f)};
+        DrawCircleV(sunCenter, 54.0f, Fade(sunColor, 0.035f * sunOpacity));
+        DrawCircleV(sunCenter, 36.0f, Fade(sunColor, 0.075f * sunOpacity));
+        DrawCircleV(sunCenter, 23.0f, Fade(sunColor, 0.18f * sunOpacity));
+        DrawCircleV(sunCenter, 14.0f, Fade(sunColor, 0.92f * sunOpacity));
+
+        if (stage == 2)
+        {
+            const Vector2 moonCenter{screenWidth * 0.54f, screenHeight * 0.08f};
+            DrawCircleV(moonCenter, 34.0f,
+                Fade(Color{177, 202, 255, 255}, 0.05f * nightProgress));
+            DrawCircleV(moonCenter, 23.0f,
+                Fade(Color{177, 202, 255, 255}, 0.09f * nightProgress));
+            DrawCircleV(moonCenter, 13.0f,
+                Fade(Color{238, 242, 255, 255}, 0.95f * nightProgress));
+
+            const Vector2 starPositions[] = {
+                {0.08f, 0.08f}, {0.19f, 0.20f}, {0.29f, 0.11f},
+                {0.38f, 0.31f}, {0.47f, 0.07f}, {0.59f, 0.24f},
+                {0.68f, 0.09f}, {0.78f, 0.29f}, {0.88f, 0.12f},
+                {0.96f, 0.25f}, {0.13f, 0.35f}, {0.25f, 0.28f},
+                {0.42f, 0.18f}, {0.55f, 0.37f}, {0.65f, 0.33f},
+                {0.74f, 0.16f}, {0.84f, 0.38f}, {0.93f, 0.06f},
+                {0.34f, 0.39f}, {0.04f, 0.24f}
+            };
+            const float twinkleTime = static_cast<float>(GetTime());
+            constexpr std::size_t StarCount =
+                sizeof(starPositions) / sizeof(starPositions[0]);
+            for (std::size_t i = 0; i < StarCount; ++i)
+            {
+                const float twinkle = 0.35f + 0.65f * (0.5f + 0.5f *
+                    std::sin(twinkleTime * 2.1f + static_cast<float>(i) * 1.73f));
+                DrawCircleV({starPositions[i].x * screenWidth,
+                    starPositions[i].y * screenHeight * 0.75f},
+                    i % 4 == 0 ? 1.8f : 1.1f,
+                    Fade(Color{235, 243, 255, 255},
+                        nightProgress * twinkle * 0.82f));
+            }
+        }
+        else
+        {
+            for (int i = 0; i < 4; ++i)
+            {
+                const float x = screenWidth * (0.16f + 0.2f * static_cast<float>(i));
+                const float y = screenHeight * (0.17f + 0.07f *
+                    static_cast<float>(i % 2));
+                DrawEllipse(static_cast<int>(x), static_cast<int>(y),
+                    screenWidth * 0.045f, screenHeight * 0.009f,
+                    Fade(Color{255, 246, 232, 255}, stage == 0 ? 0.12f : 0.17f));
+                DrawEllipse(static_cast<int>(x + screenWidth * 0.025f),
+                    static_cast<int>(y + screenHeight * 0.008f),
+                    screenWidth * 0.026f, screenHeight * 0.006f,
+                    Fade(Color{255, 246, 232, 255}, stage == 0 ? 0.10f : 0.14f));
+            }
+        }
+    }
 }
 
 int main()
@@ -3460,7 +3559,10 @@ int main()
         }
 
         BeginDrawing();
-        ClearBackground(Color{142, 181, 199, 255});
+        const int backgroundScenarioStage =
+            shiftClockSeconds < MorningStageEndSeconds ? 0 :
+            (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
+        DrawScenarioSky(backgroundScenarioStage, shiftClockSeconds);
 
         const Camera3D& sceneCamera = cameraController.GetCamera3D();
         BeginMode3D(sceneCamera);
@@ -3469,7 +3571,7 @@ int main()
         terminal.Draw();
         // Draw taxiways after the terminal apron so the connected pavement and
         // centerlines remain visible where they cross the apron slab.
-        airportGround.Draw();
+        airportGround.Draw(ScenarioGrassColor(backgroundScenarioStage));
         carParkingLot.Draw();
         if (!selectedGateId.empty())
             terminal.DrawGateHighlight(selectedGateId);

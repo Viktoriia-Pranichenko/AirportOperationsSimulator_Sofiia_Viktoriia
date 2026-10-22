@@ -49,7 +49,7 @@ class AirportGround
 public:
     explicit AirportGround(const AirportTerminal& terminal);
 
-    void Draw() const;
+    void Draw(Color grassColor) const;
     const std::vector<AirportRunway>& GetRunways() const { return runways; }
     const std::vector<TaxiwayNode>& GetTaxiwayNodes() const { return nodes; }
     const std::vector<TaxiwayEdge>& GetTaxiwayEdges() const { return edges; }

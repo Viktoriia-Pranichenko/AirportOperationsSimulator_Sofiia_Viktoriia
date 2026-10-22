@@ -10,7 +10,6 @@
 
 namespace
 {
-    constexpr Color Grass{78, 112, 91, 255};
     constexpr Color RunwayShoulder{79, 86, 89, 255};
     constexpr Color RunwaySurface{48, 55, 60, 255};
     constexpr Color TaxiwayShoulder{86, 94, 95, 255};
@@ -84,7 +83,7 @@ namespace
         DrawRunwayDigit(number[1], centerX, centerZ + digitSpacing * 0.5f);
     }
 
-    void DrawGroundAroundApron()
+    void DrawGroundAroundApron(Color grassColor)
     {
         // Keep grass outside the connected apron and service-spur footprint.
         constexpr float groundY = -0.01f;
@@ -100,11 +99,12 @@ namespace
         constexpr float spurMinZ = -180.0f;
         constexpr float spurMaxZ = 45.0f;
 
-        const auto drawGrassRect = [groundY](float minX, float maxX, float minZ, float maxZ)
+        const auto drawGrassRect = [groundY, grassColor](
+            float minX, float maxX, float minZ, float maxZ)
         {
             if (maxX <= minX || maxZ <= minZ) return;
             DrawPlane({(minX + maxX) * 0.5f, groundY, (minZ + maxZ) * 0.5f},
-                {maxX - minX, maxZ - minZ}, Grass);
+                {maxX - minX, maxZ - minZ}, grassColor);
         };
 
         drawGrassRect(groundMinX, platformMinX, groundMinZ, groundMaxZ);
@@ -704,10 +704,10 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
     return {};
 }
 
-void AirportGround::Draw() const
+void AirportGround::Draw(Color grassColor) const
 {
     // Ground remains outside the terminal slab to avoid coplanar flicker.
-    DrawGroundAroundApron();
+    DrawGroundAroundApron(grassColor);
     for (const AirportRunway& runway : runways)
         DrawRunway(runway);
 
