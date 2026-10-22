@@ -314,6 +314,32 @@ int main()
         {0.0f, 1.0f, 0.0f}, 35.0f, CAMERA_PERSPECTIVE};
     RenderTexture2D airplanePreviewTarget = LoadRenderTexture(256, 192);
     AirportTerminal terminal;
+    const auto makeStaticAircraftAtGate = [&](const std::string& gateId,
+        AircraftSize size, Color livery)
+    {
+        Airplane aircraft;
+        aircraft.flightId = "STATIC_" + gateId;
+        aircraft.aircraftType = size == AircraftSize::Large ?
+            "Passenger jet" : "Regional jet";
+        aircraft.size = size;
+        aircraft.liveryColor = livery;
+        aircraft.state = AirplaneState::Parked;
+        aircraft.renderScale = size == AircraftSize::Large ? 0.21f : 0.17f;
+        for (const AirportParkingStand& stand : terminal.GetParkingStands())
+        {
+            if (stand.id == gateId)
+            {
+                aircraft.position = {stand.position.x, stand.position.z};
+                aircraft.headingDegrees = stand.headingDegrees;
+                break;
+            }
+        }
+        return aircraft;
+    };
+    Airplane staticGate1Aircraft = makeStaticAircraftAtGate(
+        "GATE_1", AircraftSize::Small, Color{38, 145, 189, 255});
+    Airplane staticEastWingAircraft = makeStaticAircraftAtGate(
+        "EAST_1", AircraftSize::Large, Color{98, 174, 128, 255});
     AirportGround airportGround(terminal);
     std::vector<FlightPlan> flights;
     // Keep the original parking bays available for later vehicle-movement work.
@@ -522,6 +548,10 @@ int main()
     std::unordered_map<std::string, std::string> occupiedNodes;
     std::unordered_map<std::string, std::string> occupiedSections;
     std::unordered_map<std::string, std::string> occupiedStands;
+    occupiedNodes["GATE_1"] = staticGate1Aircraft.flightId;
+    occupiedStands["GATE_1"] = staticGate1Aircraft.flightId;
+    occupiedNodes["EAST_1"] = staticEastWingAircraft.flightId;
+    occupiedStands["EAST_1"] = staticEastWingAircraft.flightId;
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
     float shiftClockSeconds = 0.0f;
@@ -1211,6 +1241,8 @@ int main()
         for (const FlightPlan& plan : flights)
             if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
                 plan.airplane.Draw(plan.airplane.renderScale);
+        staticGate1Aircraft.Draw(staticGate1Aircraft.renderScale);
+        staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
         EndMode3D();
 
         const Camera3D& activeCamera = cameraController.GetCamera3D();
