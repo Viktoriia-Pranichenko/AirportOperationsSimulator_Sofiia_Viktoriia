@@ -227,6 +227,9 @@ namespace
         bool taxiToStandQueued{false};
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
+        bool scoreRecorded{false};
+        std::string activeTaskKey;
+        float taskAvailableAtSeconds{-1.0f};
         std::uint64_t requestOrder{0};
         std::vector<std::string> activeRouteNodeIds;
         std::string arrivalStartNode;
@@ -818,12 +821,12 @@ int main()
     struct ArrivalScheduleEntry { const char* flight; const char* name; const char* airline;
         const char* origin; const char* destination; Color livery; const char* type; const char* approach;
         AircraftSize size; const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
-        float arrivalMinute; float departureMinute; };
+        float arrivalMinute; float departureMinute; bool priority; };
     const ArrivalScheduleEntry arrivals[] = {
-        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_1", -507.0f, 0.0f, 12.0f},
-        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "WEST_2", -642.0f, 4.0f, 17.0f},
-        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_E", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_END_E", "EAST_3", -777.0f, 8.0f, 22.0f},
-        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 15.0f, 29.0f}
+        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_1", -507.0f, 0.0f, 12.0f, false},
+        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "WEST_2", -642.0f, 4.0f, 17.0f, true},
+        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_E", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_END_E", "EAST_3", -777.0f, 8.0f, 22.0f, false},
+        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 15.0f, 29.0f, false}
     };
     for (const ArrivalScheduleEntry& setup : arrivals)
     {
@@ -842,7 +845,7 @@ int main()
         plan.airplane.position = {approach->position.x, approach->position.z};
         plan.airplane.headingDegrees = 90.0f;
         plan.airplane.renderScale = setup.size == AircraftSize::Large ? 0.21f : 0.17f;
-        plan.airplane.isPriority = std::string(setup.flight) == "AO202";
+        plan.airplane.isPriority = setup.priority;
         plan.hasArrivalSchedule = true;
         plan.arrivalScheduledSeconds = setup.arrivalMinute * 60.0f;
         plan.departureScheduledSeconds = setup.departureMinute * 60.0f;
@@ -936,6 +939,14 @@ int main()
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
     float shiftClockSeconds = 0.0f;
+    int shiftScore = 0;
+    int completedFlights = 0;
+    int priorityFlightsCompleted = 0;
+    int priorityFlightsOnTime = 0;
+    int priorityTasksHandledOnTime = 0;
+    int priorityTasksHandledLate = 0;
+    std::string priorityNotification;
+    float priorityNotificationTime = 0.0f;
     int selectedFlightIndex = -1;
     std::string selectedGateId;
     std::string serviceCrewGateId;
@@ -1668,6 +1679,8 @@ int main()
             shiftClockSeconds += deltaTime * ShiftClockRate;
             refuellingMessageTime = std::max(0.0f,
                 refuellingMessageTime - deltaTime);
+            priorityNotificationTime = std::max(0.0f,
+                priorityNotificationTime - deltaTime);
             const auto updateBaggageLoading = [&](BaggageLoadingState& state,
                 float& timeRemaining, const char* aircraftName)
             {
@@ -1973,11 +1986,8 @@ int main()
                 if (clickedInfoPanel)
                 {
                     const Rectangle taxiButton{static_cast<float>(rightPanelLeft + 14), 324.0f, 284.0f, 24.0f};
-                    const Rectangle priorityButton{static_cast<float>(rightPanelLeft + 14), 352.0f, 284.0f, 28.0f};
                     FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
-                    if (CheckCollisionPointRec(mouse, priorityButton))
-                        selected.airplane.isPriority = !selected.airplane.isPriority;
-                    else if (CheckCollisionPointRec(mouse, taxiButton))
+                    if (CheckCollisionPointRec(mouse, taxiButton))
                     {
                         if (selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization &&
                             !selected.taxiToStandQueued)
@@ -2080,10 +2090,6 @@ int main()
                 selectedGateId.clear();
             }
         }
-        if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()) &&
-            IsKeyPressed(KEY_P))
-            flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
-                !flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority;
         for (std::size_t flightIndex = 0; flightIndex < flights.size(); ++flightIndex)
         {
             FlightPlan& plan = flights[flightIndex];
@@ -2113,6 +2119,12 @@ int main()
                     plan.requestOrder = nextRequestOrder++;
                     arrivalQueue.push_back(flightIndex);
                     occupiedNodes[plan.arrivalStartNode] = airplane.flightId;
+                    if (airplane.isPriority)
+                    {
+                        priorityNotification = "PRIORITY ARRIVAL: " + airplane.flightId +
+                            " - LANDING REQUEST EXPEDITED";
+                        priorityNotificationTime = 4.0f;
+                    }
                 }
                 else if (!plan.hasArrivalSchedule && plan.departureFlight &&
                     shiftClockSeconds >= plan.departureScheduledSeconds)
@@ -2131,6 +2143,47 @@ int main()
             airplane.Update(deltaTime);
             if (airplane.state == AirplaneState::Parked)
                 airplane.headingDegrees = plan.parkingHeadingDegrees;
+
+            std::string availableTask;
+            if (airplane.state == AirplaneState::AwaitingTaxiAuthorization &&
+                !plan.taxiToStandQueued)
+                availableTask = "TAXI TO STAND";
+            else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
+                plan.departureScheduleReached && !plan.departureQueued)
+                availableTask = "TAXI TO RUNWAY";
+            else if (airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
+                availableTask = "AUTHORIZE TAKEOFF";
+
+            if (availableTask != plan.activeTaskKey)
+            {
+                if (!plan.activeTaskKey.empty() && plan.taskAvailableAtSeconds >= 0.0f &&
+                    airplane.isPriority)
+                {
+                    const float responseTime = shiftClockSeconds - plan.taskAvailableAtSeconds;
+                    if (responseTime <= 120.0f)
+                    {
+                        shiftScore += 20;
+                        ++priorityTasksHandledOnTime;
+                    }
+                    else
+                    {
+                        shiftScore -= 10;
+                        ++priorityTasksHandledLate;
+                        priorityNotification = "PRIORITY " + airplane.flightId +
+                            " - HANDLING TARGET MISSED";
+                        priorityNotificationTime = 4.0f;
+                    }
+                }
+
+                plan.activeTaskKey = availableTask;
+                plan.taskAvailableAtSeconds = availableTask.empty() ? -1.0f : shiftClockSeconds;
+                if (airplane.isPriority && !availableTask.empty())
+                {
+                    priorityNotification = "PRIORITY " + airplane.flightId +
+                        " - " + availableTask + " REQUIRED";
+                    priorityNotificationTime = 4.0f;
+                }
+            }
 
             if (plan.arrivalFlight && plan.routeStarted &&
                 airplane.state == AirplaneState::AwaitingTaxiAuthorization)
@@ -2166,6 +2219,31 @@ int main()
             }
             if (plan.departureFlight && airplane.state == AirplaneState::Departed)
             {
+                if (!plan.scoreRecorded)
+                {
+                    const float departureLateness = std::max(0.0f,
+                        shiftClockSeconds - plan.departureScheduledSeconds);
+                    ++completedFlights;
+                    if (airplane.isPriority)
+                    {
+                        ++priorityFlightsCompleted;
+                        if (departureLateness <= 120.0f)
+                        {
+                            shiftScore += 200;
+                            ++priorityFlightsOnTime;
+                        }
+                        else if (departureLateness <= 300.0f)
+                            shiftScore += 125;
+                        else
+                            shiftScore += 50;
+                        priorityNotification = "PRIORITY " + airplane.flightId +
+                            (departureLateness <= 120.0f ?
+                                " - ON-TIME DEPARTURE BONUS" : " - DEPARTED LATE");
+                        priorityNotificationTime = 4.0f;
+                    }
+                    else shiftScore += departureLateness <= 300.0f ? 100 : 50;
+                    plan.scoreRecorded = true;
+                }
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
                 plan.routeStarted = false;
@@ -2811,6 +2889,17 @@ int main()
             Color{124, 204, 207, 255});
         DrawText(FormatShiftTime(shiftClockSeconds).c_str(), timePanelX + 48,
             timePanelY + 24, 24, RAYWHITE);
+        const bool shiftComplete = std::all_of(flights.begin(), flights.end(),
+            [](const FlightPlan& plan)
+            { return !plan.departureFlight || plan.airplane.state == AirplaneState::Departed; });
+        const int priorityFlightTotal = static_cast<int>(std::count_if(flights.begin(), flights.end(),
+            [](const FlightPlan& plan) { return plan.airplane.isPriority; }));
+        DrawText(TextFormat("%s %d F%d/%d P%d/%d O%d T%d/%d",
+            shiftComplete ? "FINAL" : "SHIFT", shiftScore, completedFlights,
+            static_cast<int>(flights.size()), priorityFlightsCompleted,
+            priorityFlightTotal, priorityFlightsOnTime,
+            priorityTasksHandledOnTime, priorityTasksHandledLate),
+            timePanelX + 12, timePanelY + 47, 9, Color{231, 199, 119, 255});
 
         const int panelX = 16;
         const int panelY = 16;
@@ -2847,8 +2936,9 @@ int main()
         {
             const FlightPlan& plan = flights[scheduleOrder[row]];
             const int rowY = panelY + scheduleHeaderHeight + static_cast<int>(row) * scheduleRowHeight + 4;
-            const Color rowColor = plan.spawned && plan.airplane.state != AirplaneState::Departed ?
-                Color{235, 242, 245, 255} : Color{166, 184, 191, 255};
+            const Color rowColor = plan.airplane.isPriority ? Color{248, 210, 132, 255} :
+                (plan.spawned && plan.airplane.state != AirplaneState::Departed ?
+                    Color{235, 242, 245, 255} : Color{166, 184, 191, 255});
             std::string event;
             if (plan.airplane.state == AirplaneState::Departed)
                 event = "COMPLETE";
@@ -2861,7 +2951,13 @@ int main()
             else
                 event = "DEP " + FormatShiftTime(plan.departureScheduledSeconds);
 
-            DrawText(plan.airplane.flightId.c_str(), panelX + 10, rowY, 12, rowColor);
+            if (plan.airplane.isPriority)
+            {
+                DrawRectangle(panelX + 5, rowY, 13, 14, Color{164, 111, 36, 255});
+                DrawText("P", panelX + 8, rowY + 2, 9, RAYWHITE);
+            }
+            DrawText(plan.airplane.flightId.c_str(), panelX + (plan.airplane.isPriority ? 23 : 10),
+                rowY, 12, rowColor);
             DrawText(plan.destination.c_str(), panelX + 82, rowY, 11, rowColor);
             DrawText(event.c_str(), panelX + 250, rowY, 11,
                 plan.departureScheduleReached && plan.airplane.state != AirplaneState::Departed ?
@@ -2918,11 +3014,21 @@ int main()
                             FormatShiftTime(selected.departureScheduledSeconds).c_str())) :
                  selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization ?
                     "AUTHORIZE TAKEOFF" : "No taxi command available in this state.");
-            DrawRectangle(infoX + 14, infoY + 250, 284, 24, Color{28, 92, 98, 255});
-            DrawText(command, infoX + 22, infoY + 256, 11, RAYWHITE);
+            std::string commandText = command;
+            if (selected.airplane.isPriority && !selected.activeTaskKey.empty())
+            {
+                const int secondsLeft = std::max(0, static_cast<int>(std::ceil(120.0f -
+                    (shiftClockSeconds - selected.taskAvailableAtSeconds))));
+                commandText = "URGENT: " + selected.activeTaskKey + TextFormat("  %02d:%02d",
+                    secondsLeft / 60, secondsLeft % 60);
+            }
+            DrawRectangle(infoX + 14, infoY + 250, 284, 24,
+                selected.airplane.isPriority && !selected.activeTaskKey.empty() ?
+                    Color{135, 83, 31, 255} : Color{28, 92, 98, 255});
+            DrawText(commandText.c_str(), infoX + 22, infoY + 256, 10, RAYWHITE);
             DrawRectangle(infoX + 14, infoY + 278, 284, 28,
                 selected.airplane.isPriority ? Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
-            DrawText(selected.airplane.isPriority ? "PRIORITY: ON (click / P)" : "MARK PRIORITY (click / P)",
+            DrawText(selected.airplane.isPriority ? "PRIORITY FLIGHT" : "STANDARD FLIGHT",
                 infoX + 22, infoY + 285, 13, RAYWHITE);
         }
 
@@ -3037,6 +3143,18 @@ int main()
                 Color{161, 185, 194, 255});
             DrawText("v1.0  |  PRESS ENTER TO START", 22,
                 GetScreenHeight() - 27, 9, Color{135, 165, 175, 255});
+        }
+
+        if (priorityNotificationTime > 0.0f)
+        {
+            const int notificationWidth = MeasureText(priorityNotification.c_str(), 13) + 28;
+            const int notificationX = (GetScreenWidth() - notificationWidth) / 2;
+            DrawRectangle(notificationX, 108, notificationWidth, 30,
+                Fade(Color{66, 42, 18, 248}, 0.96f));
+            DrawRectangleLines(notificationX, 108, notificationWidth, 30,
+                Color{238, 185, 82, 255});
+            DrawText(priorityNotification.c_str(), notificationX + 14, 116, 13,
+                Color{255, 226, 164, 255});
         }
 
         if (refuellingMessageTime > 0.0f)
