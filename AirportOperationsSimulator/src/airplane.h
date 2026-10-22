@@ -45,6 +45,7 @@ public:
     bool isPriority{false};
     float renderScale{0.325f};
     float turnRateDegreesPerSecond{95.0f};
+    std::size_t GetNextWaypointIndex() const { return nextWaypoint; }
 
     // Change state only when the requested transition is valid.
     bool TransitionTo(AirplaneState nextState);

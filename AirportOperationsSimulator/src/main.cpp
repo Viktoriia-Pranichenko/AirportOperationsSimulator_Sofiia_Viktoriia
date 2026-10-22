@@ -218,6 +218,7 @@ namespace
         float preparationTime{0.0f};
         bool hasArrivalSchedule{false};
         bool departureScheduleReached{false};
+        bool departureTaxiWindowOpen{false};
         bool spawned{false};
         bool standAssigned{false};
         bool departureFlight{false};
@@ -228,6 +229,9 @@ namespace
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
         bool scoreRecorded{false};
+        int scenarioStage{0};
+        bool closureReroutePending{false};
+        std::string closureRerouteStartNodeId;
         std::string activeTaskKey;
         float taskAvailableAtSeconds{-1.0f};
         std::uint64_t requestOrder{0};
@@ -821,12 +825,15 @@ int main()
     struct ArrivalScheduleEntry { const char* flight; const char* name; const char* airline;
         const char* origin; const char* destination; Color livery; const char* type; const char* approach;
         AircraftSize size; const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
-        float arrivalMinute; float departureMinute; bool priority; };
+        float arrivalMinute; float departureMinute; bool priority; int scenarioStage; };
     const ArrivalScheduleEntry arrivals[] = {
-        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_1", -507.0f, 0.0f, 12.0f, false},
-        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "WEST_2", -642.0f, 4.0f, 17.0f, true},
-        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_E", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_END_E", "EAST_3", -777.0f, 8.0f, 22.0f, false},
-        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 15.0f, 29.0f, false}
+        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_1", -507.0f, 0.0f, 75.0f, false, 0},
+        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "WEST_2", -642.0f, 30.0f, 120.0f, false, 0},
+        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_E", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_END_E", "EAST_3", -777.0f, 195.0f, 300.0f, false, 1},
+        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 270.0f, 390.0f, false, 1},
+        {"AO708", "Crosswind 708", "Coastal Air", "Edinburgh (EDI)", "Cork (ORK)", {74, 161, 126, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Small, "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 360.0f, 480.0f, false, 1},
+        {"AO731", "Regional 731", "Meridian Air", "Manchester (MAN)", "Galway (GWY)", {182, 126, 66, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "EAST_4", -642.0f, 540.0f, 630.0f, false, 1},
+        {"AO900", "Evening Priority 900", "Northstar Air", "Paris (CDG)", "Dublin (DUB)", {198, 91, 67, 255}, "Passenger jet", "APPROACH_B_E", AircraftSize::Large, "RUNWAY_B", "RUNWAY_B_END_E", "EAST_2", -642.0f, 690.0f, 780.0f, true, 2}
     };
     for (const ArrivalScheduleEntry& setup : arrivals)
     {
@@ -846,6 +853,7 @@ int main()
         plan.airplane.headingDegrees = 90.0f;
         plan.airplane.renderScale = setup.size == AircraftSize::Large ? 0.21f : 0.17f;
         plan.airplane.isPriority = setup.priority;
+        plan.scenarioStage = setup.scenarioStage;
         plan.hasArrivalSchedule = true;
         plan.arrivalScheduledSeconds = setup.arrivalMinute * 60.0f;
         plan.departureScheduledSeconds = setup.departureMinute * 60.0f;
@@ -889,7 +897,7 @@ int main()
     const DepartureScheduleEntry departures[] = {
         {"AO440", "Coastal 440", "Coastal Air", "Airport (HOME)", "Oslo (OSL)",
             {87, 158, 192, 255}, "Narrow-body jet", "GATE_4", "RUNWAY_A",
-            "RUNWAY_END_E", "A_HOLD_E", 5.0f}
+            "RUNWAY_END_E", "A_HOLD_E", 90.0f}
     };
     for (const DepartureScheduleEntry& setup : departures)
     {
@@ -918,6 +926,7 @@ int main()
             }
         }
         plan.departureFlight = true;
+        plan.scenarioStage = 0;
         plan.departureScheduledSeconds = setup.departureMinute * 60.0f;
         plan.parkingStandId = setup.stand;
         plan.runwayId = setup.runwayId;
@@ -1011,7 +1020,10 @@ int main()
     Vector2 refuellingTankerCrewPosition{};
     Vector2 refuellingTankerRearStagingPosition{};
     Vector2 refuellingTankerAircraftPosition{};
-    constexpr float ShiftClockRate = 15.0f; // 15 simulated seconds per real second.
+    constexpr float SimulationSpeed = 4.0f;
+    constexpr float ShiftClockRate = 15.0f; // Combined rate is 60 shift seconds per real second.
+    constexpr float DepartureTaxiLeadSeconds = 25.0f * 60.0f;
+    constexpr float PriorityTaskResponseSeconds = 10.0f * 60.0f;
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
         return first < second ? first + "|" + second : second + "|" + first;
@@ -1055,6 +1067,80 @@ int main()
             if (owner != occupiedSections.end() && owner->second == flightId)
                 occupiedSections.erase(owner);
         }
+    };
+    // All event times are elapsed from the displayed 06:00 shift start.
+    constexpr float MorningStageEndSeconds = 3.0f * 60.0f * 60.0f; // 09:00
+    constexpr float BusyStageEndSeconds = 11.0f * 60.0f * 60.0f; // 17:00
+    constexpr float TaxiwayClosureStartSeconds = 4.0f * 60.0f * 60.0f; // 10:00
+    constexpr float TaxiwayClosureDurationSeconds = 2.0f * 60.0f * 60.0f; // to 12:00
+    const std::string closureFromNode = "A_EXIT_W";
+    const std::string closureToNode = "A_CENTER";
+    bool taxiwayClosureActive = false;
+    bool taxiwayClosureAttempted = false;
+    bool taxiwayClosureWaitingForTraffic = false;
+    float taxiwayClosureEndSeconds = -1.0f;
+
+    const auto tryRerouteForClosure = [&](FlightPlan& plan)
+    {
+        if (plan.airplane.state != AirplaneState::TaxiingToStand &&
+            plan.airplane.state != AirplaneState::TaxiingToRunway)
+        {
+            plan.closureReroutePending = false;
+            return true;
+        }
+        if (plan.activeRouteNodeIds.empty()) return false;
+
+        const std::string destinationNodeId = plan.activeRouteNodeIds.back();
+        if (plan.closureRerouteStartNodeId.empty())
+        {
+            std::size_t closedEdgeIndex = plan.activeRouteNodeIds.size();
+            for (std::size_t index = 0; index + 1 < plan.activeRouteNodeIds.size(); ++index)
+            {
+                const bool matchesForward = plan.activeRouteNodeIds[index] == closureFromNode &&
+                    plan.activeRouteNodeIds[index + 1] == closureToNode;
+                const bool matchesReverse = plan.activeRouteNodeIds[index] == closureToNode &&
+                    plan.activeRouteNodeIds[index + 1] == closureFromNode;
+                if (matchesForward || matchesReverse)
+                {
+                    closedEdgeIndex = index;
+                    break;
+                }
+            }
+            if (closedEdgeIndex == plan.activeRouteNodeIds.size()) return true;
+            const std::size_t nextIndex = plan.airplane.GetNextWaypointIndex();
+            if (nextIndex > closedEdgeIndex) return true;
+            if (nextIndex >= plan.activeRouteNodeIds.size()) return true;
+            plan.closureRerouteStartNodeId = plan.activeRouteNodeIds[nextIndex];
+        }
+
+        const std::string startNodeId = plan.closureRerouteStartNodeId;
+        const std::vector<std::string> oldRoute = plan.activeRouteNodeIds;
+        const std::vector<std::string> newRoute = airportGround.FindRouteNodeIds(
+            startNodeId, destinationNodeId,
+            plan.airplane.state == AirplaneState::TaxiingToStand ?
+                TaxiRoutePurpose::Arrival : TaxiRoutePurpose::Departure);
+        releaseRoute(oldRoute, plan.airplane.flightId);
+        if (newRoute.empty() || !routeCanBeReserved(newRoute, plan.airplane.flightId))
+        {
+            reserveRoute(oldRoute, plan.airplane.flightId);
+            plan.closureReroutePending = true;
+            plan.airplane.SetWaypointRoute({plan.airplane.position}, 0.0f,
+                plan.airplane.state);
+            return false;
+        }
+
+        reserveRoute(newRoute, plan.airplane.flightId);
+        plan.activeRouteNodeIds = newRoute;
+        plan.closureReroutePending = false;
+        plan.closureRerouteStartNodeId.clear();
+        std::vector<Vector2> route{plan.airplane.position};
+        const std::vector<Vector2> worldRoute = MakeWorldRoute(airportGround, newRoute);
+        route.insert(route.end(), worldRoute.begin(), worldRoute.end());
+        plan.airplane.SetWaypointRoute(route,
+            plan.airplane.state == AirplaneState::TaxiingToStand ? 9.0f : 11.0f,
+            plan.airplane.state == AirplaneState::TaxiingToStand ?
+                AirplaneState::Parked : AirplaneState::AwaitingTakeoffAuthorization);
+        return true;
     };
     const auto selectGate = [&](const AirportParkingStand& gate)
     {
@@ -1670,17 +1756,74 @@ int main()
 
     while (!WindowShouldClose())
     {
-        const float deltaTime = GetFrameTime();
+        const float realDeltaTime = GetFrameTime();
+        const float deltaTime = realDeltaTime * SimulationSpeed;
         if (exitRequested) break;
         if (showMainMenu)
-            menuAnimationTime += deltaTime;
+            menuAnimationTime += realDeltaTime;
         else
         {
             shiftClockSeconds += deltaTime * ShiftClockRate;
+            const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
+                (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
+            if (scenarioStage == 1 && !taxiwayClosureAttempted &&
+                shiftClockSeconds >= TaxiwayClosureStartSeconds)
+            {
+                const TaxiwayNode* closureStart = airportGround.FindNode(closureFromNode);
+                const TaxiwayNode* closureEnd = airportGround.FindNode(closureToNode);
+                bool sectionOccupied = false;
+                if (closureStart != nullptr && closureEnd != nullptr)
+                {
+                    const float sx = closureEnd->position.x - closureStart->position.x;
+                    const float sz = closureEnd->position.z - closureStart->position.z;
+                    const float segmentLengthSquared = sx * sx + sz * sz;
+                    for (const FlightPlan& plan : flights)
+                    {
+                        if (!plan.spawned || (plan.airplane.state != AirplaneState::TaxiingToStand &&
+                            plan.airplane.state != AirplaneState::TaxiingToRunway)) continue;
+                        const float px = plan.airplane.position.x - closureStart->position.x;
+                        const float pz = plan.airplane.position.y - closureStart->position.z;
+                        const float t = segmentLengthSquared > 0.0f ?
+                            std::clamp((px * sx + pz * sz) / segmentLengthSquared, 0.0f, 1.0f) : 0.0f;
+                        const float dx = px - t * sx;
+                        const float dz = pz - t * sz;
+                        if (dx * dx + dz * dz < 11.0f * 11.0f)
+                        {
+                            sectionOccupied = true;
+                            break;
+                        }
+                    }
+                }
+                taxiwayClosureWaitingForTraffic = sectionOccupied;
+                if (!sectionOccupied && airportGround.SetTaxiwaySectionOpen(
+                    closureFromNode, closureToNode, false))
+                {
+                    taxiwayClosureActive = true;
+                    taxiwayClosureAttempted = true;
+                    taxiwayClosureWaitingForTraffic = false;
+                    taxiwayClosureEndSeconds = std::min(BusyStageEndSeconds,
+                        shiftClockSeconds + TaxiwayClosureDurationSeconds);
+                    for (FlightPlan& plan : flights)
+                        if (plan.spawned) tryRerouteForClosure(plan);
+                    priorityNotification = "TAXIWAY A WEST CLOSED - AIRCRAFT REROUTED";
+                    priorityNotificationTime = 4.0f;
+                }
+            }
+            if (taxiwayClosureActive && (shiftClockSeconds >= taxiwayClosureEndSeconds ||
+                scenarioStage == 2))
+            {
+                airportGround.SetTaxiwaySectionOpen(closureFromNode, closureToNode, true);
+                taxiwayClosureActive = false;
+                taxiwayClosureWaitingForTraffic = false;
+                priorityNotification = "TAXIWAY A WEST REOPENED";
+                priorityNotificationTime = 3.0f;
+            }
+            for (FlightPlan& plan : flights)
+                if (plan.spawned && plan.closureReroutePending) tryRerouteForClosure(plan);
             refuellingMessageTime = std::max(0.0f,
-                refuellingMessageTime - deltaTime);
+                refuellingMessageTime - realDeltaTime);
             priorityNotificationTime = std::max(0.0f,
-                priorityNotificationTime - deltaTime);
+                priorityNotificationTime - realDeltaTime);
             const auto updateBaggageLoading = [&](BaggageLoadingState& state,
                 float& timeRemaining, const char* aircraftName)
             {
@@ -1894,7 +2037,7 @@ int main()
                     (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
                 refuellingTankerMotion = RefuellingTankerMotion::ReturningBehindAircraft;
             updateTankerMotion(deltaTime);
-            cameraController.Update(deltaTime);
+            cameraController.Update(realDeltaTime);
         }
         if (showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -1997,7 +2140,7 @@ int main()
                             taxiToStandQueue.push_back(static_cast<std::size_t>(selectedFlightIndex));
                         }
                         else if (selected.airplane.state == AirplaneState::Parked && selected.departureFlight &&
-                            selected.departureScheduleReached && !selected.departureQueued &&
+                            selected.departureTaxiWindowOpen && !selected.departureQueued &&
                             selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
                             selected.preparationTime = 3.0f;
                         else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
@@ -2094,9 +2237,14 @@ int main()
         {
             FlightPlan& plan = flights[flightIndex];
             Airplane& airplane = plan.airplane;
-            if (plan.departureFlight && !plan.departureScheduleReached &&
-                shiftClockSeconds >= plan.departureScheduledSeconds)
-                plan.departureScheduleReached = true;
+            if (plan.departureFlight)
+            {
+                if (!plan.departureScheduleReached &&
+                    shiftClockSeconds >= plan.departureScheduledSeconds)
+                    plan.departureScheduleReached = true;
+                plan.departureTaxiWindowOpen = shiftClockSeconds >= std::max(0.0f,
+                    plan.departureScheduledSeconds - DepartureTaxiLeadSeconds);
+            }
             if (!plan.spawned)
             {
                 if (plan.hasArrivalSchedule && shiftClockSeconds >= plan.arrivalScheduledSeconds)
@@ -2127,7 +2275,7 @@ int main()
                     }
                 }
                 else if (!plan.hasArrivalSchedule && plan.departureFlight &&
-                    shiftClockSeconds >= plan.departureScheduledSeconds)
+                    plan.departureTaxiWindowOpen)
                 {
                     const TaxiwayNode* stand = airportGround.FindNode(plan.parkingStandId);
                     if (stand == nullptr) continue;
@@ -2149,7 +2297,7 @@ int main()
                 !plan.taxiToStandQueued)
                 availableTask = "TAXI TO STAND";
             else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
-                plan.departureScheduleReached && !plan.departureQueued)
+                plan.departureTaxiWindowOpen && !plan.departureQueued)
                 availableTask = "TAXI TO RUNWAY";
             else if (airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                 availableTask = "AUTHORIZE TAKEOFF";
@@ -2160,7 +2308,7 @@ int main()
                     airplane.isPriority)
                 {
                     const float responseTime = shiftClockSeconds - plan.taskAvailableAtSeconds;
-                    if (responseTime <= 120.0f)
+                    if (responseTime <= PriorityTaskResponseSeconds)
                     {
                         shiftScore += 20;
                         ++priorityTasksHandledOnTime;
@@ -2887,6 +3035,8 @@ int main()
             2.0f, Color{200, 242, 236, 255});
         DrawText("LIVE SIMULATION", timePanelX + 48, timePanelY + 8, 10,
             Color{124, 204, 207, 255});
+        DrawText("SIM 4X", timePanelX + timePanelWidth - 53, timePanelY + 8, 9,
+            Color{124, 204, 207, 255});
         DrawText(FormatShiftTime(shiftClockSeconds).c_str(), timePanelX + 48,
             timePanelY + 24, 24, RAYWHITE);
         const bool shiftComplete = std::all_of(flights.begin(), flights.end(),
@@ -2900,6 +3050,44 @@ int main()
             priorityFlightTotal, priorityFlightsOnTime,
             priorityTasksHandledOnTime, priorityTasksHandledLate),
             timePanelX + 12, timePanelY + 47, 9, Color{231, 199, 119, 255});
+
+        const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
+            (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
+        const char* stageName = scenarioStage == 0 ? "MORNING OPERATIONS" :
+            (scenarioStage == 1 ? "BUSY PERIOD" : "EVENING PRIORITY" );
+        int stageFlightCount = 0;
+        int stageCompletedCount = 0;
+        for (const FlightPlan& plan : flights)
+        {
+            if (plan.scenarioStage != scenarioStage) continue;
+            ++stageFlightCount;
+            if (plan.airplane.state == AirplaneState::Departed) ++stageCompletedCount;
+        }
+        const int objectiveX = 16;
+        const int objectiveY = GetScreenHeight() - 78;
+        DrawRectangle(objectiveX, objectiveY, 380, 62, Fade(Color{13, 26, 34, 255}, 0.91f));
+        DrawRectangle(objectiveX, objectiveY, 4, 62,
+            scenarioStage == 2 ? Color{241, 185, 70, 255} : Color{76, 224, 211, 255});
+        DrawText(TextFormat("SHIFT SCENARIO  %d/3  -  %s", scenarioStage + 1, stageName),
+            objectiveX + 12, objectiveY + 8, 11, RAYWHITE);
+        const char* objective = scenarioStage == 0 ?
+            "Objective: complete the 3-flight morning wave safely." :
+            (scenarioStage == 1 ?
+                "Objective: handle 4 flights; Taxiway A west closes 10:00-12:00." :
+                "Objective: depart priority AO900 by 19:02 for its on-time score.");
+        DrawText(objective, objectiveX + 12, objectiveY + 27, 9,
+            Color{202, 218, 221, 255});
+        std::string scenarioStatus = TextFormat("STAGE FLIGHTS %d/%d", stageCompletedCount, stageFlightCount);
+        if (scenarioStage == 1)
+            scenarioStatus = taxiwayClosureActive ? "TAXIWAY A WEST CLOSED - ROUTES DIVERTED" :
+                (taxiwayClosureWaitingForTraffic ? "TAXIWAY CLOSURE WAITING FOR AIRCRAFT TO CLEAR" :
+                    (taxiwayClosureAttempted ? "TAXIWAY A WEST REOPENED" : "TAXIWAY A WEST CLOSURE SCHEDULED"));
+        if (scenarioStage == 2 && stageCompletedCount > 0)
+            scenarioStatus = priorityFlightsOnTime > 0 ?
+                "PRIORITY FLIGHT COMPLETE - ON-TIME BONUS RECORDED" :
+                "PRIORITY FLIGHT COMPLETE - LATE, REDUCED SCORE";
+        DrawText(scenarioStatus.c_str(), objectiveX + 12, objectiveY + 44, 9,
+            scenarioStage == 2 ? Color{245, 199, 104, 255} : Color{116, 226, 202, 255});
 
         const int panelX = 16;
         const int panelY = 16;
@@ -3009,15 +3197,16 @@ int main()
             const char* command = selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization ?
                 (selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND") :
                 (selected.airplane.state == AirplaneState::Parked && selected.departureFlight ?
-                    (selected.departureScheduleReached ? "AUTHORIZE TAXI TO RUNWAY" :
-                        TextFormat("DEPARTURE SCHEDULED %s",
-                            FormatShiftTime(selected.departureScheduledSeconds).c_str())) :
+                    (selected.departureTaxiWindowOpen ? "AUTHORIZE TAXI TO RUNWAY" :
+                        TextFormat("TAXI OUT OPENS %s",
+                            FormatShiftTime(std::max(0.0f, selected.departureScheduledSeconds -
+                                DepartureTaxiLeadSeconds)).c_str())) :
                  selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization ?
                     "AUTHORIZE TAKEOFF" : "No taxi command available in this state.");
             std::string commandText = command;
             if (selected.airplane.isPriority && !selected.activeTaskKey.empty())
             {
-                const int secondsLeft = std::max(0, static_cast<int>(std::ceil(120.0f -
+                const int secondsLeft = std::max(0, static_cast<int>(std::ceil(PriorityTaskResponseSeconds -
                     (shiftClockSeconds - selected.taskAvailableAtSeconds))));
                 commandText = "URGENT: " + selected.activeTaskKey + TextFormat("  %02d:%02d",
                     secondsLeft / 60, secondsLeft % 60);
