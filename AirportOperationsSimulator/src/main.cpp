@@ -3503,10 +3503,13 @@ int main()
             ++stageFlightCount;
             if (plan.airplane.state == AirplaneState::Departed) ++stageCompletedCount;
         }
-        const int objectiveX = 16;
-        const int objectiveY = GetScreenHeight() - 78;
-        DrawRectangle(objectiveX, objectiveY, 380, 62, Fade(Color{13, 26, 34, 255}, 0.91f));
-        DrawRectangle(objectiveX, objectiveY, 4, 62,
+        constexpr int objectiveWidth = 380;
+        constexpr int objectiveHeight = 62;
+        const int objectiveX = timePanelX + timePanelWidth - objectiveWidth;
+        const int objectiveY = timePanelY + timePanelHeight + 8;
+        DrawRectangle(objectiveX, objectiveY, objectiveWidth, objectiveHeight,
+            Fade(Color{13, 26, 34, 255}, 0.91f));
+        DrawRectangle(objectiveX, objectiveY, 4, objectiveHeight,
             scenarioStage == 2 ? Color{241, 185, 70, 255} : Color{76, 224, 211, 255});
         DrawText(TextFormat("SHIFT SCENARIO  %d/3  -  %s", scenarioStage + 1, stageName),
             objectiveX + 12, objectiveY + 8, 11, RAYWHITE);
