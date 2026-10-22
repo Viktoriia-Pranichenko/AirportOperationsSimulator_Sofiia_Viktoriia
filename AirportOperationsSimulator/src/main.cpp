@@ -155,6 +155,7 @@ namespace
         Rectangle overview;
         Rectangle bringServiceCrew;
         Rectangle disembarkPassengers;
+        Rectangle maintenanceInspection;
         Rectangle refuelAircraft;
         Rectangle cateringAndWater;
         Rectangle loadBaggage;
@@ -165,12 +166,14 @@ namespace
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
+        constexpr float actionCount = 6.0f;
         const float actionWidth = std::min(174.0f,
             (static_cast<float>(GetScreenWidth()) -
-                GateNavigationButtonMargin * 2.0f - 28.0f) / 5.0f);
+                GateNavigationButtonMargin * 2.0f - 30.0f) / actionCount);
         const float actionGap = 7.0f;
         const float actionHeight = 40.0f;
-        const float actionRowWidth = actionWidth * 5.0f + actionGap * 4.0f;
+        const float actionRowWidth = actionWidth * actionCount +
+            actionGap * (actionCount - 1.0f);
         return {
             {GateNavigationButtonMargin, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
@@ -194,6 +197,9 @@ namespace
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
                 (actionWidth + actionGap) * 4.0f,
+                buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
+            {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
+                (actionWidth + actionGap) * 5.0f,
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight}
         };
     }
@@ -210,7 +216,7 @@ namespace
         DrawText(label, textX, textY, FontSize, RAYWHITE);
     }
 
-    enum class GateActionIcon { Fuel, Baggage, CateringAndWater, Boarding, Disembark };
+    enum class GateActionIcon { Fuel, Baggage, CateringAndWater, Boarding, Disembark, Maintenance };
 
     void DrawGateActionButton(Rectangle bounds, const char* label,
         const char* subtitle, float progress, Color accent, GateActionIcon icon)
@@ -275,6 +281,16 @@ namespace
                         iconBox.y + 21.0f - step * 4.0f}, 2.0f, accent);
             DrawLineEx({cx - 9.0f, iconBox.y + 23.0f},
                 {cx + 7.0f, iconBox.y + 7.0f}, 1.5f, accent);
+        }
+        else if (icon == GateActionIcon::Maintenance)
+        {
+            DrawCircleLines(static_cast<int>(cx),
+                static_cast<int>(iconBox.y + 16.0f), 7.0f, accent);
+            DrawCircleV({cx, iconBox.y + 16.0f}, 2.2f, accent);
+            DrawLineEx({cx + 4.5f, iconBox.y + 11.5f},
+                {cx + 9.5f, iconBox.y + 6.5f}, 2.2f, accent);
+            DrawCircleLines(static_cast<int>(cx + 10.0f),
+                static_cast<int>(iconBox.y + 6.0f), 2.5f, accent);
         }
         else
         {
@@ -1097,6 +1113,27 @@ int main()
     float gate1CateringWaterTimeRemaining = 0.0f;
     float eastWingCateringWaterTimeRemaining = 0.0f;
     std::string activeCateringWaterGate;
+    enum class MaintenanceInspectionState
+    {
+        Idle, Approaching, Inspecting, TechniciansReturning, Returning, Complete
+    };
+    MaintenanceInspectionState gate1MaintenanceInspection =
+        MaintenanceInspectionState::Idle;
+    MaintenanceInspectionState eastWingMaintenanceInspection =
+        MaintenanceInspectionState::Idle;
+    float gate1MaintenanceProgress = 0.0f;
+    float eastWingMaintenanceProgress = 0.0f;
+    float maintenanceInspectionTimeRemaining = 0.0f;
+    std::string activeMaintenanceInspectionGate;
+    Vector2 maintenancePickupCrewPosition{};
+    float maintenancePickupCrewHeading = 0.0f;
+    Vector2 maintenancePickupApproachPosition{};
+    Vector2 maintenancePickupTailClearPosition{};
+    Vector2 maintenancePickupInspectionPosition{};
+    bool maintenancePickupReachedApproach = false;
+    bool maintenancePickupReachedTail = false;
+    bool maintenanceTechniciansReachedAircraft = false;
+    std::vector<BoardingPassenger> maintenanceTechnicians;
     enum class BoardingState { Idle, Boarding, ReturningStairs, Complete };
     BoardingState gate1Boarding = BoardingState::Idle;
     BoardingState eastWingBoarding = BoardingState::Idle;
@@ -1343,6 +1380,12 @@ int main()
             refuellingMessageTime = 2.5f;
             return;
         }
+        if (!activeMaintenanceInspectionGate.empty())
+        {
+            refuellingMessage = "Wait for the maintenance inspection to finish.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
         if (refuellingTankerMotion != RefuellingTankerMotion::Parked ||
             (gate1RefuellingStarted && !gate1RefuellingFinished) ||
             (eastWingRefuellingStarted && !eastWingRefuellingFinished))
@@ -1463,6 +1506,8 @@ int main()
         const Vector2 maintenance = place(placements[6], WingVehicleSpacingScale);
         maintenancePickupTrucks.front().SetPosition(maintenance.x, maintenance.y);
         maintenancePickupTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        maintenancePickupCrewPosition = maintenance;
+        maintenancePickupCrewHeading = vehicleHeadingDegrees;
         for (std::size_t i = 7; i < 9; ++i)
         {
             const Vector2 stairs = place(placements[i], WingStairsSpacingScale);
@@ -1916,10 +1961,12 @@ int main()
         }
         const bool otherServiceStarted = gateId == "GATE_1" ?
             (gate1RefuellingStarted ||
+                gate1MaintenanceInspection != MaintenanceInspectionState::Idle ||
                 gate1CateringWater != CateringWaterState::Idle ||
                 gate1BaggageLoading != BaggageLoadingState::Idle ||
                 gate1Boarding != BoardingState::Idle) :
             (eastWingRefuellingStarted ||
+                eastWingMaintenanceInspection != MaintenanceInspectionState::Idle ||
                 eastWingCateringWater != CateringWaterState::Idle ||
                 eastWingBaggageLoading != BaggageLoadingState::Idle ||
                 eastWingBoarding != BoardingState::Idle);
@@ -1968,6 +2015,72 @@ int main()
         current.x += dx / distance * step;
         current.y += dz / distance * step;
         return false;
+    };
+    const auto startMaintenanceInspection = [&](const std::string& gateId,
+        const Airplane& aircraft, bool passengersDisembarked,
+        MaintenanceInspectionState& state, float& progress)
+    {
+        if (!passengersDisembarked)
+        {
+            refuellingMessage = "Disembark passengers before maintenance inspection.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (serviceCrewGateId != gateId || maintenancePickupTrucks.empty())
+        {
+            refuellingMessage = "Bring the Maintenance Pickup to this gate first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (state == MaintenanceInspectionState::Complete)
+        {
+            refuellingMessage = "Aircraft maintenance inspection is already complete.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (state != MaintenanceInspectionState::Idle)
+        {
+            refuellingMessage = activeMaintenanceInspectionGate == gateId ?
+                "Maintenance inspection is already in progress." :
+                "Finish the other aircraft's maintenance inspection first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (!activeMaintenanceInspectionGate.empty())
+        {
+            refuellingMessage = "Finish the other aircraft's maintenance inspection first.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+
+        const float radians = aircraft.headingDegrees * DEG2RAD;
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const auto aircraftLocalToWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                aircraft.position.x + localX * cosine - localZ * sine,
+                aircraft.position.y + localX * sine + localZ * cosine};
+        };
+        // Keep the approved inspection position. From the truck's staged position,
+        // first drive straight down to the tail-side lane, then turn left into it.
+        const float tailClearanceZ = 38.0f * aircraft.renderScale + 9.0f;
+        maintenancePickupInspectionPosition = aircraftLocalToWorld(0.0f,
+            tailClearanceZ);
+        maintenancePickupApproachPosition = {
+            maintenancePickupCrewPosition.x,
+            maintenancePickupInspectionPosition.y};
+        maintenancePickupTailClearPosition = maintenancePickupInspectionPosition;
+        maintenancePickupReachedApproach = false;
+        maintenancePickupReachedTail = false;
+        maintenanceTechniciansReachedAircraft = false;
+        maintenanceTechnicians.clear();
+        maintenanceInspectionTimeRemaining = 0.0f;
+        progress = 0.0f;
+        activeMaintenanceInspectionGate = gateId;
+        state = MaintenanceInspectionState::Approaching;
+        refuellingMessage = "Maintenance team dispatched to inspect the aircraft.";
+        refuellingMessageTime = 2.5f;
     };
     const auto updateRefuelling = [&](float& timeRemaining, bool& finished,
         const char* aircraftName, float deltaTime)
@@ -2275,6 +2388,212 @@ int main()
                 gate1CateringWaterTimeRemaining, "Gate 1");
             updateCateringAndWater(eastWingCateringWater,
                 eastWingCateringWaterTimeRemaining, "East Wing Gate 1");
+            const auto updateMaintenanceInspection = [&](const char* gateId,
+                MaintenanceInspectionState& state, float& progress,
+                const Airplane& aircraft, const char* aircraftName)
+            {
+                if (activeMaintenanceInspectionGate != gateId ||
+                    maintenancePickupTrucks.empty())
+                    return;
+
+                progress = std::min(0.98f, progress + deltaTime / 48.0f);
+                const auto movePickup = [&](Vector2 target)
+                {
+                    Vector2 position = maintenancePickupTrucks.front().GetPosition();
+                    const float dx = target.x - position.x;
+                    const float dz = target.y - position.y;
+                    if (dx * dx + dz * dz > 0.05f * 0.05f)
+                        maintenancePickupTrucks.front().SetHeadingDegrees(
+                            std::atan2(-dx, -dz) / DEG2RAD);
+                    const bool arrived = moveServiceTruckToward(
+                        position, target, deltaTime);
+                    maintenancePickupTrucks.front().SetPosition(
+                        position.x, position.y);
+                    return arrived;
+                };
+                if (state == MaintenanceInspectionState::Approaching)
+                {
+                    if (!maintenancePickupReachedApproach)
+                        maintenancePickupReachedApproach = movePickup(
+                            maintenancePickupApproachPosition);
+                    else if (!maintenancePickupReachedTail)
+                        maintenancePickupReachedTail = movePickup(
+                            maintenancePickupTailClearPosition);
+                    else if (movePickup(maintenancePickupInspectionPosition))
+                    {
+                        const float radians = aircraft.headingDegrees * DEG2RAD;
+                        const float cosine = std::cos(radians);
+                        const float sine = std::sin(radians);
+                        const auto localToWorld = [&](float localX, float localZ)
+                        {
+                            return Vector2{
+                                aircraft.position.x + localX * cosine - localZ * sine,
+                                aircraft.position.y + localX * sine + localZ * cosine};
+                        };
+                        constexpr Color TechnicianShirts[] = {
+                            {68, 143, 178, 255}, {226, 164, 64, 255},
+                            {111, 177, 129, 255}, {154, 126, 190, 255}};
+                        const float wingInspectionOffset =
+                            30.0f * aircraft.renderScale;
+                        const float noseClearZ =
+                            -42.0f * aircraft.renderScale - 4.5f;
+                        const float tailClearZ =
+                            38.0f * aircraft.renderScale + 3.5f;
+                        maintenanceTechnicians.clear();
+                        for (int technician = 0; technician < 4; ++technician)
+                        {
+                            const float side = technician < 2 ? -1.0f : 1.0f;
+                            const float trackOffset = technician % 2 == 0 ? 0.0f : 0.9f;
+                            const float sideX = side * (wingInspectionOffset + trackOffset);
+                            const Vector2 start = localToWorld(
+                                -1.4f + static_cast<float>(technician) * 0.9f,
+                                38.0f * aircraft.renderScale + 11.0f);
+                            BoardingPassenger person;
+                            person.position = {start.x, 0.03f, start.y};
+                            person.path.push_back(person.position);
+                            const auto addPatrolPoint = [&](float localX,
+                                float localZ)
+                            {
+                                const Vector2 point = localToWorld(localX, localZ);
+                                person.path.push_back({point.x, 0.03f, point.y});
+                            };
+                            // Walk out behind the tail, then follow a lane beneath
+                            // each wing. Keep the route inside the boarding stairs
+                            // so the technicians don't walk over the stair vehicles.
+                            addPatrolPoint(side * 2.0f, tailClearZ + 2.0f);
+                            addPatrolPoint(sideX, tailClearZ);
+                            addPatrolPoint(sideX, 0.0f);
+                            addPatrolPoint(sideX, noseClearZ);
+                            const float noseTrack = technician < 2 ? -2.5f : 2.5f;
+                            addPatrolPoint(side * 4.0f,
+                                noseClearZ + noseTrack);
+                            addPatrolPoint(-sideX, noseClearZ);
+                            addPatrolPoint(-sideX, 0.0f);
+                            person.nextWaypoint = 1;
+                            person.walkSpeed = 4.0f;
+                            person.animationOffset = static_cast<float>(technician) * 0.8f;
+                            person.shirtColor = TechnicianShirts[technician];
+                            maintenanceTechnicians.push_back(std::move(person));
+                        }
+                        maintenanceTechniciansReachedAircraft = false;
+                        state = MaintenanceInspectionState::Inspecting;
+                    }
+                }
+                if (state == MaintenanceInspectionState::Inspecting)
+                {
+                    bool allAtAircraft = true;
+                    for (BoardingPassenger& technician : maintenanceTechnicians)
+                    {
+                        float distanceToWalk = technician.walkSpeed * deltaTime;
+                        while (distanceToWalk > 0.0f &&
+                            technician.nextWaypoint < technician.path.size())
+                        {
+                            const Vector3 target = technician.path[
+                                technician.nextWaypoint];
+                            const float dx = target.x - technician.position.x;
+                            const float dz = target.z - technician.position.z;
+                            const float distance = std::sqrt(dx * dx + dz * dz);
+                            if (distance <= distanceToWalk || distance <= 0.001f)
+                            {
+                                technician.position = target;
+                                distanceToWalk -= std::min(distanceToWalk, distance);
+                                ++technician.nextWaypoint;
+                            }
+                            else
+                            {
+                                technician.position.x += dx / distance * distanceToWalk;
+                                technician.position.z += dz / distance * distanceToWalk;
+                                distanceToWalk = 0.0f;
+                            }
+                        }
+                        if (technician.nextWaypoint < technician.path.size())
+                            allAtAircraft = false;
+                    }
+                    if (!maintenanceTechniciansReachedAircraft && allAtAircraft)
+                    {
+                        maintenanceTechniciansReachedAircraft = true;
+                        maintenanceInspectionTimeRemaining = 4.5f;
+                    }
+                    else if (maintenanceTechniciansReachedAircraft)
+                    {
+                        maintenanceInspectionTimeRemaining = std::max(0.0f,
+                            maintenanceInspectionTimeRemaining - deltaTime);
+                        if (maintenanceInspectionTimeRemaining <= 0.0f)
+                        {
+                            for (BoardingPassenger& technician : maintenanceTechnicians)
+                            {
+                                std::reverse(technician.path.begin(),
+                                    technician.path.end());
+                                technician.nextWaypoint = 1;
+                            }
+                            state = MaintenanceInspectionState::TechniciansReturning;
+                        }
+                    }
+                }
+                if (state == MaintenanceInspectionState::TechniciansReturning)
+                {
+                    bool allReturned = true;
+                    for (BoardingPassenger& technician : maintenanceTechnicians)
+                    {
+                        float distanceToWalk = technician.walkSpeed * deltaTime;
+                        while (distanceToWalk > 0.0f &&
+                            technician.nextWaypoint < technician.path.size())
+                        {
+                            const Vector3 target = technician.path[
+                                technician.nextWaypoint];
+                            const float dx = target.x - technician.position.x;
+                            const float dz = target.z - technician.position.z;
+                            const float distance = std::sqrt(dx * dx + dz * dz);
+                            if (distance <= distanceToWalk || distance <= 0.001f)
+                            {
+                                technician.position = target;
+                                distanceToWalk -= std::min(distanceToWalk, distance);
+                                ++technician.nextWaypoint;
+                            }
+                            else
+                            {
+                                technician.position.x += dx / distance * distanceToWalk;
+                                technician.position.z += dz / distance * distanceToWalk;
+                                distanceToWalk = 0.0f;
+                            }
+                        }
+                        if (technician.nextWaypoint < technician.path.size())
+                            allReturned = false;
+                    }
+                    if (allReturned)
+                    {
+                        maintenanceTechnicians.clear();
+                        maintenancePickupReachedApproach = false;
+                        maintenancePickupReachedTail = false;
+                        state = MaintenanceInspectionState::Returning;
+                    }
+                }
+                if (state == MaintenanceInspectionState::Returning)
+                {
+                    if (!maintenancePickupReachedTail)
+                        maintenancePickupReachedTail = movePickup(
+                            maintenancePickupTailClearPosition);
+                    else if (!maintenancePickupReachedApproach)
+                        maintenancePickupReachedApproach = movePickup(
+                            maintenancePickupApproachPosition);
+                    else if (movePickup(maintenancePickupCrewPosition))
+                    {
+                        maintenancePickupTrucks.front().SetHeadingDegrees(
+                            maintenancePickupCrewHeading);
+                        state = MaintenanceInspectionState::Complete;
+                        progress = 1.0f;
+                        activeMaintenanceInspectionGate.clear();
+                        refuellingMessage = std::string(aircraftName) +
+                            " maintenance inspection complete.";
+                        refuellingMessageTime = 3.0f;
+                    }
+                }
+            };
+            updateMaintenanceInspection("GATE_1", gate1MaintenanceInspection,
+                gate1MaintenanceProgress, staticGate1Aircraft, "Gate 1");
+            updateMaintenanceInspection("EAST_1", eastWingMaintenanceInspection,
+                eastWingMaintenanceProgress, staticEastWingAircraft,
+                "East Wing Gate 1");
             const auto advancePassengerFlow = [&](const std::string& gateId,
                 const Airplane& aircraft, bool reversePath)
             {
@@ -2489,11 +2808,28 @@ int main()
                     startPassengerDisembarking("EAST_1", staticEastWingAircraft,
                         eastWingDisembarking, eastWingDisembarkingTimeRemaining);
                 else if (selectedGateId == "GATE_1" &&
+                    CheckCollisionPointRec(mouse, buttons.maintenanceInspection))
+                    startMaintenanceInspection("GATE_1", staticGate1Aircraft,
+                        gate1Disembarking == DisembarkingState::Complete,
+                        gate1MaintenanceInspection, gate1MaintenanceProgress);
+                else if (selectedGateId == "EAST_1" &&
+                    CheckCollisionPointRec(mouse, buttons.maintenanceInspection))
+                    startMaintenanceInspection("EAST_1", staticEastWingAircraft,
+                        eastWingDisembarking == DisembarkingState::Complete,
+                        eastWingMaintenanceInspection,
+                        eastWingMaintenanceProgress);
+                else if (selectedGateId == "GATE_1" &&
                     CheckCollisionPointRec(mouse, buttons.refuelAircraft))
                 {
                     if (gate1Disembarking != DisembarkingState::Complete)
                     {
                         refuellingMessage = "Disembark passengers before refuelling.";
+                        refuellingMessageTime = 2.5f;
+                    }
+                    else if (gate1MaintenanceInspection !=
+                        MaintenanceInspectionState::Complete)
+                    {
+                        refuellingMessage = "Complete the maintenance inspection before refuelling.";
                         refuellingMessageTime = 2.5f;
                     }
                     else
@@ -2507,6 +2843,12 @@ int main()
                     if (eastWingDisembarking != DisembarkingState::Complete)
                     {
                         refuellingMessage = "Disembark passengers before refuelling.";
+                        refuellingMessageTime = 2.5f;
+                    }
+                    else if (eastWingMaintenanceInspection !=
+                        MaintenanceInspectionState::Complete)
+                    {
+                        refuellingMessage = "Complete the maintenance inspection before refuelling.";
                         refuellingMessageTime = 2.5f;
                     }
                     else
@@ -3177,6 +3519,8 @@ int main()
         staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
         for (const BoardingPassenger& passenger : boardingPassengers)
             DrawBoardingPassenger(passenger, static_cast<float>(GetTime()));
+        for (const BoardingPassenger& technician : maintenanceTechnicians)
+            DrawBoardingPassenger(technician, static_cast<float>(GetTime()));
         }
         EndMode3D();
 
@@ -3209,12 +3553,14 @@ int main()
                     Color{44, 39, 27, 255});
             };
             if (!(gate1RefuellingFinished &&
+                gate1MaintenanceInspection == MaintenanceInspectionState::Complete &&
                 gate1BaggageLoading == BaggageLoadingState::Complete &&
                 gate1CateringWater == CateringWaterState::Complete &&
                 gate1Disembarking == DisembarkingState::Complete &&
                 gate1Boarding == BoardingState::Complete))
                 drawServiceNeededMarker(staticGate1Aircraft);
             if (!(eastWingRefuellingFinished &&
+                eastWingMaintenanceInspection == MaintenanceInspectionState::Complete &&
                 eastWingBaggageLoading == BaggageLoadingState::Complete &&
                 eastWingCateringWater == CateringWaterState::Complete &&
                 eastWingDisembarking == DisembarkingState::Complete &&
@@ -3327,6 +3673,10 @@ int main()
                 const float disembarkingRemaining = isGate1 ?
                     gate1DisembarkingTimeRemaining :
                     eastWingDisembarkingTimeRemaining;
+                const MaintenanceInspectionState maintenanceState = isGate1 ?
+                    gate1MaintenanceInspection : eastWingMaintenanceInspection;
+                const float maintenanceProgress = isGate1 ?
+                    gate1MaintenanceProgress : eastWingMaintenanceProgress;
                 const BaggageLoadingState baggageState = isGate1 ?
                     gate1BaggageLoading : eastWingBaggageLoading;
                 const float baggageRemaining = isGate1 ?
@@ -3367,6 +3717,44 @@ int main()
                     disembarkLabel.c_str(), "PASSENGERS", disembarkProgress,
                     disembarkAccent, GateActionIcon::Disembark);
 
+                std::string maintenanceLabel = "INSPECT AIRCRAFT";
+                float maintenanceButtonProgress = -1.0f;
+                if (maintenanceState != MaintenanceInspectionState::Idle)
+                    maintenanceButtonProgress = maintenanceProgress;
+                if (maintenanceState == MaintenanceInspectionState::Approaching)
+                    maintenanceLabel = "PICKUP EN ROUTE";
+                else if (maintenanceState == MaintenanceInspectionState::Inspecting)
+                {
+                    maintenanceLabel = "INSPECTING " + std::to_string(
+                        static_cast<int>(maintenanceProgress * 100.0f)) + "%";
+                    maintenanceButtonProgress = maintenanceProgress;
+                }
+                else if (maintenanceState ==
+                    MaintenanceInspectionState::TechniciansReturning)
+                {
+                    maintenanceLabel = "TEAM RETURNING";
+                    maintenanceButtonProgress = maintenanceProgress;
+                }
+                else if (maintenanceState == MaintenanceInspectionState::Returning)
+                {
+                    maintenanceLabel = "PICKUP RETURNING";
+                    maintenanceButtonProgress = maintenanceProgress;
+                }
+                else if (maintenanceState == MaintenanceInspectionState::Complete)
+                {
+                    maintenanceLabel = "INSPECTION DONE";
+                    maintenanceButtonProgress = 1.0f;
+                }
+                const Color maintenanceAccent =
+                    maintenanceState == MaintenanceInspectionState::Complete ?
+                    Color{137, 235, 172, 255} :
+                    disembarkingState == DisembarkingState::Complete ?
+                    Color{117, 205, 239, 255} : Color{100, 118, 124, 255};
+                DrawGateActionButton(buttons.maintenanceInspection,
+                    maintenanceLabel.c_str(), "AIRCRAFT CHECK",
+                    maintenanceButtonProgress, maintenanceAccent,
+                    GateActionIcon::Maintenance);
+
                 std::string fuelLabel = "REFUEL AIRCRAFT";
                 float fuelProgress = -1.0f;
                 if (fuelFinished)
@@ -3386,8 +3774,11 @@ int main()
                     fuelLabel = "TANKER EN ROUTE";
                 else if (disembarkingState != DisembarkingState::Complete)
                     fuelLabel = "DISEMBARK FIRST";
+                else if (maintenanceState != MaintenanceInspectionState::Complete)
+                    fuelLabel = "INSPECT FIRST";
                 const Color fuelAccent =
-                    disembarkingState == DisembarkingState::Complete ?
+                    disembarkingState == DisembarkingState::Complete &&
+                        maintenanceState == MaintenanceInspectionState::Complete ?
                     Color{247, 184, 68, 255} : Color{100, 118, 124, 255};
                 DrawGateActionButton(buttons.refuelAircraft, fuelLabel.c_str(),
                     "AIRCRAFT FUEL", fuelProgress,
