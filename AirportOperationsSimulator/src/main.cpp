@@ -18,6 +18,7 @@
 #include <deque>
 #include <cstdio>
 #include <initializer_list>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -80,6 +81,7 @@ namespace
         float departureScheduledSeconds{-1.0f};
         float preparationTime{0.0f};
         bool hasArrivalSchedule{false};
+        bool departureScheduleReached{false};
         bool spawned{false};
         bool standAssigned{false};
         bool departureFlight{false};
@@ -676,17 +678,18 @@ int main()
     // Inbound flights enter on separate runways and use the existing graph to
     // reach different stands. Route nodes also include the curved taxiway
     // samples, so the aircraft can follow the authored bends smoothly.
-    struct ArrivalSetup { const char* flight; const char* name; const char* airline;
+    // Edit these minute offsets to configure the shift's scheduled inbound flights.
+    struct ArrivalScheduleEntry { const char* flight; const char* name; const char* airline;
         const char* origin; const char* destination; Color livery; const char* type; const char* approach;
         AircraftSize size; const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
         float arrivalMinute; float departureMinute; };
-    const ArrivalSetup arrivals[] = {
+    const ArrivalScheduleEntry arrivals[] = {
         {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_W", AircraftSize::Large, "RUNWAY_A", "RUNWAY_START_W", "GATE_1", -507.0f, 0.0f, 12.0f},
         {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_W", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_START_W", "WEST_2", -642.0f, 4.0f, 17.0f},
         {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_W", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_START_W", "EAST_3", -777.0f, 8.0f, 22.0f},
         {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_W", AircraftSize::Large, "RUNWAY_A", "RUNWAY_START_W", "GATE_2", -507.0f, 15.0f, 29.0f}
     };
-    for (const ArrivalSetup& setup : arrivals)
+    for (const ArrivalScheduleEntry& setup : arrivals)
     {
         FlightPlan plan;
         plan.airplane.flightId = setup.flight;
@@ -728,19 +731,40 @@ int main()
         flights.push_back(std::move(plan));
     }
 
-    // A fourth aircraft demonstrates the basic parked -> preparation -> taxi
-    // -> takeoff sequence without adding traffic-control rules.
-    if (const TaxiwayNode* stand = airportGround.FindNode("GATE_4"))
+    // Edit these entries to configure departures that begin parked at a stand.
+    struct DepartureScheduleEntry
     {
+        const char* flight;
+        const char* name;
+        const char* airline;
+        const char* origin;
+        const char* destination;
+        Color livery;
+        const char* type;
+        const char* stand;
+        const char* runwayId;
+        const char* runwayStart;
+        const char* departureHold;
+        float departureMinute;
+    };
+    const DepartureScheduleEntry departures[] = {
+        {"AO440", "Coastal 440", "Coastal Air", "Airport (HOME)", "Oslo (OSL)",
+            {87, 158, 192, 255}, "Narrow-body jet", "GATE_4", "RUNWAY_A",
+            "RUNWAY_START_W", "A_EXIT_W", 5.0f}
+    };
+    for (const DepartureScheduleEntry& setup : departures)
+    {
+        const TaxiwayNode* stand = airportGround.FindNode(setup.stand);
+        if (stand == nullptr) continue;
         FlightPlan plan;
-        plan.airplane.flightId = "AO440";
-        plan.airplane.aircraftType = "Narrow-body jet";
+        plan.airplane.flightId = setup.flight;
+        plan.airplane.aircraftType = setup.type;
         plan.airplane.size = AircraftSize::Small;
-        plan.flightName = "Coastal 440";
-        plan.airline = "Coastal Air";
-        plan.origin = "Airport (HOME)";
-        plan.destination = "Oslo (OSL)";
-        plan.livery = {87, 158, 192, 255};
+        plan.flightName = setup.name;
+        plan.airline = setup.airline;
+        plan.origin = setup.origin;
+        plan.destination = setup.destination;
+        plan.livery = setup.livery;
         plan.airplane.liveryColor = plan.livery;
         plan.airplane.position = {stand->position.x, stand->position.z};
         plan.airplane.headingDegrees = 180.0f;
@@ -748,17 +772,18 @@ int main()
         plan.airplane.renderScale = 0.17f;
         for (const AirportParkingStand& parkingStand : terminal.GetParkingStands())
         {
-            if (parkingStand.id == "GATE_4")
+            if (parkingStand.id == setup.stand)
             {
                 plan.parkingHeadingDegrees = parkingStand.headingDegrees;
                 break;
             }
         }
         plan.departureFlight = true;
-        plan.departureScheduledSeconds = 5.0f * 60.0f;
-        plan.parkingStandId = "GATE_4";
-        plan.runwayId = "RUNWAY_A";
-        plan.departureHoldNodeId = "A_EXIT_W";
+        plan.departureScheduledSeconds = setup.departureMinute * 60.0f;
+        plan.parkingStandId = setup.stand;
+        plan.runwayId = setup.runwayId;
+        plan.departureRunwayStart = setup.runwayStart;
+        plan.departureHoldNodeId = setup.departureHold;
         flights.push_back(std::move(plan));
     }
 
@@ -1178,7 +1203,7 @@ int main()
             else
             {
                 const bool clickedSchedulePanel =
-                    mouse.x <= 406.0f && mouse.y >= 74.0f && mouse.y <= 214.0f;
+                    mouse.x <= 406.0f && mouse.y >= 16.0f && mouse.y <= 172.0f;
                 const int rightPanelLeft = GetScreenWidth() - 326;
                 const bool clickedInfoPanel = selectedFlightIndex >= 0 &&
                     mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
@@ -1199,7 +1224,8 @@ int main()
                             taxiToStandQueue.push_back(static_cast<std::size_t>(selectedFlightIndex));
                         }
                         else if (selected.airplane.state == AirplaneState::Parked && selected.departureFlight &&
-                            !selected.departureQueued && selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
+                            selected.departureScheduleReached && !selected.departureQueued &&
+                            selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
                             selected.preparationTime = 3.0f;
                         else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                         {
@@ -1298,6 +1324,9 @@ int main()
         {
             FlightPlan& plan = flights[flightIndex];
             Airplane& airplane = plan.airplane;
+            if (plan.departureFlight && !plan.departureScheduleReached &&
+                shiftClockSeconds >= plan.departureScheduledSeconds)
+                plan.departureScheduleReached = true;
             if (!plan.spawned)
             {
                 if (plan.hasArrivalSchedule && shiftClockSeconds >= plan.arrivalScheduledSeconds)
@@ -1768,41 +1797,101 @@ int main()
                 static_cast<int>(aircraftScreen.y), 25.0f, Color{74, 238, 216, 255});
         }
 
-        DrawText("Pan: WASD or arrow keys    Zoom: mouse wheel", 18, 16, 18, RAYWHITE);
-        DrawText(
-            TextFormat("Zoom: %.2fx   Render: %d x %d",
-                cameraController.GetZoomLevel(), GetRenderWidth(), GetRenderHeight()),
-            18, 42, 16, Color{185, 201, 207, 255});
+        const int timePanelWidth = 238;
+        const int timePanelHeight = 60;
+        const int timePanelX = GetScreenWidth() - timePanelWidth - 18;
+        const int timePanelY = 16;
+        const Rectangle timePanel{static_cast<float>(timePanelX),
+            static_cast<float>(timePanelY), static_cast<float>(timePanelWidth),
+            static_cast<float>(timePanelHeight)};
+        DrawRectangleRec(timePanel, Fade(Color{9, 25, 35, 255}, 0.94f));
+        DrawRectangle(timePanelX, timePanelY, 4, timePanelHeight,
+            Color{76, 224, 211, 255});
+        DrawRectangleLinesEx(timePanel, 1.0f, Color{78, 145, 159, 255});
+        const Vector2 clockCenter{static_cast<float>(timePanelX + 27),
+            static_cast<float>(timePanelY + 30)};
+        DrawCircleV(clockCenter, 12.0f, Color{26, 67, 77, 255});
+        DrawCircleLines(static_cast<int>(clockCenter.x), static_cast<int>(clockCenter.y),
+            11.0f, Color{86, 209, 205, 255});
+        DrawLineEx(clockCenter, {clockCenter.x, clockCenter.y - 6.0f},
+            2.0f, Color{200, 242, 236, 255});
+        DrawLineEx(clockCenter, {clockCenter.x + 5.0f, clockCenter.y + 2.0f},
+            2.0f, Color{200, 242, 236, 255});
+        DrawText("LIVE SIMULATION", timePanelX + 48, timePanelY + 8, 10,
+            Color{124, 204, 207, 255});
+        DrawText(FormatShiftTime(shiftClockSeconds).c_str(), timePanelX + 48,
+            timePanelY + 24, 24, RAYWHITE);
 
-        DrawText(TextFormat("SHIFT %s", FormatShiftTime(shiftClockSeconds).c_str()),
-            GetScreenWidth() - 190, 16, 18, RAYWHITE);
         const int panelX = 16;
-        const int panelY = 74;
-        const int rowHeight = 21;
-        DrawRectangle(panelX, panelY, 300, 35 + static_cast<int>(flights.size()) * rowHeight,
+        const int panelY = 16;
+        constexpr int schedulePanelWidth = 380;
+        constexpr int scheduleRowHeight = 24;
+        const int scheduleHeaderHeight = 30;
+        DrawRectangle(panelX, panelY, schedulePanelWidth,
+            scheduleHeaderHeight + static_cast<int>(flights.size()) * scheduleRowHeight,
             Fade(Color{13, 26, 34, 255}, 0.88f));
-        DrawRectangle(panelX, panelY, 300, 28, Color{33, 66, 82, 255});
-        DrawText("FLIGHTS          DESTINATION", panelX + 9, panelY + 7, 13, RAYWHITE);
-        for (std::size_t i = 0; i < flights.size(); ++i)
+        DrawRectangle(panelX, panelY, schedulePanelWidth, scheduleHeaderHeight,
+            Color{33, 66, 82, 255});
+        DrawText("FLIGHT SCHEDULE", panelX + 10, panelY + 8, 13, RAYWHITE);
+        DrawText("NEXT EVENT", panelX + 250, panelY + 10, 10,
+            Color{147, 194, 203, 255});
+
+        std::vector<std::size_t> scheduleOrder(flights.size());
+        for (std::size_t i = 0; i < scheduleOrder.size(); ++i) scheduleOrder[i] = i;
+        const auto nextScheduleTime = [&](const FlightPlan& plan)
         {
-            const FlightPlan& plan = flights[i];
-            const std::string mapDestination = !plan.spawned ? plan.destination :
-                (plan.arrivalFlight ? (plan.standAssigned ? plan.parkingStandId : "ARRIVAL") : plan.destination);
+            if (plan.airplane.state == AirplaneState::Departed)
+                return std::numeric_limits<float>::infinity();
+            if (!plan.spawned)
+                return plan.hasArrivalSchedule ? plan.arrivalScheduledSeconds :
+                    plan.departureScheduledSeconds;
+            return plan.departureFlight ? plan.departureScheduledSeconds :
+                std::numeric_limits<float>::infinity();
+        };
+        std::stable_sort(scheduleOrder.begin(), scheduleOrder.end(),
+            [&](std::size_t left, std::size_t right)
+            {
+                return nextScheduleTime(flights[left]) < nextScheduleTime(flights[right]);
+            });
+        for (std::size_t row = 0; row < scheduleOrder.size(); ++row)
+        {
+            const FlightPlan& plan = flights[scheduleOrder[row]];
+            const int rowY = panelY + scheduleHeaderHeight + static_cast<int>(row) * scheduleRowHeight + 4;
             const Color rowColor = plan.spawned && plan.airplane.state != AirplaneState::Departed ?
                 Color{235, 242, 245, 255} : Color{166, 184, 191, 255};
-            const int rowY = panelY + 34 + static_cast<int>(i) * rowHeight;
-            DrawText(TextFormat("%s", plan.airplane.flightId.c_str()), panelX + 12, rowY, 14, rowColor);
-            DrawText(mapDestination.c_str(), panelX + 105, rowY, 14, rowColor);
-            const Vector2 indicator{static_cast<float>(panelX + 280), static_cast<float>(rowY + 8)};
-            if (plan.spawned) DrawStateIndicator(plan.airplane.state, indicator, 12.0f);
+            std::string event;
+            if (plan.airplane.state == AirplaneState::Departed)
+                event = "COMPLETE";
+            else if (plan.spawned && plan.departureFlight)
+                event = !plan.departureScheduleReached ?
+                    "DEP " + FormatShiftTime(plan.departureScheduledSeconds) :
+                    (plan.airplane.state == AirplaneState::Parked ? "DEP READY" : "DEP DUE");
+            else if (plan.hasArrivalSchedule)
+                event = "ARR " + FormatShiftTime(plan.arrivalScheduledSeconds);
+            else
+                event = "DEP " + FormatShiftTime(plan.departureScheduledSeconds);
+
+            DrawText(plan.airplane.flightId.c_str(), panelX + 10, rowY, 12, rowColor);
+            DrawText(plan.destination.c_str(), panelX + 82, rowY, 11, rowColor);
+            DrawText(event.c_str(), panelX + 250, rowY, 11,
+                plan.departureScheduleReached && plan.airplane.state != AirplaneState::Departed ?
+                    Color{112, 225, 196, 255} : rowColor);
+            const Vector2 indicator{static_cast<float>(panelX + 363),
+                static_cast<float>(rowY + 7)};
+            if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
+                DrawStateIndicator(plan.airplane.state, indicator, 12.0f);
             else
             {
                 DrawCircleLines(static_cast<int>(indicator.x), static_cast<int>(indicator.y),
-                    5.0f, Color{150, 169, 177, 255});
-                DrawLineEx({indicator.x, indicator.y - 3.0f}, indicator, 1.5f,
-                    Color{150, 169, 177, 255});
-                DrawLineEx(indicator, {indicator.x + 2.5f, indicator.y + 1.5f}, 1.5f,
-                    Color{150, 169, 177, 255});
+                    5.0f, plan.airplane.state == AirplaneState::Departed ?
+                        Color{91, 119, 127, 255} : Color{150, 169, 177, 255});
+                if (plan.airplane.state != AirplaneState::Departed)
+                {
+                    DrawLineEx({indicator.x, indicator.y - 3.0f}, indicator, 1.5f,
+                        Color{150, 169, 177, 255});
+                    DrawLineEx(indicator, {indicator.x + 2.5f, indicator.y + 1.5f}, 1.5f,
+                        Color{150, 169, 177, 255});
+                }
             }
         }
 
@@ -1834,7 +1923,9 @@ int main()
             const char* command = selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization ?
                 (selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND") :
                 (selected.airplane.state == AirplaneState::Parked && selected.departureFlight ?
-                    "AUTHORIZE TAXI TO RUNWAY" :
+                    (selected.departureScheduleReached ? "AUTHORIZE TAXI TO RUNWAY" :
+                        TextFormat("DEPARTURE SCHEDULED %s",
+                            FormatShiftTime(selected.departureScheduledSeconds).c_str())) :
                  selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization ?
                     "AUTHORIZE TAKEOFF" : "No taxi command available in this state.");
             DrawRectangle(infoX + 14, infoY + 250, 284, 24, Color{28, 92, 98, 255});
