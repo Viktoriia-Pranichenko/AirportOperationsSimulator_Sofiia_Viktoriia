@@ -301,6 +301,223 @@ namespace
         DrawRectangle(tagX, tagY, tagWidth, 16, Fade(Color{11, 25, 33, 255}, 0.9f));
         DrawText(airplane.flightId.c_str(), tagX + 5, tagY + 2, 12, RAYWHITE);
     }
+
+    void DrawMenuRunwayDigit(char digit, float x, float z)
+    {
+        const bool segments[10][7] = {
+            {true, true, true, true, true, true, false},    // 0
+            {true, true, false, true, true, false, true},   // 2
+            {true, true, true, true, false, false, true},   // 9
+            {true, true, true, false, false, false, false} // 7
+        };
+        int row = -1;
+        if (digit == '0') row = 0;
+        else if (digit == '2') row = 1;
+        else if (digit == '9') row = 2;
+        else if (digit == '7') row = 3;
+        if (row < 0) return;
+
+        constexpr float y = 0.112f;
+        constexpr float barWidth = 3.3f;
+        constexpr float barDepth = 0.72f;
+        constexpr float halfWidth = 1.65f;
+        constexpr float halfDepth = 2.45f;
+        const Color paint{235, 236, 226, 255};
+        const auto bar = [paint](float centerX, float centerZ, float sx, float sz)
+        {
+            DrawCubeV({centerX, y, centerZ}, {sx, 0.035f, sz}, paint);
+        };
+        if (segments[row][0]) bar(x, z - halfDepth, barWidth, barDepth);
+        if (segments[row][1]) bar(x + halfWidth, z - 1.25f, barDepth, 2.45f);
+        if (segments[row][2]) bar(x + halfWidth, z + 1.25f, barDepth, 2.45f);
+        if (segments[row][3]) bar(x, z + halfDepth, barWidth, barDepth);
+        if (segments[row][4]) bar(x - halfWidth, z + 1.25f, barDepth, 2.45f);
+        if (segments[row][5]) bar(x - halfWidth, z - 1.25f, barDepth, 2.45f);
+        if (segments[row][6]) bar(x, z, barWidth, barDepth);
+    }
+
+    void DrawMenuBackground(float time)
+    {
+        const int width = GetScreenWidth();
+        const int height = GetScreenHeight();
+        const float w = static_cast<float>(width);
+        const float h = static_cast<float>(height);
+        const float horizon = h * 0.60f;
+        ClearBackground(Color{143, 184, 203, 255});
+        DrawRectangleGradientV(0, 0, width, height,
+            Color{115, 164, 188, 255}, Color{231, 190, 143, 255});
+
+        // Thin cloud bands and a hazy horizon keep the sky spacious and calm.
+        for (int i = 0; i < 5; ++i)
+        {
+            const float x = w * (0.48f + 0.13f * static_cast<float>(i));
+            const float y = h * (0.16f + 0.075f * static_cast<float>(i % 3));
+            const float cloudWidth = w * (0.09f + 0.018f * static_cast<float>(i % 2));
+            DrawEllipse(static_cast<int>(x), static_cast<int>(y), cloudWidth, h * 0.008f,
+                Fade(Color{231, 242, 240, 255}, 0.14f));
+            DrawEllipse(static_cast<int>(x + cloudWidth * 0.45f), static_cast<int>(y + h * 0.012f),
+                cloudWidth * 0.52f, h * 0.006f, Fade(Color{244, 230, 209, 255}, 0.12f));
+        }
+
+        // Keep the familiar ground color and simple tree line behind the 3D airfield.
+        DrawRectangle(0, static_cast<int>(horizon), width, static_cast<int>(h - horizon),
+            Color{84, 116, 103, 255});
+        for (int i = 0; i < 34; ++i)
+        {
+            const float x = w * static_cast<float>(i) / 33.0f;
+            const float treeTop = horizon + h * (0.016f + 0.012f *
+                (0.5f + 0.5f * std::sin(static_cast<float>(i) * 1.7f)));
+            DrawTriangle({x - w * 0.014f, horizon + h * 0.065f},
+                {x, treeTop}, {x + w * 0.014f, horizon + h * 0.065f},
+                Color{57, 91, 82, 255});
+        }
+
+        // Build a small, true 3D airfield vignette rather than drawing a flat map.
+        const Camera3D menuCamera{
+            {170.0f, 45.0f, 260.0f}, {45.0f, 55.0f, -70.0f},
+            {0.0f, 1.0f, 0.0f}, 38.0f, CAMERA_PERSPECTIVE};
+        BeginMode3D(menuCamera);
+
+        constexpr float runwayX = 86.0f;
+        constexpr float runwayNearZ = 155.0f;
+        constexpr float runwayFarZ = -175.0f;
+        constexpr float runwayLength = runwayNearZ - runwayFarZ;
+        DrawCubeV({runwayX, -0.08f, (runwayNearZ + runwayFarZ) * 0.5f},
+            {51.0f, 0.18f, runwayLength + 10.0f}, Color{79, 86, 89, 255});
+        DrawCubeV({runwayX, 0.015f, (runwayNearZ + runwayFarZ) * 0.5f},
+            {42.0f, 0.16f, runwayLength}, Color{48, 55, 60, 255});
+
+        const Color runwayPaint{235, 236, 226, 255};
+        for (float edgeX : {runwayX - 19.0f, runwayX + 19.0f})
+            DrawCubeV({edgeX, 0.105f, -10.0f}, {0.62f, 0.025f, runwayLength - 22.0f}, runwayPaint);
+        for (int dash = 0; dash < 9; ++dash)
+        {
+            const float z = runwayFarZ + 38.0f + static_cast<float>(dash) * 31.0f;
+            DrawCubeV({runwayX, 0.11f, z}, {0.8f, 0.03f, 14.0f}, runwayPaint);
+        }
+        for (float thresholdZ : {runwayFarZ + 12.0f, runwayNearZ - 12.0f})
+            for (int stripe = 0; stripe < 8; ++stripe)
+            {
+                const float x = runwayX - 17.5f + static_cast<float>(stripe) * 5.0f;
+                DrawCubeV({x, 0.11f, thresholdZ}, {2.0f, 0.03f, 2.4f}, runwayPaint);
+            }
+        for (float endSign : {-1.0f, 1.0f})
+        {
+            const float z = endSign < 0.0f ? runwayFarZ + 27.0f : runwayNearZ - 27.0f;
+            for (float side : {-1.0f, 1.0f})
+                DrawCubeV({runwayX + side * 8.0f, 0.11f,
+                    z + (endSign < 0.0f ? 5.0f : -5.0f)}, {6.0f, 0.03f, 13.0f}, runwayPaint);
+            const char first = endSign < 0.0f ? '0' : '2';
+            const char second = endSign < 0.0f ? '9' : '7';
+            DrawMenuRunwayDigit(first, runwayX, z - 4.3f);
+            DrawMenuRunwayDigit(second, runwayX, z + 4.3f);
+        }
+
+        // Two menu buildings echo the in-game terminal and service building.
+        DrawCubeV({runwayX, 0.015f, -199.0f}, {100.0f, 0.12f, 34.0f}, Color{130, 137, 129, 255});
+        const Color terminalWall{196, 185, 156, 255};
+        const Color terminalRoof{37, 66, 81, 255};
+        const Color terminalGlass{47, 119, 143, 255};
+        const Color gateOrange{196, 112, 65, 255};
+
+        // Broad two-storey concourse with two long wings forming an open apron.
+        DrawCubeV({runwayX, 8.0f, -231.0f}, {100.0f, 16.0f, 18.0f}, terminalWall);
+        DrawCubeV({runwayX, 16.7f, -231.0f}, {106.0f, 2.2f, 24.0f}, terminalRoof);
+        for (float wingSide : {-1.0f, 1.0f})
+        {
+            const float wingX = runwayX + wingSide * 43.0f;
+            DrawCubeV({wingX, 8.0f, -204.0f}, {14.0f, 16.0f, 48.0f}, terminalWall);
+            DrawCubeV({wingX, 16.7f, -204.0f}, {19.0f, 2.2f, 53.0f}, terminalRoof);
+            const float courtyardFaceX = wingX - wingSide * 7.15f;
+            for (int bay = 0; bay < 5; ++bay)
+            {
+                const float z = -222.0f + static_cast<float>(bay) * 8.5f;
+                DrawCubeV({courtyardFaceX, 10.5f, z}, {0.25f, 4.5f, 4.8f}, terminalGlass);
+                if (bay % 2 == 0)
+                {
+                    DrawCubeV({courtyardFaceX, 3.5f, z}, {0.45f, 5.4f, 4.5f}, gateOrange);
+                    DrawCubeV({courtyardFaceX, 6.5f, z}, {3.0f, 0.7f, 6.2f}, Color{89, 119, 126, 255});
+                }
+            }
+        }
+        // Repeating glazing and gate portals across the terminal's apron-facing hall.
+        for (int row = 0; row < 2; ++row)
+            for (int col = 0; col < 13; ++col)
+            {
+                const float x = runwayX - 39.0f + static_cast<float>(col) * 6.5f;
+                const float y = row == 0 ? 5.0f : 11.5f;
+                const Color glass = col % 5 == 0 ? Color{211, 180, 122, 255} : terminalGlass;
+                DrawCubeV({x, y, -221.75f}, {3.6f, 3.0f, 0.3f}, glass);
+                if (row == 0 && col % 3 == 1)
+                {
+                    DrawCubeV({x, 3.2f, -221.65f}, {3.5f, 5.2f, 0.45f}, gateOrange);
+                    DrawCubeV({x, 6.1f, -219.5f}, {5.2f, 0.65f, 4.0f}, Color{89, 119, 126, 255});
+                }
+            }
+
+        // Offset upper storey and stepped roof give the second building the same
+        // compact, practical service-block silhouette as the in-game model.
+        const float serviceX = runwayX + 78.0f;
+        const float serviceZ = -219.0f;
+        DrawCubeV({serviceX, 0.9f, serviceZ}, {39.0f, 1.8f, 32.0f}, Color{113, 124, 119, 255});
+        DrawCubeV({serviceX, 7.5f, serviceZ}, {36.0f, 13.2f, 29.0f}, Color{169, 177, 161, 255});
+        DrawCubeV({serviceX - 4.0f, 17.0f, serviceZ - 2.0f}, {27.0f, 7.0f, 22.0f}, Color{196, 185, 156, 255});
+        DrawCubeV({serviceX, 14.5f, serviceZ}, {39.0f, 1.0f, 32.0f}, Color{43, 72, 84, 255});
+        DrawCubeV({serviceX - 4.0f, 21.0f, serviceZ - 2.0f}, {31.0f, 1.0f, 26.0f}, terminalRoof);
+        for (int win = 0; win < 5; ++win)
+        {
+            const float x = serviceX - 14.0f + static_cast<float>(win) * 7.0f;
+            DrawCubeV({x, 7.3f, serviceZ + 14.65f}, {3.8f, 3.4f, 0.3f}, terminalGlass);
+            if (win < 4)
+                DrawCubeV({x - 3.0f, 17.2f, serviceZ + 9.2f}, {3.6f, 2.8f, 0.3f},
+                    win == 1 ? Color{211, 180, 122, 255} : terminalGlass);
+        }
+
+        // Use the same detailed 3D aircraft renderer as gameplay. Each nose follows
+        // its own route direction, including the descending traffic stream.
+        struct MenuFlight
+        {
+            Vector2 from;
+            Vector2 to;
+            float period;
+            float phase;
+            float startAltitude;
+            float finishAltitude;
+            float scale;
+            Color livery;
+        };
+        const MenuFlight menuFlights[] = {
+            {{-25.0f, 80.0f}, {185.0f, -170.0f}, 21.0f, 0.02f, 42.0f, 56.0f, 0.25f, Color{47, 165, 193, 255}},
+            {{185.0f, -165.0f}, {-25.0f, 120.0f}, 24.0f, 0.44f, 58.0f, 28.0f, 0.23f, Color{232, 154, 69, 255}},
+            {{175.0f, 78.0f}, {10.0f, -155.0f}, 27.0f, 0.68f, 48.0f, 40.0f, 0.19f, Color{223, 229, 221, 255}},
+            {{-10.0f, -125.0f}, {125.0f, -205.0f}, 30.0f, 0.31f, 36.0f, 42.0f, 0.17f, Color{119, 186, 146, 255}}
+        };
+        static Airplane menuAircraft[4];
+        static bool menuAircraftInitialized = false;
+        if (!menuAircraftInitialized)
+        {
+            for (int i = 0; i < 4; ++i)
+                menuAircraft[i].liveryColor = menuFlights[i].livery;
+            menuAircraftInitialized = true;
+        }
+        for (int i = 0; i < 4; ++i)
+        {
+            const MenuFlight& flight = menuFlights[i];
+            const float progress = std::fmod(time / flight.period + flight.phase, 1.0f);
+            Airplane& aircraft = menuAircraft[i];
+            aircraft.position = {
+                flight.from.x + (flight.to.x - flight.from.x) * progress,
+                flight.from.y + (flight.to.y - flight.from.y) * progress};
+            aircraft.headingDegrees = std::atan2(flight.to.x - flight.from.x,
+                -(flight.to.y - flight.from.y)) * RAD2DEG;
+            aircraft.altitude = flight.startAltitude +
+                (flight.finishAltitude - flight.startAltitude) * progress;
+            aircraft.pitchDegrees = i == 1 ? -2.0f : 0.0f;
+            aircraft.speed = 5.0f;
+            aircraft.Draw(flight.scale);
+        }
+        EndMode3D();
+    }
 }
 
 int main()
@@ -341,6 +558,9 @@ int main()
     Airplane staticEastWingAircraft = makeStaticAircraftAtGate(
         "EAST_1", AircraftSize::Large, Color{98, 174, 128, 255});
     AirportGround airportGround(terminal);
+    bool showMainMenu = true;
+    bool exitRequested = false;
+    float menuAnimationTime = 0.0f;
     std::vector<FlightPlan> flights;
     // Keep the original parking bays available for later vehicle-movement work.
     constexpr Vector2 BaggageTugParkingPositions[] = {
@@ -895,19 +1115,39 @@ int main()
     while (!WindowShouldClose())
     {
         const float deltaTime = GetFrameTime();
-        shiftClockSeconds += deltaTime * ShiftClockRate;
-        refuellingMessageTime = std::max(0.0f, refuellingMessageTime - deltaTime);
-        updateRefuelling(gate1RefuellingTimeRemaining, gate1RefuellingFinished,
-            "Gate 1", deltaTime);
-        updateRefuelling(eastWingRefuellingTimeRemaining, eastWingRefuellingFinished,
-            "East Wing Gate 1", deltaTime);
-        if (refuellingTankerMotion == RefuellingTankerMotion::Refuelling &&
-            ((activeRefuellingGate == "GATE_1" && gate1RefuellingFinished) ||
-                (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
-            refuellingTankerMotion = RefuellingTankerMotion::ReturningBehindAircraft;
-        updateTankerMotion(deltaTime);
-        cameraController.Update(deltaTime);
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        if (exitRequested) break;
+        if (showMainMenu)
+            menuAnimationTime += deltaTime;
+        else
+        {
+            shiftClockSeconds += deltaTime * ShiftClockRate;
+            refuellingMessageTime = std::max(0.0f, refuellingMessageTime - deltaTime);
+            updateRefuelling(gate1RefuellingTimeRemaining, gate1RefuellingFinished,
+                "Gate 1", deltaTime);
+            updateRefuelling(eastWingRefuellingTimeRemaining, eastWingRefuellingFinished,
+                "East Wing Gate 1", deltaTime);
+            if (refuellingTankerMotion == RefuellingTankerMotion::Refuelling &&
+                ((activeRefuellingGate == "GATE_1" && gate1RefuellingFinished) ||
+                    (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
+                refuellingTankerMotion = RefuellingTankerMotion::ReturningBehindAircraft;
+            updateTankerMotion(deltaTime);
+            cameraController.Update(deltaTime);
+        }
+        if (showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            const float menuX = static_cast<float>(GetScreenWidth()) * 0.085f;
+            const float menuY = static_cast<float>(GetScreenHeight()) * 0.355f;
+            const Rectangle startButton{menuX, menuY, 330.0f, 58.0f};
+            const Rectangle settingsButton{menuX, menuY + 72.0f, 330.0f, 58.0f};
+            const Rectangle exitButton{menuX, menuY + 144.0f, 330.0f, 58.0f};
+            const Vector2 mouse = GetMousePosition();
+            if (CheckCollisionPointRec(mouse, startButton)) showMainMenu = false;
+            else if (CheckCollisionPointRec(mouse, exitButton)) exitRequested = true;
+            else if (CheckCollisionPointRec(mouse, settingsButton)) { /* Settings placeholder. */ }
+        }
+        else if (showMainMenu && IsKeyPressed(KEY_ENTER)) showMainMenu = false;
+        else if (showMainMenu && IsKeyPressed(KEY_ESCAPE)) exitRequested = true;
+        else if (!showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
             if (!gate1RefuellingFinished && CheckCollisionPointRec(mouse,
@@ -937,21 +1177,20 @@ int main()
             }
             else
             {
-                const int rightPanelLeft = GetScreenWidth() - 326;
-                const bool clickedInfoPanel =
-                    mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
                 const bool clickedSchedulePanel =
                     mouse.x <= 406.0f && mouse.y >= 74.0f && mouse.y <= 214.0f;
+                const int rightPanelLeft = GetScreenWidth() - 326;
+                const bool clickedInfoPanel = selectedFlightIndex >= 0 &&
+                    mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
                 if (clickedInfoPanel)
                 {
-                    const Rectangle taxiCommandButton{
-                        static_cast<float>(rightPanelLeft + 14), 324.0f, 284.0f, 24.0f};
-                    const Rectangle priorityButton{
-                        static_cast<float>(rightPanelLeft + 14), 352.0f, 284.0f, 28.0f};
-                    if (selectedFlightIndex >= 0 &&
-                        CheckCollisionPointRec(mouse, taxiCommandButton))
+                    const Rectangle taxiButton{static_cast<float>(rightPanelLeft + 14), 324.0f, 284.0f, 24.0f};
+                    const Rectangle priorityButton{static_cast<float>(rightPanelLeft + 14), 352.0f, 284.0f, 28.0f};
+                    FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
+                    if (CheckCollisionPointRec(mouse, priorityButton))
+                        selected.airplane.isPriority = !selected.airplane.isPriority;
+                    else if (CheckCollisionPointRec(mouse, taxiButton))
                     {
-                        FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
                         if (selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization &&
                             !selected.taxiToStandQueued)
                         {
@@ -959,57 +1198,44 @@ int main()
                             selected.requestOrder = nextRequestOrder++;
                             taxiToStandQueue.push_back(static_cast<std::size_t>(selectedFlightIndex));
                         }
-                        else if (selected.airplane.state == AirplaneState::Parked &&
-                            selected.departureFlight && !selected.departureQueued)
-                        {
-                            if (selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
-                                selected.preparationTime = 3.0f;
-                        }
+                        else if (selected.airplane.state == AirplaneState::Parked && selected.departureFlight &&
+                            !selected.departureQueued && selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
+                            selected.preparationTime = 3.0f;
                         else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                         {
                             const auto runway = std::find_if(airportGround.GetRunways().begin(),
-                                airportGround.GetRunways().end(),
-                                [&selected](const AirportRunway& item)
+                                airportGround.GetRunways().end(), [&selected](const AirportRunway& item)
                                 { return item.id == selected.runwayId; });
-                            const bool runwayFree = runway != airportGround.GetRunways().end() &&
-                                runway->available && runwayOwners.find(selected.runwayId) == runwayOwners.end();
-                            const std::vector<std::string> runwayEntry = airportGround.FindRouteNodeIds(
+                            const auto route = airportGround.FindRouteNodeIds(
                                 selected.departureHoldNodeId, selected.departureRunwayStart);
-                            if (runwayFree && routeCanBeReserved(runwayEntry, selected.airplane.flightId))
+                            if (runway != airportGround.GetRunways().end() && runway->available &&
+                                runwayOwners.find(selected.runwayId) == runwayOwners.end() &&
+                                routeCanBeReserved(route, selected.airplane.flightId))
                             {
-                                std::vector<Vector2> takeoffRoute = MakeWorldRoute(airportGround, runwayEntry);
+                                std::vector<Vector2> takeoffRoute = MakeWorldRoute(airportGround, route);
                                 if (!takeoffRoute.empty())
                                 {
-                                    const std::vector<Vector2> roll = MakeTakeoffRoute(airportGround,
-                                        selected.runwayId, selected.departureRunwayStart,
-                                        takeoffRoute.back());
-                                    takeoffRoute.insert(takeoffRoute.end(), roll.begin() + 1, roll.end());
-                                    const std::size_t thresholdIndex = runwayEntry.size() - 1;
-                                    if (roll.size() > 1 && selected.airplane.TransitionTo(
-                                        AirplaneState::TaxiingToRunway))
+                                    const auto roll = MakeTakeoffRoute(airportGround, selected.runwayId,
+                                        selected.departureRunwayStart, takeoffRoute.back());
+                                    if (roll.size() > 1)
+                                        takeoffRoute.insert(takeoffRoute.end(), roll.begin() + 1, roll.end());
+                                    if (roll.size() > 1 && selected.airplane.TransitionTo(AirplaneState::TaxiingToRunway))
                                     {
-                                        reserveRoute(runwayEntry, selected.airplane.flightId);
-                                        selected.activeRouteNodeIds = runwayEntry;
+                                        reserveRoute(route, selected.airplane.flightId);
+                                        selected.activeRouteNodeIds = route;
                                         selected.routeStarted = true;
                                         selected.runwayReserved = true;
                                         selected.takeoffRollStarted = true;
                                         runwayOwners[selected.runwayId] = selected.airplane.flightId;
-                                        const auto holdOwner = occupiedNodes.find(selected.departureHoldNodeId);
-                                        if (holdOwner != occupiedNodes.end() &&
-                                            holdOwner->second == selected.airplane.flightId)
-                                            occupiedNodes.erase(holdOwner);
+                                        occupiedNodes.erase(selected.departureHoldNodeId);
                                         selected.airplane.SetWaypointRoute(takeoffRoute, 72.0f,
-                                            AirplaneState::Departed,
-                                            static_cast<int>(thresholdIndex),
+                                            AirplaneState::Departed, static_cast<int>(route.size() - 1),
                                             AirplaneState::TakingOff);
                                     }
                                 }
                             }
                         }
                     }
-                    else if (selectedFlightIndex >= 0 && CheckCollisionPointRec(mouse, priorityButton))
-                        flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority =
-                            !flights[static_cast<std::size_t>(selectedFlightIndex)].airplane.isPriority;
                 }
                 else if (!clickedSchedulePanel)
                 {
@@ -1052,6 +1278,8 @@ int main()
                 }
             }
         }
+        if (!showMainMenu)
+        {
         if (cameraController.IsGateViewActive())
         {
             if (IsKeyPressed(KEY_LEFT)) selectAdjacentGate(-1);
@@ -1370,10 +1598,15 @@ int main()
             }
         }
 
+        }
+
         BeginDrawing();
         ClearBackground(Color{142, 181, 199, 255});
 
-        BeginMode3D(cameraController.GetCamera3D());
+        const Camera3D& sceneCamera = cameraController.GetCamera3D();
+        BeginMode3D(sceneCamera);
+        if (!showMainMenu)
+        {
         terminal.Draw();
         // Draw taxiways after the terminal apron so the connected pavement and
         // centerlines remain visible where they cross the apron slab.
@@ -1425,9 +1658,12 @@ int main()
                 plan.airplane.Draw(plan.airplane.renderScale);
         staticGate1Aircraft.Draw(staticGate1Aircraft.renderScale);
         staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
+        }
         EndMode3D();
 
-        const Camera3D& activeCamera = cameraController.GetCamera3D();
+        const Camera3D& activeCamera = sceneCamera;
+        if (!showMainMenu)
+        {
         const auto drawRefuellingProgress = [&](const Airplane& aircraft,
             float timeRemaining)
         {
@@ -1570,82 +1806,43 @@ int main()
             }
         }
 
-        const int infoX = GetScreenWidth() - 326;
-        const int infoY = 74;
-        DrawRectangle(infoX, infoY, 312, 324, Fade(Color{13, 26, 34, 255}, 0.93f));
-        DrawRectangle(infoX, infoY, 312, 28, Color{33, 66, 82, 255});
-        DrawText("FLIGHT DETAILS", infoX + 12, infoY + 7, 15, RAYWHITE);
+        // Show the details panel only when an aircraft is selected.
         if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()))
         {
+            const int infoX = GetScreenWidth() - 326;
+            const int infoY = 74;
             const FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
+            DrawRectangle(infoX, infoY, 312, 324, Fade(Color{13, 26, 34, 255}, 0.93f));
+            DrawRectangle(infoX, infoY, 312, 28, Color{33, 66, 82, 255});
+            DrawText("FLIGHT DETAILS", infoX + 12, infoY + 7, 15, RAYWHITE);
             DrawAirplanePreview3D(selected.airplane,
                 {static_cast<float>(infoX + 14), static_cast<float>(infoY + 40), 128.0f, 112.0f},
                 airplanePreviewCamera, airplanePreviewTarget);
-            DrawText(TextFormat("ID: %s", selected.airplane.flightId.c_str()),
-                infoX + 154, infoY + 40, 15, RAYWHITE);
-            DrawText(TextFormat("Name: %s", selected.flightName.c_str()),
-                infoX + 154, infoY + 64, 13, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Type: %s", selected.airplane.aircraftType.c_str()),
-                infoX + 154, infoY + 85, 12, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Airline: %s", selected.airline.c_str()),
-                infoX + 14, infoY + 133, 14, Color{203, 219, 224, 255});
-            DrawText(TextFormat("State: %s", FlightStateLabel(selected.airplane.state)),
-                infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Schedule   ARR %s   DEP %s",
+            DrawText(TextFormat("ID: %s", selected.airplane.flightId.c_str()), infoX + 154, infoY + 40, 15, RAYWHITE);
+            DrawText(TextFormat("Name: %s", selected.flightName.c_str()), infoX + 154, infoY + 64, 13, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Type: %s", selected.airplane.aircraftType.c_str()), infoX + 154, infoY + 85, 12, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Airline: %s", selected.airline.c_str()), infoX + 14, infoY + 133, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("State: %s", FlightStateLabel(selected.airplane.state)), infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Schedule ARR %s  DEP %s",
                 selected.hasArrivalSchedule ? FormatShiftTime(selected.arrivalScheduledSeconds).c_str() : "--:--",
                 selected.departureFlight ? FormatShiftTime(selected.departureScheduledSeconds).c_str() : "--:--"),
-                infoX + 14, infoY + 181, 13, Color{203, 219, 224, 255});
+                infoX + 14, infoY + 181, 12, Color{203, 219, 224, 255});
             DrawText(TextFormat("Route: %s  >  %s", selected.origin.c_str(), selected.destination.c_str()),
                 infoX + 14, infoY + 205, 12, Color{116, 226, 202, 255});
-            DrawText(TextFormat("Assigned stand: %s",
-                selected.standAssigned ? selected.parkingStandId.c_str() : "Pending assignment"),
-                infoX + 14, infoY + 228, 13, Color{203, 219, 224, 255});
-            const Rectangle taxiCommandButton{
-                static_cast<float>(infoX + 14), static_cast<float>(infoY + 250), 284.0f, 24.0f};
-            if (selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization)
-            {
-                DrawRectangleRec(taxiCommandButton, selected.taxiToStandQueued ?
-                    Color{70, 87, 88, 255} : Color{28, 122, 112, 255});
-                DrawText(selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND",
-                    infoX + 24, infoY + 256, 13, RAYWHITE);
-            }
-            else if (selected.airplane.state == AirplaneState::Parked &&
-                selected.departureFlight)
-            {
-                DrawRectangleRec(taxiCommandButton, Color{28, 122, 112, 255});
-                DrawText("AUTHORIZE TAXI TO RUNWAY", infoX + 24, infoY + 256, 13, RAYWHITE);
-            }
-            else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
-            {
-                const auto runway = std::find_if(airportGround.GetRunways().begin(),
-                    airportGround.GetRunways().end(),
-                    [&selected](const AirportRunway& item) { return item.id == selected.runwayId; });
-                const bool runwayFree = runway != airportGround.GetRunways().end() &&
-                    runway->available && runwayOwners.find(selected.runwayId) == runwayOwners.end();
-                DrawRectangleRec(taxiCommandButton, runwayFree ?
-                    Color{28, 122, 112, 255} : Color{70, 87, 88, 255});
-                DrawText(runwayFree ? "AUTHORIZE TAKEOFF" : "RUNWAY UNAVAILABLE",
-                    infoX + 24, infoY + 256, 13, RAYWHITE);
-            }
-            else if (selected.airplane.state == AirplaneState::PreparingForDeparture)
-                DrawText("PREPARING FOR TAXI OUT...", infoX + 14, infoY + 256, 11,
-                    Color{145, 166, 174, 255});
-            else
-                DrawText("No taxi command available in this state.",
-                    infoX + 14, infoY + 256, 11, Color{145, 166, 174, 255});
-            const Rectangle priorityButton{
-                static_cast<float>(infoX + 14), static_cast<float>(infoY + 278), 284.0f, 28.0f};
-            DrawRectangleRec(priorityButton, selected.airplane.isPriority ?
-                Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
-            DrawText(selected.airplane.isPriority ? "PRIORITY: ON  (click / P)" : "MARK PRIORITY  (click / P)",
+            DrawText(TextFormat("Assigned stand: %s", selected.standAssigned ? selected.parkingStandId.c_str() : "Pending assignment"),
+                infoX + 14, infoY + 228, 12, Color{203, 219, 224, 255});
+            const char* command = selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization ?
+                (selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND") :
+                (selected.airplane.state == AirplaneState::Parked && selected.departureFlight ?
+                    "AUTHORIZE TAXI TO RUNWAY" :
+                 selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization ?
+                    "AUTHORIZE TAKEOFF" : "No taxi command available in this state.");
+            DrawRectangle(infoX + 14, infoY + 250, 284, 24, Color{28, 92, 98, 255});
+            DrawText(command, infoX + 22, infoY + 256, 11, RAYWHITE);
+            DrawRectangle(infoX + 14, infoY + 278, 284, 28,
+                selected.airplane.isPriority ? Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
+            DrawText(selected.airplane.isPriority ? "PRIORITY: ON (click / P)" : "MARK PRIORITY (click / P)",
                 infoX + 22, infoY + 285, 13, RAYWHITE);
-        }
-        else
-        {
-            DrawText("Select an aircraft on the map to view its model, airline,",
-                infoX + 14, infoY + 48, 12, Color{203, 219, 224, 255});
-            DrawText("state, route and scheduled times.",
-                infoX + 14, infoY + 68, 12, Color{203, 219, 224, 255});
         }
 
         if (!selectedGateId.empty())
@@ -1664,6 +1861,101 @@ int main()
             DrawRectangleLines(labelX, labelY, labelWidth, 36, Color{112, 211, 213, 255});
             DrawText(gateLabel.c_str(), labelX + 16, labelY + 7, 22,
                 Color{105, 244, 220, 255});
+        }
+        }
+        else
+        {
+            DrawMenuBackground(menuAnimationTime);
+            const float screenWidth = static_cast<float>(GetScreenWidth());
+            const float screenHeight = static_cast<float>(GetScreenHeight());
+            const float menuX = screenWidth * 0.085f;
+            const float menuY = screenHeight * 0.355f;
+            const Rectangle startButton{menuX, menuY, 330.0f, 58.0f};
+            const Rectangle settingsButton{menuX, menuY + 72.0f, 330.0f, 58.0f};
+            const Rectangle exitButton{menuX, menuY + 144.0f, 330.0f, 58.0f};
+            const Vector2 mouse = GetMousePosition();
+            const bool hoverStart = CheckCollisionPointRec(mouse, startButton);
+            const bool hoverSettings = CheckCollisionPointRec(mouse, settingsButton);
+            const bool hoverExit = CheckCollisionPointRec(mouse, exitButton);
+            const float pulse = 0.5f + 0.5f * std::sin(menuAnimationTime * 1.8f);
+
+            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Fade(Color{4, 16, 25, 255}, 0.18f));
+            DrawRectangleGradientH(0, 0, static_cast<int>(screenWidth * 0.57f), GetScreenHeight(),
+                Fade(Color{4, 16, 25, 255}, 0.96f), Fade(Color{4, 16, 25, 255}, 0.0f));
+            DrawRectangleGradientV(0, static_cast<int>(screenHeight * 0.76f), GetScreenWidth(),
+                static_cast<int>(screenHeight * 0.24f), Fade(Color{4, 16, 25, 255}, 0.0f),
+                Fade(Color{4, 16, 25, 255}, 0.34f));
+            DrawRectangle(0, 0, GetScreenWidth(), 5, Fade(Color{77, 211, 217, 255}, 0.72f));
+
+            DrawCircle(62, 66, 24.0f, Fade(Color{39, 190, 202, 255}, 0.12f + pulse * 0.06f));
+            DrawCircleLines(62, 66, 18.0f, Fade(Color{89, 227, 225, 255}, 0.78f));
+            DrawText("A", 54, 53, 27, Color{120, 239, 230, 255});
+            DrawText("AERODROME", 98, 51, 18, Color{221, 237, 240, 255});
+            DrawText("AIRPORT OPERATIONS SIMULATOR", 98, 73, 10, Color{114, 158, 170, 255});
+
+            DrawText("AIRPORT", static_cast<int>(menuX), static_cast<int>(screenHeight * 0.17f),
+                17, Color{107, 220, 221, 255});
+            DrawText("OPERATIONS", static_cast<int>(menuX) - 2,
+                static_cast<int>(screenHeight * 0.205f), 45, RAYWHITE);
+            DrawText("SIMULATOR", static_cast<int>(menuX) - 2,
+                static_cast<int>(screenHeight * 0.267f), 45, RAYWHITE);
+            DrawRectangle(static_cast<int>(menuX), static_cast<int>(screenHeight * 0.326f),
+                52, 3, Color{88, 221, 219, 255});
+            DrawText("DIRECT THE FLOW. KEEP THE AIRFIELD MOVING.",
+                static_cast<int>(menuX), static_cast<int>(screenHeight * 0.337f),
+                11, Color{180, 201, 207, 255});
+
+            const auto drawMenuButton = [](Rectangle bounds, const char* title,
+                const char* detail, bool hovered, bool primary)
+            {
+                const Color fill = primary ?
+                    (hovered ? Color{25, 126, 144, 250} : Color{18, 88, 109, 242}) :
+                    (hovered ? Color{32, 66, 80, 248} : Color{14, 38, 51, 234});
+                const Color border = primary ? Color{91, 222, 218, 255} : Color{65, 115, 128, 230};
+                DrawRectangleRec(bounds, fill);
+                DrawRectangleLinesEx(bounds, hovered ? 2.0f : 1.0f, border);
+                DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y), 4,
+                    static_cast<int>(bounds.height), primary ? Color{111, 237, 227, 255} : border);
+                DrawText(title, static_cast<int>(bounds.x + 23), static_cast<int>(bounds.y + 10),
+                    18, RAYWHITE);
+                DrawText(detail, static_cast<int>(bounds.x + 23), static_cast<int>(bounds.y + 34),
+                    9, Color{166, 193, 200, 255});
+                DrawText(">", static_cast<int>(bounds.x + bounds.width - 31),
+                    static_cast<int>(bounds.y + 18), 18,
+                    hovered ? Color{137, 244, 229, 255} : Color{111, 171, 183, 255});
+            };
+            drawMenuButton(startButton, "START GAME", "OPEN AIRFIELD CONTROL", hoverStart, true);
+            drawMenuButton(settingsButton, "SETTINGS", "COMING SOON", hoverSettings, false);
+            drawMenuButton(exitButton, "EXIT", "CLOSE SIMULATOR", hoverExit, false);
+
+            const float statusWidth = 278.0f;
+            const float statusX = screenWidth - statusWidth - 32.0f;
+            DrawRectangle(static_cast<int>(statusX), 28, static_cast<int>(statusWidth), 36,
+                Fade(Color{8, 28, 39, 238}, 0.92f));
+            DrawCircle(static_cast<int>(statusX + 18), 46, 4.5f,
+                Fade(Color{95, 234, 183, 255}, 0.68f + pulse * 0.32f));
+            DrawText("AIRFIELD SYSTEMS ONLINE", static_cast<int>(statusX + 31), 39, 10,
+                Color{190, 222, 222, 255});
+            const int overviewY = static_cast<int>(screenHeight - 138);
+            DrawRectangle(static_cast<int>(statusX), overviewY, static_cast<int>(statusWidth), 98,
+                Fade(Color{7, 24, 34, 220}, 0.94f));
+            DrawRectangle(static_cast<int>(statusX), overviewY, 3, 98,
+                Color{71, 206, 208, 255});
+            DrawText("AIRFIELD OVERVIEW", static_cast<int>(statusX + 17), overviewY + 12,
+                11, Color{130, 224, 221, 255});
+            DrawText(TextFormat("%02d RUNWAYS    %02d STANDS",
+                static_cast<int>(airportGround.GetRunways().size()),
+                static_cast<int>(terminal.GetParkingStands().size())),
+                static_cast<int>(statusX + 17), overviewY + 36, 13, RAYWHITE);
+            DrawText("ARRIVALS  /  DEPARTURES",
+                static_cast<int>(statusX + 17), overviewY + 61, 10,
+                Color{161, 185, 194, 255});
+            DrawText("GROUND CONTROL",
+                static_cast<int>(statusX + 17), overviewY + 77, 10,
+                Color{161, 185, 194, 255});
+            DrawText("v1.0  |  PRESS ENTER TO START", 22,
+                GetScreenHeight() - 27, 9, Color{135, 165, 175, 255});
         }
 
         const auto drawRefuellingIndicator = [&](const Airplane& aircraft)
