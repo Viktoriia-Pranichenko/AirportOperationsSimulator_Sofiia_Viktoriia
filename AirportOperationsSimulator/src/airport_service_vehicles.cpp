@@ -81,6 +81,12 @@ ServiceVehiclePosition::ServiceVehiclePosition(float positionX, float positionZ)
 {
 }
 
+void ServiceVehiclePosition::SetPosition(float positionX, float positionZ)
+{
+    this->positionX = positionX;
+    this->positionZ = positionZ;
+}
+
 void ServiceVehiclePosition::SetHeadingDegrees(float headingDegrees)
 {
     this->headingDegrees = headingDegrees;

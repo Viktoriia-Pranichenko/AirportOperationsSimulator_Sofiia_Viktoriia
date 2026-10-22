@@ -10,6 +10,7 @@ class BaggageTug
 {
 public:
     BaggageTug(float positionX, float positionZ);
+    void SetPosition(float positionX, float positionZ);
     void SetHeadingDegrees(float headingDegrees);
 
     bool MoveTowardsGate(int gateNumber, const AirportTerminal& terminal,

@@ -371,7 +371,7 @@ int main()
     std::vector<MaintenancePickupTruck> maintenancePickupTrucks;
     std::vector<PassengerBoardingStairs> passengerBoardingStairs;
 
-    BaggageTug parkedBaggageTugs[] = {
+    std::vector<BaggageTug> parkedBaggageTugs{
         {BaggageTugParkingPositions[0].x, BaggageTugParkingPositions[0].y},
         {BaggageTugParkingPositions[1].x, BaggageTugParkingPositions[1].y},
         {BaggageTugParkingPositions[2].x, BaggageTugParkingPositions[2].y},
@@ -387,35 +387,35 @@ int main()
         {FireTruckParkingPositions[0].x, FireTruckParkingPositions[0].y},
         {FireTruckParkingPositions[1].x, FireTruckParkingPositions[1].y}
     };
-    AircraftRefuellingTanker parkedRefuellingTankers[] = {
+    std::vector<AircraftRefuellingTanker> parkedRefuellingTankers{
         {RefuellingTankerParkingPositions[0].x, RefuellingTankerParkingPositions[0].y},
         {RefuellingTankerParkingPositions[1].x, RefuellingTankerParkingPositions[1].y}
     };
-    AircraftPushbackTug parkedPushbackTugs[] = {
+    std::vector<AircraftPushbackTug> parkedPushbackTugs{
         {PushbackTugParkingPositions[0].x, PushbackTugParkingPositions[0].y},
         {PushbackTugParkingPositions[1].x, PushbackTugParkingPositions[1].y},
         {PushbackTugParkingPositions[2].x, PushbackTugParkingPositions[2].y}
     };
-    BaggageBeltLoader parkedBaggageBeltLoaders[] = {
+    std::vector<BaggageBeltLoader> parkedBaggageBeltLoaders{
         {BaggageBeltLoaderParkingPositions[0].x, BaggageBeltLoaderParkingPositions[0].y},
         {BaggageBeltLoaderParkingPositions[1].x, BaggageBeltLoaderParkingPositions[1].y},
         {BaggageBeltLoaderParkingPositions[2].x, BaggageBeltLoaderParkingPositions[2].y},
         {BaggageBeltLoaderParkingPositions[3].x, BaggageBeltLoaderParkingPositions[3].y},
         {BaggageBeltLoaderParkingPositions[4].x, BaggageBeltLoaderParkingPositions[4].y}
     };
-    CateringTruck parkedCateringTrucks[] = {
+    std::vector<CateringTruck> parkedCateringTrucks{
         {CateringTruckParkingPositions[0].x, CateringTruckParkingPositions[0].y},
         {CateringTruckParkingPositions[1].x, CateringTruckParkingPositions[1].y}
     };
-    WaterServiceTruck parkedWaterServiceTrucks[] = {
+    std::vector<WaterServiceTruck> parkedWaterServiceTrucks{
         {WaterServiceTruckParkingPositions[0].x, WaterServiceTruckParkingPositions[0].y},
         {WaterServiceTruckParkingPositions[1].x, WaterServiceTruckParkingPositions[1].y}
     };
-    MaintenancePickupTruck parkedMaintenancePickupTrucks[] = {
+    std::vector<MaintenancePickupTruck> parkedMaintenancePickupTrucks{
         {MaintenancePickupParkingPositions[0].x, MaintenancePickupParkingPositions[0].y},
         {MaintenancePickupParkingPositions[1].x, MaintenancePickupParkingPositions[1].y}
     };
-    PassengerBoardingStairs parkedPassengerBoardingStairs[] = {
+    std::vector<PassengerBoardingStairs> parkedPassengerBoardingStairs{
         {BoardingStairsParkingPositions[0].x, BoardingStairsParkingPositions[0].y},
         {BoardingStairsParkingPositions[1].x, BoardingStairsParkingPositions[1].y},
         {BoardingStairsParkingPositions[2].x, BoardingStairsParkingPositions[2].y},
@@ -599,14 +599,37 @@ int main()
         }
         if (selectedGate == nullptr || referenceGate == nullptr) return;
 
-        baggageTugs.clear();
-        refuellingTankers.clear();
-        pushbackTugs.clear();
-        baggageBeltLoaders.clear();
-        cateringTrucks.clear();
-        waterServiceTrucks.clear();
-        maintenancePickupTrucks.clear();
-        passengerBoardingStairs.clear();
+        if (baggageTugs.empty())
+        {
+            if (parkedBaggageTugs.empty() || parkedRefuellingTankers.empty() ||
+                parkedPushbackTugs.empty() || parkedBaggageBeltLoaders.empty() ||
+                parkedCateringTrucks.empty() || parkedWaterServiceTrucks.empty() ||
+                parkedMaintenancePickupTrucks.empty() ||
+                parkedPassengerBoardingStairs.size() < 2)
+                return;
+
+            baggageTugs.push_back(std::move(parkedBaggageTugs.front()));
+            parkedBaggageTugs.erase(parkedBaggageTugs.begin());
+            refuellingTankers.push_back(std::move(parkedRefuellingTankers.front()));
+            parkedRefuellingTankers.erase(parkedRefuellingTankers.begin());
+            pushbackTugs.push_back(std::move(parkedPushbackTugs.front()));
+            parkedPushbackTugs.erase(parkedPushbackTugs.begin());
+            baggageBeltLoaders.push_back(std::move(parkedBaggageBeltLoaders.front()));
+            parkedBaggageBeltLoaders.erase(parkedBaggageBeltLoaders.begin());
+            cateringTrucks.push_back(std::move(parkedCateringTrucks.front()));
+            parkedCateringTrucks.erase(parkedCateringTrucks.begin());
+            waterServiceTrucks.push_back(std::move(parkedWaterServiceTrucks.front()));
+            parkedWaterServiceTrucks.erase(parkedWaterServiceTrucks.begin());
+            maintenancePickupTrucks.push_back(std::move(parkedMaintenancePickupTrucks.front()));
+            parkedMaintenancePickupTrucks.erase(parkedMaintenancePickupTrucks.begin());
+            for (int stair = 0; stair < 2; ++stair)
+            {
+                passengerBoardingStairs.push_back(
+                    std::move(parkedPassengerBoardingStairs.front()));
+                parkedPassengerBoardingStairs.erase(
+                    parkedPassengerBoardingStairs.begin());
+            }
+        }
 
         // Preserve the existing temporary Gate 4 service layout as offsets from
         // its stand, then rotate those placements to match the selected gate.
@@ -648,31 +671,32 @@ int main()
                 selectedGate->position.z + z};
         };
         const Vector2 tug = place(placements[0], WingVehicleSpacingScale);
-        baggageTugs.emplace_back(tug.x, tug.y);
+        baggageTugs.front().SetPosition(tug.x, tug.y);
         baggageTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
         const Vector2 tanker = place(placements[1], WingVehicleSpacingScale);
-        refuellingTankers.emplace_back(tanker.x, tanker.y);
+        refuellingTankers.front().SetPosition(tanker.x, tanker.y);
         refuellingTankers.back().SetHeadingDegrees(vehicleHeadingDegrees);
         const Vector2 pushback = place(placements[2], WingVehicleSpacingScale);
-        pushbackTugs.emplace_back(pushback.x, pushback.y);
+        pushbackTugs.front().SetPosition(pushback.x, pushback.y);
         pushbackTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
         const Vector2 beltLoader = place(placements[3], WingVehicleSpacingScale);
-        baggageBeltLoaders.emplace_back(beltLoader.x, beltLoader.y);
+        baggageBeltLoaders.front().SetPosition(beltLoader.x, beltLoader.y);
         baggageBeltLoaders.back().SetHeadingDegrees(vehicleHeadingDegrees);
         const Vector2 catering = place(placements[4], WingVehicleSpacingScale);
-        cateringTrucks.emplace_back(catering.x, catering.y);
+        cateringTrucks.front().SetPosition(catering.x, catering.y);
         cateringTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
         const Vector2 water = place(placements[5], WingVehicleSpacingScale);
-        waterServiceTrucks.emplace_back(water.x, water.y);
+        waterServiceTrucks.front().SetPosition(water.x, water.y);
         waterServiceTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
         const Vector2 maintenance = place(placements[6], WingVehicleSpacingScale);
-        maintenancePickupTrucks.emplace_back(maintenance.x, maintenance.y);
+        maintenancePickupTrucks.front().SetPosition(maintenance.x, maintenance.y);
         maintenancePickupTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
         for (std::size_t i = 7; i < 9; ++i)
         {
             const Vector2 stairs = place(placements[i], WingStairsSpacingScale);
-            passengerBoardingStairs.emplace_back(stairs.x, stairs.y);
-            passengerBoardingStairs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+            const std::size_t stairIndex = i - 7;
+            passengerBoardingStairs[stairIndex].SetPosition(stairs.x, stairs.y);
+            passengerBoardingStairs[stairIndex].SetHeadingDegrees(vehicleHeadingDegrees);
         }
     };
 

@@ -158,6 +158,14 @@ BaggageTug::BaggageTug(float x, float z)
 {
 }
 
+void BaggageTug::SetPosition(float x, float z)
+{
+    positionX = x;
+    positionZ = z;
+    route = ServiceVehicleRoute{};
+    nextRoutePoint = 0;
+}
+
 void BaggageTug::SetHeadingDegrees(float headingDegrees)
 {
     this->headingDegrees = headingDegrees;
