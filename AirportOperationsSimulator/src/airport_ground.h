@@ -35,6 +35,13 @@ struct AirportRunway
     bool available{true};
 };
 
+enum class TaxiRoutePurpose
+{
+    General,
+    Arrival,
+    Departure
+};
+
 // Runway and taxiway geometry share their coordinates with the terminal's stands.
 class AirportGround
 {
@@ -52,7 +59,8 @@ public:
     bool SetNodeBlocked(const std::string& nodeId, bool blocked);
     bool SetRunwayAvailable(const std::string& runwayId, bool available);
     std::vector<std::string> FindRouteNodeIds(
-        const std::string& startNodeId, const std::string& destinationNodeId) const;
+        const std::string& startNodeId, const std::string& destinationNodeId,
+        TaxiRoutePurpose purpose = TaxiRoutePurpose::General) const;
 
 private:
     void AddNode(const std::string& id, Vector3 position);

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <queue>
 #include <unordered_map>
 #include <cstddef>
@@ -200,8 +201,10 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     };
 
     constexpr float routeY = 0.08f;
-    constexpr float runwayExitXs[] = {-85.0f, 0.0f, 85.0f};
-    constexpr float taxiwayExitXs[] = {-65.0f, 0.0f, 65.0f};
+    // Place runway connectors close to each threshold, with enough paved
+    // distance for a curved entry/exit before the runway end.
+    constexpr float runwayExitXs[] = {-175.0f, 0.0f, 175.0f};
+    constexpr float taxiwayExitXs[] = {-145.0f, 0.0f, 145.0f};
     constexpr char runwaySuffixes[] = {'W', 'C', 'E'};
     const std::string runwayPrefixes[] = {"RUNWAY_A", "RUNWAY_B", "RUNWAY_C"};
 
@@ -215,7 +218,9 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         const std::string westEnd = prefix + "_START_W";
         const std::string eastEnd = prefix + "_END_E";
         const std::string approach = "APPROACH_" + runwayPrefixes[r].substr(7) + "_W";
+        const std::string eastApproach = "APPROACH_" + runwayPrefixes[r].substr(7) + "_E";
         AddNode(approach, {-halfLength - 50.0f, routeY, z});
+        AddNode(eastApproach, {halfLength + 50.0f, routeY, z});
         AddNode(westEnd, {-halfLength, routeY, z});
         AddNode(prefix + "_W", {runwayExitXs[0], routeY, z});
         AddNode(prefix + "_CENTER", {runwayExitXs[1], routeY, z});
@@ -226,6 +231,7 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         Connect(prefix + "_W", prefix + "_CENTER", 1.0f, false);
         Connect(prefix + "_CENTER", prefix + "_E", 1.0f, false);
         Connect(prefix + "_E", eastEnd, 1.0f, false);
+        Connect(eastEnd, eastApproach, 1.0f, false);
     }
 
     // Taxiway A is the primary parallel taxiway between Runway A and apron.
@@ -347,10 +353,16 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
                 const std::string upperTaxiNode = i == 0 ? exitWest : exitEast;
                 const std::string lowerTaxiNode = i == 0 ? lowerExitWest : lowerExitEast;
                 const float inwardDirection = i == 0 ? 1.0f : -1.0f;
+                const std::string upperHold = prefix + "_UPPER_HOLD_" + runwaySuffixes[i];
+                const std::string lowerHold = prefix + "_LOWER_HOLD_" + runwaySuffixes[i];
+                AddNode(upperHold, {runwayExitXs[i], routeY, upperEdge + 6.0f});
+                AddNode(lowerHold, {runwayExitXs[i], routeY, lowerEdge - 6.0f});
+                Connect(upperExit, upperHold, 12.0f);
+                Connect(lowerExit, lowerHold, 12.0f);
                 connectAngledExit(prefix + "_UPPER_TURN_" + runwaySuffixes[i],
-                    upperExit, upperTaxiNode, inwardDirection, 12.0f);
+                    upperHold, upperTaxiNode, inwardDirection, 12.0f);
                 connectAngledExit(prefix + "_LOWER_TURN_" + runwaySuffixes[i],
-                    lowerExit, lowerTaxiNode, inwardDirection, 12.0f);
+                    lowerHold, lowerTaxiNode, inwardDirection, 12.0f);
             }
         }
     }
@@ -364,8 +376,11 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         if (i == 1) continue;
         AddNode(runwayAExits[i], {runwayExitXs[i], routeY, runwaySouthEdges[0]});
         Connect(runwayAPathNodes[i], runwayAExits[i], 1.0f, false);
+        const std::string holdNode = std::string("A_HOLD_") + runwaySuffixes[i];
+        AddNode(holdNode, {runwayExitXs[i], routeY, runwaySouthEdges[0] + 6.0f});
+        Connect(runwayAExits[i], holdNode, 12.0f);
         connectAngledExit(std::string("RUNWAY_A_TURN_") + runwaySuffixes[i],
-            runwayAExits[i], parallelNodes[i], i == 0 ? 1.0f : -1.0f, 13.0f);
+            holdNode, parallelNodes[i], i == 0 ? 1.0f : -1.0f, 13.0f);
     }
 
     // The eastern bypass gives traffic a route between the parallel taxiways.
@@ -395,12 +410,17 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         {-210.0f, routeY, pairTaxiZs[1]}, 11.0f);
 
     // Preserve the approach up to the apron edge. Hide only the dark-grey
-    // taxiway surfaces inside the marked apron network.
+    // straight taxiway pieces inside the red-marked apron section. The graph
+    // stays continuous across these visual gaps for arrival/departure routing.
     AddNode("APRON_ENTRY", {0.0f, routeY, -220.0f});
+    AddNode("MAIN_TAXI_W_VISUAL_GAP_END", {-25.0f, routeY, -270.0f});
     AddNode("MAIN_TAXI_W_TOP", {-25.0f, routeY, -220.0f});
     AddNode("MAIN_TAXI_W_BOTTOM", {-25.0f, routeY, parallelTaxiZ});
+    AddNode("MAIN_TAXI_E_VISUAL_GAP_END", {25.0f, routeY, -270.0f});
     AddNode("MAIN_TAXI_E_TOP", {25.0f, routeY, -220.0f});
     AddNode("MAIN_TAXI_E_BOTTOM", {25.0f, routeY, parallelTaxiZ});
+    AddNode("MAIN_TAXI_W_GATE", {-25.0f, routeY, -60.0f});
+    AddNode("MAIN_TAXI_E_GATE", {25.0f, routeY, -60.0f});
     AddNode("APRON_GATEWAY", {0.0f, routeY, -190.0f});
     AddNode("APRON_SIDE_FAR", {0.0f, routeY, -180.0f});
     AddNode("WING_SPINE_3", {0.0f, routeY, -174.0f});
@@ -410,10 +430,12 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     AddNode("WING_SPINE_1", {0.0f, routeY, -94.0f});
     AddNode("APRON_BACK_ROW", {0.0f, routeY, -60.0f});
     Connect("APRON_ENTRY", "MAIN_TAXI_W_TOP", 11.0f, false);
-    Connect("MAIN_TAXI_W_TOP", "MAIN_TAXI_W_BOTTOM", 11.0f);
+    Connect("MAIN_TAXI_W_TOP", "MAIN_TAXI_W_VISUAL_GAP_END", 11.0f, false);
+    Connect("MAIN_TAXI_W_VISUAL_GAP_END", "MAIN_TAXI_W_BOTTOM", 11.0f);
     Connect("MAIN_TAXI_W_BOTTOM", "A_EXIT_W", 11.0f);
     Connect("APRON_GATEWAY", "MAIN_TAXI_E_TOP", 11.0f, false);
-    Connect("MAIN_TAXI_E_TOP", "MAIN_TAXI_E_BOTTOM", 11.0f);
+    Connect("MAIN_TAXI_E_TOP", "MAIN_TAXI_E_VISUAL_GAP_END", 11.0f, false);
+    Connect("MAIN_TAXI_E_VISUAL_GAP_END", "MAIN_TAXI_E_BOTTOM", 11.0f);
     Connect("MAIN_TAXI_E_BOTTOM", "A_EXIT_E", 11.0f);
     Connect("APRON_ENTRY", "APRON_GATEWAY", 14.0f, false);
     Connect("APRON_GATEWAY", "APRON_SIDE_FAR", 12.0f, false);
@@ -425,13 +447,17 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
     Connect("WING_SPINE_1", "APRON_BACK_ROW", 10.0f, false);
 
     // A separate gate-side apron lane gives all four facade stands an approach.
-    constexpr float gateXs[] = {-33.75f, -11.25f, 11.25f, 33.75f};
+    constexpr float gateXs[] = {-60.0f, -20.0f, 20.0f, 60.0f};
     AddNode("GATE_ROW_W", {-75.0f, routeY, -60.0f});
     AddNode("GATE_ROW_1", {gateXs[0], routeY, -60.0f});
     AddNode("GATE_ROW_2", {gateXs[1], routeY, -60.0f});
     AddNode("GATE_ROW_3", {gateXs[2], routeY, -60.0f});
     AddNode("GATE_ROW_4", {gateXs[3], routeY, -60.0f});
     AddNode("GATE_ROW_E", {75.0f, routeY, -60.0f});
+    // Preserve this straight gate-row routing spine for aircraft pathfinding,
+    // while hiding its pavement and feeder strips from the apron rendering.
+    Connect("MAIN_TAXI_W_GATE", "GATE_ROW_2", 10.0f, false);
+    Connect("MAIN_TAXI_E_GATE", "GATE_ROW_3", 10.0f, false);
     Connect("GATE_ROW_W", "GATE_ROW_1", 10.0f, false);
     Connect("GATE_ROW_1", "GATE_ROW_2", 10.0f, false);
     Connect("GATE_ROW_2", "APRON_BACK_ROW", 10.0f, false);
@@ -447,14 +473,28 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
         const std::string rowId = "WING_ROW_" + std::to_string(row + 1);
         const std::string westId = rowId + "_W";
         const std::string eastId = rowId + "_E";
-        AddNode(westId, {-15.0f, routeY, z});
-        AddNode(eastId, {15.0f, routeY, z});
+        AddNode(westId, {-25.0f, routeY, z});
+        AddNode(eastId, {25.0f, routeY, z});
         const std::string spineId = row == 0 ? "WING_SPINE_1" :
             row == 1 ? "WING_SPINE_2" : "WING_SPINE_3";
         Connect(spineId, westId, 9.0f, false);
         Connect(spineId, eastId, 9.0f, false);
         Connect(westId, eastId, 9.0f, false);
     }
+
+    // Extend both terminal connectors directly into the stand apron. The
+    // west lane feeds west stands and arrivals; the east lane feeds east-side
+    // stands and departures. The existing central spine remains as a cross-link.
+    // Keep these direct terminal-side links in the waypoint graph, but hide
+    // their straight pavement so the apron remains visually clear.
+    Connect("MAIN_TAXI_W_TOP", "WING_ROW_3_W", 11.0f, false);
+    Connect("WING_ROW_3_W", "WING_ROW_2_W", 10.0f, false);
+    Connect("WING_ROW_2_W", "WING_ROW_1_W", 10.0f, false);
+    Connect("WING_ROW_1_W", "MAIN_TAXI_W_GATE", 10.0f, false);
+    Connect("MAIN_TAXI_E_TOP", "WING_ROW_3_E", 11.0f, false);
+    Connect("WING_ROW_3_E", "WING_ROW_2_E", 10.0f, false);
+    Connect("WING_ROW_2_E", "WING_ROW_1_E", 10.0f, false);
+    Connect("WING_ROW_1_E", "MAIN_TAXI_E_GATE", 10.0f, false);
 
     // Join route nodes to the terminal's existing painted parking stands.
     for (const AirportParkingStand& stand : terminal.GetParkingStands())
@@ -549,7 +589,8 @@ bool AirportGround::SetRunwayAvailable(const std::string& runwayId, bool availab
 }
 
 std::vector<std::string> AirportGround::FindRouteNodeIds(
-    const std::string& startNodeId, const std::string& destinationNodeId) const
+    const std::string& startNodeId, const std::string& destinationNodeId,
+    TaxiRoutePurpose purpose) const
 {
     const TaxiwayNode* start = FindNode(startNodeId);
     const TaxiwayNode* destination = FindNode(destinationNodeId);
@@ -558,15 +599,26 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
         return {};
     if (startNodeId == destinationNodeId) return {startNodeId};
 
-    std::queue<std::string> frontier;
+    // Weighted shortest path follows actual pavement length. A lane preference
+    // then keeps inbound and outbound traffic on opposite sides when both are
+    // available, without making the unused side unreachable.
+    using QueueEntry = std::pair<float, std::string>;
+    std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> frontier;
     std::unordered_map<std::string, std::string> predecessor;
-    frontier.push(startNodeId);
+    std::unordered_map<std::string, float> distance;
+    frontier.push({0.0f, startNodeId});
+    distance.emplace(startNodeId, 0.0f);
     predecessor.emplace(startNodeId, "");
 
     while (!frontier.empty())
     {
-        const std::string currentId = frontier.front();
+        const QueueEntry entry = frontier.top();
         frontier.pop();
+        const float currentDistance = entry.first;
+        const std::string& currentId = entry.second;
+        const auto bestDistance = distance.find(currentId);
+        if (bestDistance == distance.end() || currentDistance > bestDistance->second) continue;
+        if (currentId == destinationNodeId) break;
         const TaxiwayNode* current = FindNode(currentId);
         if (current == nullptr) continue;
         for (const std::string& neighborId : current->connectedNodeIds)
@@ -581,18 +633,45 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
                          (edge.fromNodeId == neighborId && edge.toNodeId == currentId));
                 });
             if (!sectionOpen) continue;
-            if (predecessor.find(neighborId) != predecessor.end()) continue;
-            predecessor.emplace(neighborId, currentId);
-            if (neighborId == destinationNodeId)
+            const float dx = neighbor->position.x - current->position.x;
+            const float dz = neighbor->position.z - current->position.z;
+            float edgeCost = std::sqrt(dx * dx + dz * dz);
+            const auto isWestLane = [](const std::string& id)
             {
-                std::vector<std::string> route;
-                for (std::string id = destinationNodeId; !id.empty(); id = predecessor.at(id))
-                    route.push_back(id);
-                std::reverse(route.begin(), route.end());
-                return route;
-            }
-            frontier.push(neighborId);
+                return id.find("MAIN_TAXI_W") != std::string::npos ||
+                    id == "A_WEST" || id == "A_EXIT_W" ||
+                    id.find("_TAXI_W") != std::string::npos ||
+                    id.find("_EXIT_W") != std::string::npos ||
+                    id.find("WEST_BYPASS") != std::string::npos;
+            };
+            const auto isEastLane = [](const std::string& id)
+            {
+                return id.find("MAIN_TAXI_E") != std::string::npos ||
+                    id == "A_EAST" || id == "A_EXIT_E" ||
+                    id.find("_TAXI_E") != std::string::npos ||
+                    id.find("_EXIT_E") != std::string::npos ||
+                    id.find("BYPASS_") == 0;
+            };
+            const bool usesWestLane = isWestLane(currentId) || isWestLane(neighborId);
+            const bool usesEastLane = isEastLane(currentId) || isEastLane(neighborId);
+            if (purpose == TaxiRoutePurpose::Arrival && usesEastLane) edgeCost += 280.0f;
+            if (purpose == TaxiRoutePurpose::Departure && usesWestLane) edgeCost += 280.0f;
+
+            const float nextDistance = currentDistance + edgeCost;
+            const auto oldDistance = distance.find(neighborId);
+            if (oldDistance != distance.end() && nextDistance >= oldDistance->second) continue;
+            distance[neighborId] = nextDistance;
+            predecessor[neighborId] = currentId;
+            frontier.push({nextDistance, neighborId});
         }
+    }
+    if (distance.find(destinationNodeId) != distance.end())
+    {
+        std::vector<std::string> route;
+        for (std::string id = destinationNodeId; !id.empty(); id = predecessor.at(id))
+            route.push_back(id);
+        std::reverse(route.begin(), route.end());
+        return route;
     }
     return {};
 }
@@ -736,14 +815,14 @@ void AirportGround::Draw() const
             runwayEdgeZ + taxiSide * 2.75f,
             runwayEdgeZ + taxiSide * 1.5f);
     };
-    constexpr float runwayExitXs[] = {-85.0f, 0.0f, 85.0f};
-    for (int exitSide : {0, 2})
+    constexpr float runwayExitXs[] = {-175.0f, 0.0f, 175.0f};
+    for (const AirportRunway& runway : runways)
     {
-        const float x = runwayExitXs[exitSide];
-        drawRunwayHold(x, runways[0].center.z + runways[0].width * 0.5f, 1.0f);
-        drawRunwayHold(x, runways[0].center.z - runways[0].width * 0.5f, -1.0f);
-        drawRunwayHold(x, runways[1].center.z + runways[1].width * 0.5f, 1.0f);
-        drawRunwayHold(x, runways[1].center.z - runways[1].width * 0.5f, -1.0f);
-        drawRunwayHold(x, runways[2].center.z + runways[2].width * 0.5f, 1.0f);
+        for (int exitSide : {0, 2})
+        {
+            const float x = runwayExitXs[exitSide];
+            drawRunwayHold(x, runway.center.z + runway.width * 0.5f, 1.0f);
+            drawRunwayHold(x, runway.center.z - runway.width * 0.5f, -1.0f);
+        }
     }
 }
