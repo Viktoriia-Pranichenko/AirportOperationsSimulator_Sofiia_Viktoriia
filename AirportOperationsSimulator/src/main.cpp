@@ -890,6 +890,188 @@ namespace
             }
         }
     }
+
+    Rectangle GetGameplayGuidePanelBounds()
+    {
+        const float screenWidth = static_cast<float>(GetScreenWidth());
+        const float screenHeight = static_cast<float>(GetScreenHeight());
+        const float panelWidth = std::min(920.0f, screenWidth - 48.0f);
+        const float panelHeight = std::min(650.0f, screenHeight - 32.0f);
+        return {(screenWidth - panelWidth) * 0.5f,
+            (screenHeight - panelHeight) * 0.5f, panelWidth, panelHeight};
+    }
+
+    Rectangle GetGameplayGuideBackButtonBounds()
+    {
+        const Rectangle panel = GetGameplayGuidePanelBounds();
+        return {panel.x + 28.0f, panel.y + panel.height - 62.0f,
+            184.0f, 40.0f};
+    }
+
+    void DrawGameplayGuide(float animationTime)
+    {
+        const Rectangle panel = GetGameplayGuidePanelBounds();
+        const float pulse = 0.5f + 0.5f * std::sin(animationTime * 1.8f);
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+            Fade(Color{4, 13, 28, 255}, 0.68f));
+        DrawRectangleRec(panel, Color{10, 25, 43, 250});
+        DrawRectangleGradientV(static_cast<int>(panel.x), static_cast<int>(panel.y),
+            static_cast<int>(panel.width), static_cast<int>(panel.height),
+            Color{16, 39, 59, 252}, Color{8, 20, 36, 252});
+        DrawRectangleLinesEx(panel, 1.5f, Color{67, 146, 166, 255});
+        DrawRectangle(static_cast<int>(panel.x), static_cast<int>(panel.y),
+            static_cast<int>(panel.width), 4, Color{81, 197, 210, 255});
+
+        DrawText("OPERATIONS MANUAL  /  GAMEPLAY GUIDE",
+            static_cast<int>(panel.x + 28.0f), static_cast<int>(panel.y + 22.0f),
+            10, Color{111, 222, 221, 255});
+        DrawText("RUN THE AIRFIELD",
+            static_cast<int>(panel.x + 28.0f), static_cast<int>(panel.y + 43.0f),
+            30, RAYWHITE);
+        DrawText("Coordinate traffic, turnaround services and time-critical decisions.",
+            static_cast<int>(panel.x + 29.0f), static_cast<int>(panel.y + 82.0f),
+            11, Color{178, 202, 211, 255});
+
+        const float badgeWidth = 152.0f;
+        const Rectangle badge{panel.x + panel.width - badgeWidth - 28.0f,
+            panel.y + 25.0f, badgeWidth, 28.0f};
+        DrawRectangleRounded(badge, 0.25f, 8, Color{20, 58, 71, 255});
+        DrawRectangleRoundedLinesEx(badge, 0.25f, 8, 1.0f,
+            Fade(Color{89, 208, 207, 255}, 0.65f + pulse * 0.25f));
+        DrawCircleV({badge.x + 15.0f, badge.y + 14.0f}, 3.5f,
+            Color{98, 227, 184, 255});
+        DrawText("3-STAGE SHIFT", static_cast<int>(badge.x + 27.0f),
+            static_cast<int>(badge.y + 9.0f), 10,
+            Color{199, 226, 227, 255});
+
+        const float sideMargin = 28.0f;
+        const float cardGap = 16.0f;
+        const float cardWidth = (panel.width - sideMargin * 2.0f - cardGap) * 0.5f;
+        const float cardY = panel.y + 122.0f;
+        const float cardHeight = 184.0f;
+        const auto drawFeatureCard = [](Rectangle bounds, const char* number,
+            const char* heading, const char* first, const char* second,
+            const char* third, Color accent)
+        {
+            DrawRectangleRec(bounds, Color{15, 35, 52, 255});
+            DrawRectangleLinesEx(bounds, 1.0f, Color{49, 84, 103, 255});
+            DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y),
+                static_cast<int>(bounds.width), 3, accent);
+            DrawText(number, static_cast<int>(bounds.x + 15.0f),
+                static_cast<int>(bounds.y + 14.0f), 11, accent);
+            DrawText(heading, static_cast<int>(bounds.x + 43.0f),
+                static_cast<int>(bounds.y + 12.0f), 14, RAYWHITE);
+            const char* rows[] = {first, second, third};
+            for (int i = 0; i < 3; ++i)
+            {
+                const int rowY = static_cast<int>(bounds.y + 52.0f +
+                    static_cast<float>(i) * 38.0f);
+                DrawCircleV({bounds.x + 18.0f, static_cast<float>(rowY + 5)},
+                    2.5f, accent);
+                DrawText(rows[i], static_cast<int>(bounds.x + 30.0f),
+                    rowY, 10, Color{196, 214, 220, 255});
+            }
+        };
+        drawFeatureCard({panel.x + sideMargin, cardY, cardWidth, cardHeight},
+            "01", "TRAFFIC CONTROL",
+            "Select aircraft to inspect status, schedule and route.",
+            "Request taxi, prepare departures and authorize takeoff.",
+            "Monitor arrivals, departures and runway activity.",
+            Color{89, 220, 218, 255});
+        drawFeatureCard({panel.x + sideMargin + cardWidth + cardGap, cardY,
+            cardWidth, cardHeight}, "02", "GROUND OPERATIONS",
+            "Coordinate refuelling, baggage, catering and water.",
+            "Manage inspections, boarding and disembarking.",
+            "Respond to timed priorities and taxiway closures.",
+            Color{242, 185, 94, 255});
+
+        const float scenarioX = panel.x + sideMargin;
+        const float scenarioY = panel.y + 333.0f;
+        const float scenarioWidth = panel.width - sideMargin * 2.0f;
+        const float scenarioGap = 12.0f;
+        const float scenarioCardWidth = (scenarioWidth - scenarioGap * 2.0f) / 3.0f;
+        DrawText("SHIFT SCENARIOS", static_cast<int>(scenarioX),
+            static_cast<int>(scenarioY - 19.0f), 10,
+            Color{128, 177, 190, 255});
+        const auto drawScenarioCard = [](Rectangle bounds, const char* timeLabel,
+            const char* stage, const char* firstLine, const char* secondLine,
+            Color accent)
+        {
+            DrawRectangleRec(bounds, Color{13, 30, 46, 255});
+            DrawRectangleLinesEx(bounds, 1.0f, Color{46, 77, 93, 255});
+            DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y),
+                3, static_cast<int>(bounds.height), accent);
+            DrawText(timeLabel, static_cast<int>(bounds.x + 13.0f),
+                static_cast<int>(bounds.y + 10.0f), 9, accent);
+            DrawText(stage, static_cast<int>(bounds.x + 13.0f),
+                static_cast<int>(bounds.y + 27.0f), 12, RAYWHITE);
+            DrawText(firstLine, static_cast<int>(bounds.x + 13.0f),
+                static_cast<int>(bounds.y + 51.0f), 9,
+                Color{186, 205, 212, 255});
+            DrawText(secondLine, static_cast<int>(bounds.x + 13.0f),
+                static_cast<int>(bounds.y + 66.0f), 9,
+                Color{186, 205, 212, 255});
+        };
+        drawScenarioCard({scenarioX, scenarioY, scenarioCardWidth, 92.0f},
+            "06:00  /  MORNING", "Start safely",
+            "Complete the 3-flight wave",
+            "safely and on schedule.",
+            Color{245, 190, 107, 255});
+        drawScenarioCard({scenarioX + scenarioCardWidth + scenarioGap,
+            scenarioY, scenarioCardWidth, 92.0f},
+            "09:00  /  BUSY PERIOD", "Keep traffic moving",
+            "Handle 4 flights as Taxiway A",
+            "west closes; share the open route.",
+            Color{93, 208, 222, 255});
+        drawScenarioCard({scenarioX + (scenarioCardWidth + scenarioGap) * 2.0f,
+            scenarioY, scenarioCardWidth, 92.0f},
+            "17:00  /  EVENING", "Protect the priority",
+            "Depart AO900 by 19:02",
+            "for its on-time bonus.",
+            Color{190, 155, 240, 255});
+
+        const float scoreY = panel.y + 437.0f;
+        const Rectangle scorePanel{scenarioX, scoreY, scenarioWidth, 96.0f};
+        DrawRectangleRec(scorePanel, Color{13, 31, 45, 255});
+        DrawRectangleLinesEx(scorePanel, 1.0f, Color{50, 83, 99, 255});
+        DrawText("SHIFT SCORE", static_cast<int>(scorePanel.x + 14.0f),
+            static_cast<int>(scorePanel.y + 10.0f), 10,
+            Color{129, 196, 205, 255});
+        const char* scoreLabels[] = {
+            "40  PUNCTUALITY", "40  COMPLETED FLIGHTS", "20  SAFE OPERATIONS"
+        };
+        for (int i = 0; i < 3; ++i)
+        {
+            const float scoreX = scorePanel.x + 14.0f +
+                static_cast<float>(i) * (scenarioWidth / 3.0f);
+            DrawText(scoreLabels[i], static_cast<int>(scoreX),
+                static_cast<int>(scorePanel.y + 32.0f), 10,
+                i == 2 ? Color{137, 226, 183, 255} : RAYWHITE);
+        }
+        DrawText("Delays and waiting are tracked; safety violations reduce your safe-ops score.",
+            static_cast<int>(scorePanel.x + 14.0f),
+            static_cast<int>(scorePanel.y + 59.0f), 9,
+            Color{164, 190, 199, 255});
+
+        const Rectangle backButton = GetGameplayGuideBackButtonBounds();
+        const bool backHovered = CheckCollisionPointRec(GetMousePosition(), backButton);
+        DrawRectangleRounded(backButton, 0.18f, 6,
+            backHovered ? Color{27, 87, 102, 255} : Color{17, 51, 66, 255});
+        DrawRectangleRoundedLinesEx(backButton, 0.18f, 6,
+            backHovered ? 2.0f : 1.0f,
+            backHovered ? Color{123, 230, 222, 255} : Color{73, 139, 154, 255});
+        DrawText("<  BACK TO MENU", static_cast<int>(backButton.x + 15.0f),
+            static_cast<int>(backButton.y + 13.0f), 11,
+            backHovered ? RAYWHITE : Color{190, 215, 220, 255});
+        DrawText("ESC TO RETURN",
+            static_cast<int>(panel.x + panel.width - 128.0f),
+            static_cast<int>(backButton.y + 15.0f), 9,
+            Color{118, 153, 166, 255});
+        DrawText("SELECT AN AIRCRAFT  /  USE THE FLIGHT PANEL FOR COMMANDS",
+            static_cast<int>(panel.x + 260.0f),
+            static_cast<int>(backButton.y + 15.0f), 9,
+            Color{118, 153, 166, 255});
+    }
 }
 
 int main()
@@ -931,6 +1113,7 @@ int main()
         "EAST_1", AircraftSize::Large, Color{98, 174, 128, 255});
     AirportGround airportGround(terminal);
     bool showMainMenu = true;
+    bool showGameplayGuide = false;
     bool exitRequested = false;
     float menuAnimationTime = 0.0f;
     std::vector<FlightPlan> flights;
@@ -2873,18 +3056,32 @@ int main()
         }
         if (showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
-            const float menuX = static_cast<float>(GetScreenWidth()) * 0.085f;
-            const float menuY = static_cast<float>(GetScreenHeight()) * 0.355f;
-            const Rectangle startButton{menuX, menuY, 330.0f, 58.0f};
-            const Rectangle settingsButton{menuX, menuY + 72.0f, 330.0f, 58.0f};
-            const Rectangle exitButton{menuX, menuY + 144.0f, 330.0f, 58.0f};
             const Vector2 mouse = GetMousePosition();
-            if (CheckCollisionPointRec(mouse, startButton)) showMainMenu = false;
-            else if (CheckCollisionPointRec(mouse, exitButton)) exitRequested = true;
-            else if (CheckCollisionPointRec(mouse, settingsButton)) { /* Settings placeholder. */ }
+            if (showGameplayGuide)
+            {
+                if (CheckCollisionPointRec(mouse,
+                    GetGameplayGuideBackButtonBounds()))
+                    showGameplayGuide = false;
+            }
+            else
+            {
+                const float menuX = static_cast<float>(GetScreenWidth()) * 0.085f;
+                const float menuY = static_cast<float>(GetScreenHeight()) * 0.355f;
+                const Rectangle startButton{menuX, menuY, 330.0f, 58.0f};
+                const Rectangle settingsButton{menuX, menuY + 72.0f, 330.0f, 58.0f};
+                const Rectangle exitButton{menuX, menuY + 144.0f, 330.0f, 58.0f};
+                if (CheckCollisionPointRec(mouse, startButton)) showMainMenu = false;
+                else if (CheckCollisionPointRec(mouse, exitButton)) exitRequested = true;
+                else if (CheckCollisionPointRec(mouse, settingsButton))
+                    showGameplayGuide = true;
+            }
         }
-        else if (showMainMenu && IsKeyPressed(KEY_ENTER)) showMainMenu = false;
-        else if (showMainMenu && IsKeyPressed(KEY_ESCAPE)) exitRequested = true;
+        else if (showMainMenu && showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
+            showGameplayGuide = false;
+        else if (showMainMenu && !showGameplayGuide && IsKeyPressed(KEY_ENTER))
+            showMainMenu = false;
+        else if (showMainMenu && !showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
+            exitRequested = true;
         else if (!showMainMenu && !shiftComplete &&
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -4257,6 +4454,10 @@ int main()
         else
         {
             DrawMenuBackground(menuAnimationTime);
+            if (showGameplayGuide)
+                DrawGameplayGuide(menuAnimationTime);
+            else
+            {
             const float screenWidth = static_cast<float>(GetScreenWidth());
             const float screenHeight = static_cast<float>(GetScreenHeight());
             const float menuX = screenWidth * 0.085f;
@@ -4317,7 +4518,7 @@ int main()
                     hovered ? Color{137, 244, 229, 255} : Color{111, 171, 183, 255});
             };
             drawMenuButton(startButton, "START GAME", "OPEN AIRFIELD CONTROL", hoverStart, true);
-            drawMenuButton(settingsButton, "SETTINGS", "COMING SOON", hoverSettings, false);
+            drawMenuButton(settingsButton, "SETTINGS", "GAMEPLAY GUIDE", hoverSettings, false);
             drawMenuButton(exitButton, "EXIT", "CLOSE SIMULATOR", hoverExit, false);
 
             const float statusWidth = 278.0f;
@@ -4347,6 +4548,7 @@ int main()
                 Color{161, 185, 194, 255});
             DrawText("v1.0  |  PRESS ENTER TO START", 22,
                 GetScreenHeight() - 27, 9, Color{135, 165, 175, 255});
+            }
         }
 
         if (priorityNotificationTime > 0.0f)
