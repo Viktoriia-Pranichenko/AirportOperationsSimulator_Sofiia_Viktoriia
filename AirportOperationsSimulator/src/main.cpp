@@ -557,6 +557,15 @@ int main()
     float shiftClockSeconds = 0.0f;
     int selectedFlightIndex = -1;
     std::string selectedGateId;
+    std::string serviceCrewGateId;
+    std::string refuellingMessage;
+    float refuellingMessageTime = 0.0f;
+    bool gate1RefuellingStarted = false;
+    bool eastWingRefuellingStarted = false;
+    bool gate1RefuellingFinished = false;
+    bool eastWingRefuellingFinished = false;
+    float gate1RefuellingTimeRemaining = 0.0f;
+    float eastWingRefuellingTimeRemaining = 0.0f;
     constexpr float ShiftClockRate = 15.0f; // 15 simulated seconds per real second.
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
@@ -728,17 +737,69 @@ int main()
             passengerBoardingStairs[stairIndex].SetPosition(stairs.x, stairs.y);
             passengerBoardingStairs[stairIndex].SetHeadingDegrees(vehicleHeadingDegrees);
         }
+        serviceCrewGateId = selectedGateId;
+    };
+    const auto refuellingIndicatorBounds = [&](const Airplane& aircraft)
+    {
+        const Vector2 screen = ProjectAirportPoint(aircraft.position,
+            cameraController.GetCamera3D());
+        return Rectangle{screen.x - 26.0f, screen.y - 70.0f, 52.0f, 58.0f};
+    };
+    const auto handleRefuellingClick = [&](const std::string& gateId,
+        bool& refuellingStarted, bool& refuellingFinished,
+        float& refuellingTimeRemaining)
+    {
+        if (serviceCrewGateId != gateId || refuellingTankers.empty())
+        {
+            refuellingMessage = "Bring the fuel tanker to this gate first.";
+        }
+        else if (refuellingStarted || refuellingFinished)
+        {
+            refuellingMessage = "Refuelling has already started.";
+        }
+        else
+        {
+            refuellingStarted = true;
+            refuellingTimeRemaining = 6.0f;
+            refuellingMessage = "Refuelling started.";
+        }
+        refuellingMessageTime = 2.5f;
+    };
+    const auto updateRefuelling = [&](float& timeRemaining, bool& finished,
+        const char* aircraftName, float deltaTime)
+    {
+        if (timeRemaining <= 0.0f || finished) return;
+        timeRemaining = std::max(0.0f, timeRemaining - deltaTime);
+        if (timeRemaining == 0.0f)
+        {
+            finished = true;
+            refuellingMessage = std::string(aircraftName) + " refuelling finished.";
+            refuellingMessageTime = 2.5f;
+        }
     };
 
     while (!WindowShouldClose())
     {
         const float deltaTime = GetFrameTime();
         shiftClockSeconds += deltaTime * ShiftClockRate;
+        refuellingMessageTime = std::max(0.0f, refuellingMessageTime - deltaTime);
+        updateRefuelling(gate1RefuellingTimeRemaining, gate1RefuellingFinished,
+            "Gate 1", deltaTime);
+        updateRefuelling(eastWingRefuellingTimeRemaining, eastWingRefuellingFinished,
+            "East Wing Gate 1", deltaTime);
         cameraController.Update(deltaTime);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            if (cameraController.IsGateViewActive())
+            if (!gate1RefuellingFinished && CheckCollisionPointRec(mouse,
+                refuellingIndicatorBounds(staticGate1Aircraft)))
+                handleRefuellingClick("GATE_1", gate1RefuellingStarted,
+                    gate1RefuellingFinished, gate1RefuellingTimeRemaining);
+            else if (!eastWingRefuellingFinished && CheckCollisionPointRec(mouse,
+                refuellingIndicatorBounds(staticEastWingAircraft)))
+                handleRefuellingClick("EAST_1", eastWingRefuellingStarted,
+                    eastWingRefuellingFinished, eastWingRefuellingTimeRemaining);
+            else if (cameraController.IsGateViewActive())
             {
                 const GateNavigationButtons buttons = GetGateNavigationButtons();
                 if (CheckCollisionPointRec(mouse, buttons.previous))
@@ -1447,6 +1508,52 @@ int main()
             DrawRectangleLines(labelX, labelY, labelWidth, 36, Color{112, 211, 213, 255});
             DrawText(gateLabel.c_str(), labelX + 16, labelY + 7, 22,
                 Color{105, 244, 220, 255});
+        }
+
+        const auto drawRefuellingIndicator = [&](const Airplane& aircraft)
+        {
+            const Rectangle bounds = refuellingIndicatorBounds(aircraft);
+            const Vector2 center{bounds.x + bounds.width * 0.5f,
+                bounds.y + 24.0f};
+            const Rectangle badge{bounds.x, bounds.y + 1.0f,
+                bounds.width, 45.0f};
+            DrawRectangleRounded({badge.x + 2.0f, badge.y + 3.0f,
+                badge.width, badge.height}, 0.35f, 8, Color{8, 19, 26, 170});
+            DrawRectangleRounded(badge, 0.35f, 8, Color{19, 53, 65, 250});
+            DrawRectangleRoundedLinesEx(badge, 0.35f, 8, 2.5f,
+                Color{105, 244, 220, 255});
+            DrawTriangle({center.x, center.y - 25.0f},
+                {center.x - 13.0f, center.y + 2.0f},
+                {center.x + 13.0f, center.y + 2.0f},
+                Color{247, 184, 68, 255});
+            DrawCircleV({center.x, center.y + 3.0f}, 13.0f,
+                Color{247, 184, 68, 255});
+            DrawTriangle({center.x, center.y - 21.0f},
+                {center.x - 9.5f, center.y + 1.0f},
+                {center.x + 9.5f, center.y + 1.0f},
+                Color{255, 210, 82, 255});
+            DrawCircleV({center.x, center.y + 3.0f}, 9.5f,
+                Color{255, 210, 82, 255});
+            DrawCircleV({center.x - 4.0f, center.y - 1.0f}, 2.2f,
+                Color{255, 246, 203, 255});
+            const int fuelLabelWidth = MeasureText("FUEL", 10);
+            DrawText("FUEL", static_cast<int>(center.x - fuelLabelWidth * 0.5f),
+                static_cast<int>(bounds.y + 36.0f), 10, RAYWHITE);
+        };
+        if (!gate1RefuellingFinished)
+            drawRefuellingIndicator(staticGate1Aircraft);
+        if (!eastWingRefuellingFinished)
+            drawRefuellingIndicator(staticEastWingAircraft);
+
+        if (refuellingMessageTime > 0.0f)
+        {
+            const int messageWidth = MeasureText(refuellingMessage.c_str(), 16) + 28;
+            const int messageX = (GetScreenWidth() - messageWidth) / 2;
+            DrawRectangle(messageX, 68, messageWidth, 32,
+                Fade(Color{13, 26, 34, 255}, 0.94f));
+            DrawRectangleLines(messageX, 68, messageWidth, 32,
+                Color{112, 211, 213, 255});
+            DrawText(refuellingMessage.c_str(), messageX + 14, 76, 16, RAYWHITE);
         }
 
         EndDrawing();
