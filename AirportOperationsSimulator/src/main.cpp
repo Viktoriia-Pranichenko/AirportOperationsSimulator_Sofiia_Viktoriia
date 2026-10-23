@@ -129,25 +129,25 @@ namespace
             };
             const float normalX = -segment.directionZ;
             const float normalZ = segment.directionX;
-            const Vector3 tip{center.x + segment.directionX * 1.15f,
-                center.y, center.z + segment.directionZ * 1.15f};
-            const Vector3 rear{center.x - segment.directionX * 0.8f,
-                center.y, center.z - segment.directionZ * 0.8f};
-            const Vector3 upperRear{rear.x + normalX * 0.65f,
-                rear.y, rear.z + normalZ * 0.65f};
-            const Vector3 lowerRear{rear.x - normalX * 0.65f,
-                rear.y, rear.z - normalZ * 0.65f};
+            const Vector3 tip{center.x + segment.directionX * 1.8f,
+                center.y, center.z + segment.directionZ * 1.8f};
+            const Vector3 rear{center.x - segment.directionX * 1.25f,
+                center.y, center.z - segment.directionZ * 1.25f};
+            const Vector3 upperRear{rear.x + normalX * 1.65f,
+                rear.y, rear.z + normalZ * 1.65f};
+            const Vector3 lowerRear{rear.x - normalX * 1.65f,
+                rear.y, rear.z - normalZ * 1.65f};
             const float pulse = 0.5f + 0.5f *
                 std::sin(time * 3.0f - distance * 0.025f);
-            const Color glow{42, 151, 255,
+            const Color glow{34, 176, 174,
                 static_cast<unsigned char>(24.0f + pulse * 16.0f)};
-            const Color midGlow{71, 179, 255,
+            const Color midGlow{74, 238, 216,
                 static_cast<unsigned char>(90.0f + pulse * 35.0f)};
             const auto drawStroke = [&](Vector2 from, Vector2 to)
             {
-                DrawLineEx(from, to, 9.0f, glow);
-                DrawLineEx(from, to, 4.5f, midGlow);
-                DrawLineEx(from, to, 2.0f, Color{188, 231, 255, 245});
+                DrawLineEx(from, to, 10.5f, glow);
+                DrawLineEx(from, to, 5.5f, midGlow);
+                DrawLineEx(from, to, 2.5f, Color{190, 255, 244, 245});
             };
             const Vector2 screenTip = GetWorldToScreen(tip, camera);
             drawStroke(GetWorldToScreen(upperRear, camera), screenTip);
