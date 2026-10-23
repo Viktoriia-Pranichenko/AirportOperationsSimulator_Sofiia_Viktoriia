@@ -1182,7 +1182,14 @@ namespace
     }
 }
 
-bool RunGame(bool startImmediately)
+enum class RunGameResult
+{
+    Exit,
+    RestartShift,
+    ReturnToMainMenu
+};
+
+RunGameResult RunGame(bool startImmediately)
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
@@ -1231,6 +1238,7 @@ bool RunGame(bool startImmediately)
     bool showEndShiftConfirmation = false;
     bool shiftEndedEarly = false;
     bool restartRequested = false;
+    bool returnToMainMenuRequested = false;
     bool exitRequested = false;
     float menuAnimationTime = 0.0f;
     float gameplayAnimationTime = 0.0f;
@@ -3744,6 +3752,33 @@ bool RunGame(bool startImmediately)
             showMainMenu = false;
         else if (showMainMenu && !showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
             exitRequested = true;
+        else if (!showMainMenu && shiftComplete &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            const float panelWidth = std::min(760.0f,
+                static_cast<float>(GetScreenWidth()) - 32.0f);
+            const float panelHeight = std::min(590.0f,
+                static_cast<float>(GetScreenHeight()) - 32.0f);
+            const float panelX = (static_cast<float>(GetScreenWidth()) - panelWidth) * 0.5f;
+            const float panelY = (static_cast<float>(GetScreenHeight()) - panelHeight) * 0.5f;
+            const float buttonWidth = (panelWidth - 72.0f) * 0.5f;
+            const float buttonY = panelY + panelHeight - 66.0f;
+            const Rectangle restartButton{panelX + 24.0f, buttonY,
+                buttonWidth, 42.0f};
+            const Rectangle mainMenuButton{panelX + panelWidth * 0.5f + 4.0f,
+                buttonY, buttonWidth, 42.0f};
+            const Vector2 mouse = GetMousePosition();
+            if (CheckCollisionPointRec(mouse, restartButton))
+            {
+                restartRequested = true;
+                exitRequested = true;
+            }
+            else if (CheckCollisionPointRec(mouse, mainMenuButton))
+            {
+                returnToMainMenuRequested = true;
+                exitRequested = true;
+            }
+        }
         else if (!showMainMenu && isPaused &&
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -5587,14 +5622,49 @@ bool RunGame(bool startImmediately)
                 DrawText(tileValueBuffers[i], static_cast<int>(tile.x + 14.0f),
                     static_cast<int>(tile.y + 31.0f), 20, RAYWHITE);
             }
+            const int onTimeY = static_cast<int>(panel.y + panel.height - 102.0f);
             DrawText("ON-TIME OPERATIONS (8 min standard / 5 min priority)",
                 static_cast<int>(panel.x + 28.0f),
-                static_cast<int>(panel.y + panel.height - 31.0f), 10,
+                onTimeY, 10,
                 Color{161, 185, 194, 255});
             DrawText(TextFormat("%d / %d", punctualOperations, completedEvents),
                 static_cast<int>(panel.x + panel.width - 105.0f),
-                static_cast<int>(panel.y + panel.height - 33.0f), 12,
+                onTimeY - 2, 12,
                 Color{116, 226, 202, 255});
+
+            const float buttonY = panel.y + panel.height - 66.0f;
+            const float buttonWidth = (panel.width - 72.0f) * 0.5f;
+            const Rectangle restartButton{panel.x + 24.0f, buttonY,
+                buttonWidth, 42.0f};
+            const Rectangle mainMenuButton{panel.x + panel.width * 0.5f + 4.0f,
+                buttonY, buttonWidth, 42.0f};
+            const Vector2 mouse = GetMousePosition();
+            const bool restartHovered = CheckCollisionPointRec(mouse, restartButton);
+            const bool mainMenuHovered = CheckCollisionPointRec(mouse, mainMenuButton);
+            const auto drawResultButton = [](Rectangle bounds, const char* label,
+                bool hovered, bool primary)
+            {
+                const Color fill = primary ?
+                    (hovered ? Color{25, 126, 144, 250} : Color{18, 88, 109, 242}) :
+                    (hovered ? Color{32, 66, 80, 248} : Color{14, 38, 51, 234});
+                const Color border = primary ?
+                    Color{91, 222, 218, 255} : Color{65, 115, 128, 230};
+                DrawRectangleRounded(bounds, 0.08f, 8, fill);
+                DrawRectangleRoundedLinesEx(bounds, 0.08f, 8,
+                    hovered ? 2.0f : 1.0f, border);
+                DrawRectangle(static_cast<int>(bounds.x + 1.0f),
+                    static_cast<int>(bounds.y + 1.0f), 4,
+                    static_cast<int>(bounds.height - 2.0f),
+                    primary ? Color{111, 237, 227, 255} : border);
+                const int fontSize = 15;
+                DrawText(label, static_cast<int>(bounds.x +
+                    (bounds.width - MeasureText(label, fontSize)) * 0.5f),
+                    static_cast<int>(bounds.y +
+                        (bounds.height - static_cast<float>(fontSize)) * 0.5f),
+                    fontSize, RAYWHITE);
+            };
+            drawResultButton(restartButton, "RESTART", restartHovered, true);
+            drawResultButton(mainMenuButton, "MAIN MENU", mainMenuHovered, false);
         }
 
         if (isPaused && !showMainMenu)
@@ -5759,13 +5829,19 @@ bool RunGame(bool startImmediately)
 
     UnloadRenderTexture(airplanePreviewTarget);
     CloseWindow();
-    return restartRequested ? 1 : 0;
+    if (restartRequested) return RunGameResult::RestartShift;
+    if (returnToMainMenuRequested) return RunGameResult::ReturnToMainMenu;
+    return RunGameResult::Exit;
 }
 
 int main()
 {
     bool startImmediately = false;
-    while (RunGame(startImmediately))
-        startImmediately = true;
+    while (true)
+    {
+        const RunGameResult result = RunGame(startImmediately);
+        if (result == RunGameResult::Exit) break;
+        startImmediately = result == RunGameResult::RestartShift;
+    }
     return 0;
 }
