@@ -1398,16 +1398,16 @@ bool RunGame(bool startImmediately)
             "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 0.0f, 75.0f, false, 0},
         {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)",
             {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small,
-            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 7.0f, 92.0f, true, 0},
+            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 10.0f, 92.0f, true, 0},
         {"AO214", "Harbour 214", "Northstar Air", "Aberdeen (ABZ)", "Dublin (DUB)",
             {52, 164, 198, 255}, "Regional jet", "APPROACH_C_E", AircraftSize::Small,
-            "RUNWAY_C", "RUNWAY_C_END_E", "GATE_3", -777.0f, 14.0f, 104.0f, false, 0},
+            "RUNWAY_C", "RUNWAY_C_END_E", "GATE_3", -777.0f, 20.0f, 104.0f, false, 0},
         {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)",
             {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
-            "RUNWAY_A", "RUNWAY_END_E", "EAST_2", -507.0f, 22.0f, 118.0f, false, 0},
+            "RUNWAY_A", "RUNWAY_END_E", "EAST_2", -507.0f, 30.0f, 118.0f, false, 0},
         {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)",
             {211, 185, 76, 255}, "Cargo jet", "APPROACH_B_E", AircraftSize::Large,
-            "RUNWAY_B", "RUNWAY_B_END_E", "WEST_3", -642.0f, 38.0f, 140.0f, false, 0},
+            "RUNWAY_B", "RUNWAY_B_END_E", "WEST_3", -642.0f, 45.0f, 140.0f, false, 0},
 
         // Late-morning wave: overlaps the morning departures and runs into the
         // 09:00 stage boundary.
@@ -1675,8 +1675,8 @@ bool RunGame(bool startImmediately)
     const auto notificationCommandBounds = [&notificationDetailsBounds](int slot)
     {
         const Rectangle details = notificationDetailsBounds(slot);
-        return Rectangle{details.x + 8.0f, details.y + 58.0f,
-            details.width - 16.0f, 17.0f};
+        return Rectangle{details.x + 8.0f, details.y + 55.0f,
+            details.width - 16.0f, 19.0f};
     };
 
     std::deque<std::size_t> arrivalQueue;
@@ -1703,6 +1703,7 @@ bool RunGame(bool startImmediately)
     std::string priorityNotification;
     float priorityNotificationTime = 0.0f;
     int selectedFlightIndex = -1;
+    int selectedNotificationFlightIndex = -1;
     std::string selectedGateId;
     std::string serviceCrewGateId;
     std::string refuellingMessage;
@@ -1861,7 +1862,10 @@ bool RunGame(bool startImmediately)
     Vector2 refuellingTankerRearStagingPosition{};
     Vector2 refuellingTankerAircraftPosition{};
     constexpr float SimulationSpeed = 4.0f;
-    constexpr float ShiftClockRate = 15.0f; // Combined rate is 60 shift seconds per real second.
+    constexpr float ShiftClockRate = 4.0f;
+    constexpr float StandardFlightOnTimeSeconds = 8.0f * 60.0f;
+    constexpr float PriorityFlightOnTimeSeconds = 5.0f * 60.0f;
+    constexpr float PriorityFlightLateCreditSeconds = 8.0f * 60.0f;
     constexpr float PriorityTaskResponseSeconds = 10.0f * 60.0f;
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
@@ -2023,6 +2027,7 @@ bool RunGame(bool startImmediately)
     {
         selectedGateId = gate.id;
         selectedFlightIndex = -1;
+        selectedNotificationFlightIndex = -1;
         Vector3 focus = gate.position;
         terminal.GetGateMarkingPosition(selectedGateId, focus);
         cameraController.EnterGateView(focus, gate.headingDegrees);
@@ -3835,9 +3840,9 @@ bool RunGame(bool startImmediately)
                 int selectedNotificationSlot = -1;
                 for (std::size_t slot = 0; slot < notificationOrder.size(); ++slot)
                 {
-                    if (selectedFlightIndex >= 0 &&
+                    if (selectedNotificationFlightIndex >= 0 &&
                         notificationOrder[slot] ==
-                        static_cast<std::size_t>(selectedFlightIndex))
+                        static_cast<std::size_t>(selectedNotificationFlightIndex))
                         selectedNotificationSlot = static_cast<int>(slot);
                     if (CheckCollisionPointRec(mouse,
                         notificationIconBounds(static_cast<int>(slot))))
@@ -3850,11 +3855,21 @@ bool RunGame(bool startImmediately)
                 const bool clickedDetailsPanel = selectedNotificationSlot >= 0 &&
                     CheckCollisionPointRec(mouse,
                         notificationDetailsBounds(selectedNotificationSlot));
-                if (clickedDetailsPanel)
+                const int aircraftDetailsX = GetScreenWidth() - 326;
+                const Rectangle aircraftDetailsBounds{
+                    static_cast<float>(aircraftDetailsX), 74.0f, 312.0f, 324.0f};
+                const bool clickedAircraftDetailsPanel = selectedFlightIndex >= 0 &&
+                    CheckCollisionPointRec(mouse, aircraftDetailsBounds);
+                if (clickedDetailsPanel || clickedAircraftDetailsPanel)
                 {
-                    const Rectangle taxiButton =
-                        notificationCommandBounds(selectedNotificationSlot);
-                    FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
+                    const int commandFlightIndex = clickedDetailsPanel ?
+                        selectedNotificationFlightIndex : selectedFlightIndex;
+                    const Rectangle taxiButton = clickedDetailsPanel ?
+                        notificationCommandBounds(selectedNotificationSlot) :
+                        Rectangle{static_cast<float>(aircraftDetailsX + 14),
+                            324.0f, 284.0f, 24.0f};
+                    FlightPlan& selected =
+                        flights[static_cast<std::size_t>(commandFlightIndex)];
                     if (CheckCollisionPointRec(mouse, taxiButton))
                     {
                         if (!selected.spawned)
@@ -3867,7 +3882,8 @@ bool RunGame(bool startImmediately)
                         {
                             selected.taxiToStandQueued = true;
                             selected.requestOrder = nextRequestOrder++;
-                            taxiToStandQueue.push_back(static_cast<std::size_t>(selectedFlightIndex));
+                            taxiToStandQueue.push_back(
+                                static_cast<std::size_t>(commandFlightIndex));
                         }
                         else if (selected.airplane.state == AirplaneState::Parked &&
                             selected.departureFlight &&
@@ -3926,7 +3942,8 @@ bool RunGame(bool startImmediately)
                 else if (clickedNotificationFlight >= 0)
                 {
                     selectedGateId.clear();
-                    selectedFlightIndex = clickedNotificationFlight;
+                    selectedFlightIndex = -1;
+                    selectedNotificationFlightIndex = clickedNotificationFlight;
                 }
                 else
                 {
@@ -3952,6 +3969,7 @@ bool RunGame(bool startImmediately)
                     if (clickedFlight >= 0)
                     {
                         selectedGateId.clear();
+                        selectedNotificationFlightIndex = -1;
                         selectedFlightIndex = clickedFlight;
                     }
                     else
@@ -3964,6 +3982,7 @@ bool RunGame(bool startImmediately)
                         {
                             selectedGateId.clear();
                             selectedFlightIndex = -1;
+                            selectedNotificationFlightIndex = -1;
                         }
                     }
                 }
@@ -4141,7 +4160,8 @@ bool RunGame(bool startImmediately)
                         shiftClockSeconds - plan.arrivalScheduledSeconds);
                     ++completedArrivals;
                     totalDelaySeconds += arrivalLateness;
-                    if (arrivalLateness <= 300.0f)
+                    if (arrivalLateness <= (airplane.isPriority ?
+                        PriorityFlightOnTimeSeconds : StandardFlightOnTimeSeconds))
                         ++punctualOperations;
                     plan.arrivalResultRecorded = true;
                 }
@@ -4179,32 +4199,36 @@ bool RunGame(bool startImmediately)
             {
                 if (selectedFlightIndex == static_cast<int>(flightIndex))
                     selectedFlightIndex = -1;
+                if (selectedNotificationFlightIndex == static_cast<int>(flightIndex))
+                    selectedNotificationFlightIndex = -1;
                 if (!plan.scoreRecorded)
                 {
                     const float departureLateness = std::max(0.0f,
                         shiftClockSeconds - plan.departureScheduledSeconds);
                     ++completedFlights;
                     totalDelaySeconds += departureLateness;
-                    if (departureLateness <= 300.0f)
+                    if (departureLateness <= (airplane.isPriority ?
+                        PriorityFlightOnTimeSeconds : StandardFlightOnTimeSeconds))
                         ++punctualOperations;
                     if (airplane.isPriority)
                     {
                         ++priorityFlightsCompleted;
-                        if (departureLateness <= 120.0f)
+                        if (departureLateness <= PriorityFlightOnTimeSeconds)
                         {
                             shiftScore += 200;
                             ++priorityFlightsOnTime;
                         }
-                        else if (departureLateness <= 300.0f)
+                        else if (departureLateness <= PriorityFlightLateCreditSeconds)
                             shiftScore += 125;
                         else
                             shiftScore += 50;
                         priorityNotification = "PRIORITY " + airplane.flightId +
-                            (departureLateness <= 120.0f ?
+                            (departureLateness <= PriorityFlightOnTimeSeconds ?
                                 " - ON-TIME DEPARTURE BONUS" : " - DEPARTED LATE");
                         priorityNotificationTime = 4.0f;
                     }
-                    else shiftScore += departureLateness <= 300.0f ? 100 : 50;
+                    else shiftScore += departureLateness <= StandardFlightOnTimeSeconds ?
+                        100 : 50;
                     plan.scoreRecorded = true;
                 }
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
@@ -5115,7 +5139,8 @@ bool RunGame(bool startImmediately)
             const std::size_t flightIndex = notificationOrder[slot];
             const FlightPlan& plan = flights[flightIndex];
             const Rectangle icon = notificationIconBounds(static_cast<int>(slot));
-            const bool selected = selectedFlightIndex == static_cast<int>(flightIndex);
+            const bool selected =
+                selectedNotificationFlightIndex == static_cast<int>(flightIndex);
             const bool hovered = CheckCollisionPointRec(notificationMouse, icon);
             const Color accent = plan.airplane.isPriority ?
                 Color{247, 195, 104, 255} : Color{89, 211, 224, 255};
@@ -5131,17 +5156,26 @@ bool RunGame(bool startImmediately)
                 DrawText(TextFormat("ID: %s", plan.airplane.flightId.c_str()),
                     static_cast<int>(details.x + 10.0f),
                     static_cast<int>(details.y + 5.0f), 13, RAYWHITE);
-                DrawText(TextFormat("ARRIVAL: %s",
+                const float onTimeWindow = plan.airplane.isPriority ?
+                    PriorityFlightOnTimeSeconds : StandardFlightOnTimeSeconds;
+                const float arrivalDeadline = plan.arrivalScheduledSeconds + onTimeWindow;
+                DrawText(TextFormat("ARR %s  BY %s",
                     plan.hasArrivalSchedule ?
-                        FormatShiftTime(plan.arrivalScheduledSeconds).c_str() : "--:--"),
+                        FormatShiftTime(plan.arrivalScheduledSeconds).c_str() : "--:--",
+                    plan.hasArrivalSchedule ?
+                        FormatShiftTime(arrivalDeadline).c_str() : "--:--"),
                     static_cast<int>(details.x + 10.0f),
-                    static_cast<int>(details.y + 23.0f), 10,
+                    static_cast<int>(details.y + 23.0f), 9,
                     Color{203, 219, 224, 255});
-                DrawText(TextFormat("DEPARTURE: %s",
+                const float departureDeadline =
+                    plan.departureScheduledSeconds + onTimeWindow;
+                DrawText(TextFormat("DEP %s  BY %s",
                     plan.departureFlight ?
-                        FormatShiftTime(plan.departureScheduledSeconds).c_str() : "--:--"),
+                        FormatShiftTime(plan.departureScheduledSeconds).c_str() : "--:--",
+                    plan.departureFlight ?
+                        FormatShiftTime(departureDeadline).c_str() : "--:--"),
                     static_cast<int>(details.x + 10.0f),
-                    static_cast<int>(details.y + 38.0f), 10,
+                    static_cast<int>(details.y + 37.0f), 9,
                     Color{203, 219, 224, 255});
                 DrawRectangleRounded(commandButton, 0.18f, 4,
                     plan.airplane.isPriority && !plan.activeTaskKey.empty() ?
@@ -5154,6 +5188,58 @@ bool RunGame(bool startImmediately)
             if (selected || hovered)
                 DrawRectangleRoundedLinesEx(icon, 0.2f, 4, selected ? 2.0f : 1.0f,
                     selected ? Color{89, 223, 210, 255} : Color{117, 173, 191, 255});
+        }
+
+        if (selectedFlightIndex >= 0 &&
+            selectedFlightIndex < static_cast<int>(flights.size()))
+        {
+            const int infoX = GetScreenWidth() - 326;
+            const int infoY = 74;
+            const FlightPlan& selected =
+                flights[static_cast<std::size_t>(selectedFlightIndex)];
+            DrawRectangle(infoX, infoY, 312, 324,
+                Fade(Color{13, 26, 34, 255}, 0.93f));
+            DrawRectangle(infoX, infoY, 312, 28, Color{33, 66, 82, 255});
+            DrawText("FLIGHT DETAILS", infoX + 12, infoY + 7, 15, RAYWHITE);
+            DrawAirplanePreview3D(selected.airplane,
+                {static_cast<float>(infoX + 14), static_cast<float>(infoY + 40),
+                    128.0f, 112.0f},
+                airplanePreviewCamera, airplanePreviewTarget);
+            DrawText(TextFormat("ID: %s", selected.airplane.flightId.c_str()),
+                infoX + 154, infoY + 40, 15, RAYWHITE);
+            DrawText(TextFormat("Name: %s", selected.flightName.c_str()),
+                infoX + 154, infoY + 64, 13, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Type: %s", selected.airplane.aircraftType.c_str()),
+                infoX + 154, infoY + 85, 12, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Airline: %s", selected.airline.c_str()),
+                infoX + 14, infoY + 133, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("State: %s", selected.spawned ?
+                FlightStateLabel(selected.airplane.state) : "SCHEDULED"),
+                infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Schedule ARR %s  DEP %s",
+                selected.hasArrivalSchedule ?
+                    FormatShiftTime(selected.arrivalScheduledSeconds).c_str() : "--:--",
+                selected.departureFlight ?
+                    FormatShiftTime(selected.departureScheduledSeconds).c_str() : "--:--"),
+                infoX + 14, infoY + 181, 12, Color{203, 219, 224, 255});
+            DrawText(TextFormat("Route: %s  >  %s", selected.origin.c_str(),
+                selected.destination.c_str()),
+                infoX + 14, infoY + 205, 12, Color{116, 226, 202, 255});
+            DrawText(TextFormat("Assigned stand: %s",
+                selected.standAssigned ? selected.parkingStandId.c_str() :
+                    "Pending assignment"),
+                infoX + 14, infoY + 228, 12, Color{203, 219, 224, 255});
+            DrawRectangle(infoX + 14, infoY + 250, 284, 24,
+                selected.airplane.isPriority && !selected.activeTaskKey.empty() ?
+                    Color{135, 83, 31, 255} : Color{28, 92, 98, 255});
+            DrawText(flightCommandText(selected).c_str(),
+                infoX + 22, infoY + 256, 10, RAYWHITE);
+            DrawRectangle(infoX + 14, infoY + 278, 284, 28,
+                selected.airplane.isPriority ?
+                    Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
+            DrawText(selected.airplane.isPriority ?
+                "PRIORITY FLIGHT" : "STANDARD FLIGHT",
+                infoX + 22, infoY + 285, 13, RAYWHITE);
         }
 
         if (!selectedGateId.empty())
@@ -5396,7 +5482,7 @@ bool RunGame(bool startImmediately)
                 DrawText(tileValueBuffers[i], static_cast<int>(tile.x + 14.0f),
                     static_cast<int>(tile.y + 31.0f), 20, RAYWHITE);
             }
-            DrawText("ON-TIME OPERATIONS (within 5 min)",
+            DrawText("ON-TIME OPERATIONS (8 min standard / 5 min priority)",
                 static_cast<int>(panel.x + 28.0f),
                 static_cast<int>(panel.y + panel.height - 31.0f), 10,
                 Color{161, 185, 194, 255});
