@@ -28,6 +28,149 @@
 
 namespace
 {
+    enum class WeatherState
+    {
+        Clear,
+        NormalRain,
+        HeavyRain
+    };
+
+    struct WeatherEpisode
+    {
+        float startsAtSeconds = 0.0f;
+        float durationSeconds = 0.0f;
+        WeatherState state = WeatherState::Clear;
+    };
+
+    WeatherState GetWeatherState(float shiftSeconds,
+        const std::vector<WeatherEpisode>& schedule)
+    {
+        for (const WeatherEpisode& episode : schedule)
+        {
+            if (shiftSeconds >= episode.startsAtSeconds &&
+                shiftSeconds < episode.startsAtSeconds + episode.durationSeconds)
+                return episode.state;
+        }
+        return WeatherState::Clear;
+    }
+
+    float RainParticleNoise(std::uint32_t value)
+    {
+        value ^= value >> 16;
+        value *= 0x7feb352dU;
+        value ^= value >> 15;
+        value *= 0x846ca68bU;
+        value ^= value >> 16;
+        return static_cast<float>(value & 0x00ffffffU) / 16777216.0f;
+    }
+
+    void DrawWeatherParticles(WeatherState weather, float animationTime,
+        const Camera3D& camera)
+    {
+        if (weather == WeatherState::Clear) return;
+
+        const bool heavyRain = weather == WeatherState::HeavyRain;
+        const int particleCount = heavyRain ? 1500 : 420;
+        const float screenWidth = static_cast<float>(GetScreenWidth());
+        const float screenHeight = static_cast<float>(std::max(1, GetScreenHeight()));
+        const int columns = static_cast<int>(std::ceil(std::sqrt(
+            static_cast<float>(particleCount) * screenWidth / screenHeight)));
+        const int rows = (particleCount + columns - 1) / columns;
+        const float cellWidth = screenWidth / static_cast<float>(columns);
+        const float cellHeight = screenHeight / static_cast<float>(rows);
+        const float fallSpeed = heavyRain ? 420.0f : 230.0f;
+        const float aspect = screenWidth / screenHeight;
+        const float halfFovTangent = std::tan(camera.fovy * DEG2RAD * 0.5f);
+        float forwardX = camera.target.x - camera.position.x;
+        float forwardY = camera.target.y - camera.position.y;
+        float forwardZ = camera.target.z - camera.position.z;
+        const float forwardLength = std::sqrt(forwardX * forwardX +
+            forwardY * forwardY + forwardZ * forwardZ);
+        forwardX /= forwardLength;
+        forwardY /= forwardLength;
+        forwardZ /= forwardLength;
+        float rightX = forwardY * camera.up.z - forwardZ * camera.up.y;
+        float rightY = forwardZ * camera.up.x - forwardX * camera.up.z;
+        float rightZ = forwardX * camera.up.y - forwardY * camera.up.x;
+        const float rightLength = std::sqrt(rightX * rightX + rightY * rightY +
+            rightZ * rightZ);
+        rightX /= rightLength;
+        rightY /= rightLength;
+        rightZ /= rightLength;
+        const float upX = rightY * forwardZ - rightZ * forwardY;
+        const float upY = rightZ * forwardX - rightX * forwardZ;
+        const float upZ = rightX * forwardY - rightY * forwardX;
+        const Color rainColor = heavyRain ? Color{183, 208, 224, 128} :
+            Color{183, 208, 224, 78};
+        for (int i = 0; i < particleCount; ++i)
+        {
+            const std::uint32_t particleIndex = static_cast<std::uint32_t>(i);
+            const float xSeed = RainParticleNoise(particleIndex * 5U + 9277U);
+            const float ySeed = RainParticleNoise(particleIndex * 5U + 479U);
+            const float depthSeed = RainParticleNoise(particleIndex * 5U + 719U);
+            const float lengthVariation = RainParticleNoise(particleIndex + 4201U);
+            const float brightnessVariation = RainParticleNoise(particleIndex + 991U);
+            const float speedVariation = 0.82f +
+                RainParticleNoise(particleIndex + 1709U) * 0.36f;
+            const float wind = animationTime * (heavyRain ? 25.0f : 12.0f);
+            const float pixelX = std::fmod(
+                (static_cast<float>(i % columns) + 0.12f + xSeed * 0.76f) *
+                    cellWidth + wind, screenWidth);
+            const float pixelY = std::fmod(
+                (static_cast<float>(i / columns) + 0.12f + ySeed * 0.76f) *
+                    cellHeight + animationTime * fallSpeed * speedVariation,
+                screenHeight);
+            const float normalizedX = (2.0f * pixelX / screenWidth - 1.0f) *
+                aspect * halfFovTangent;
+            const float normalizedY = (1.0f - 2.0f * pixelY / screenHeight) *
+                halfFovTangent;
+            float rayX = forwardX + rightX * normalizedX + upX * normalizedY;
+            float rayY = forwardY + rightY * normalizedX + upY * normalizedY;
+            float rayZ = forwardZ + rightZ * normalizedX + upZ * normalizedY;
+            const float rayLength = std::sqrt(rayX * rayX + rayY * rayY +
+                rayZ * rayZ);
+            rayX /= rayLength;
+            rayY /= rayLength;
+            rayZ /= rayLength;
+
+            // Sample a ray through this camera pixel, then place the drop at a
+            // plausible height. Depth testing lets airport objects occlude it.
+            const float desiredHeight = 12.0f + depthSeed * 68.0f;
+            float rayDistance = 45.0f + depthSeed * 150.0f;
+            if (rayY < -0.02f)
+            {
+                const float heightIntersection =
+                    (desiredHeight - camera.position.y) / rayY;
+                if (heightIntersection > 0.1f && heightIntersection < 450.0f)
+                    rayDistance = heightIntersection;
+            }
+            const Vector3 from{
+                camera.position.x + rayX * rayDistance,
+                camera.position.y + rayY * rayDistance,
+                camera.position.z + rayZ * rayDistance
+            };
+            const float screenStreakLength = heavyRain ?
+                8.0f + lengthVariation * 12.0f :
+                4.0f + lengthVariation * 6.0f;
+            const float worldStreakLength = screenStreakLength * 2.0f *
+                rayDistance * halfFovTangent / screenHeight;
+            const float windAngle = (heavyRain ? 0.36f : 0.20f) +
+                (xSeed - 0.5f) * 0.10f;
+            const Vector3 to{from.x + rightX * worldStreakLength * windAngle,
+                from.y - worldStreakLength,
+                from.z + rightZ * worldStreakLength * windAngle};
+            DrawLine3D(from, to, Fade(rainColor,
+                0.68f + brightnessVariation * 0.32f));
+        }
+    }
+
+    void DrawWeatherOverlay(WeatherState weather)
+    {
+        if (weather == WeatherState::HeavyRain)
+            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Color{10, 20, 31, 48});
+    }
+
     struct BoardingPassenger
     {
         std::vector<Vector3> path;
@@ -1740,6 +1883,48 @@ RunGameResult RunGame(bool startImmediately)
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
     float shiftClockSeconds = 0.0f;
+    float plannedShiftDurationSeconds = 0.0f;
+    for (const FlightPlan& plan : flights)
+    {
+        plannedShiftDurationSeconds = std::max(plannedShiftDurationSeconds,
+            std::max(plan.arrivalScheduledSeconds, plan.departureScheduledSeconds));
+    }
+    plannedShiftDurationSeconds = std::max(plannedShiftDurationSeconds,
+        8.0f * 60.0f * 60.0f) + 60.0f * 60.0f;
+    // Temporary visual test sequence. Set this to false to restore the normal
+    // full-shift schedule below.
+    constexpr bool WeatherTestScheduleEnabled = true;
+    const auto weatherStart = [&](float portion)
+    {
+        const float center = plannedShiftDurationSeconds * portion;
+        const float variation = static_cast<float>(GetRandomValue(-18, 18)) * 60.0f;
+        return std::max(0.0f, center + variation);
+    };
+    std::vector<WeatherEpisode> weatherSchedule;
+    if (WeatherTestScheduleEnabled)
+    {
+        constexpr float FirstNormalRainSeconds = 20.0f;
+        constexpr float HeavyRainSeconds = 20.0f;
+        constexpr float FinalNormalRainSeconds = 20.0f;
+        weatherSchedule = {
+            {0.0f, FirstNormalRainSeconds, WeatherState::NormalRain},
+            {FirstNormalRainSeconds, HeavyRainSeconds, WeatherState::HeavyRain},
+            {FirstNormalRainSeconds + HeavyRainSeconds,
+                FinalNormalRainSeconds, WeatherState::NormalRain}
+        };
+    }
+    else
+    {
+        weatherSchedule = {
+            {weatherStart(0.15f), static_cast<float>(GetRandomValue(35, 55)) * 60.0f,
+                WeatherState::NormalRain},
+            {weatherStart(0.47f), static_cast<float>(GetRandomValue(48, 70)) * 60.0f,
+                WeatherState::HeavyRain},
+            {weatherStart(0.78f), static_cast<float>(GetRandomValue(32, 52)) * 60.0f,
+                WeatherState::NormalRain}
+        };
+    }
+    float weatherAnimationTime = 0.0f;
     int shiftScore = 0;
     int completedFlights = 0;
     int completedArrivals = 0;
@@ -3134,6 +3319,8 @@ RunGameResult RunGame(bool startImmediately)
         else if (!isPaused)
         {
             gameplayAnimationTime += speedScaledRealDeltaTime;
+            if (!shiftComplete)
+                weatherAnimationTime += realDeltaTime;
             if (!shiftComplete)
                 shiftClockSeconds += deltaTime * ShiftClockRate;
             // Let the tug finish its ordered post-departure return even when
@@ -4746,6 +4933,9 @@ RunGameResult RunGame(bool startImmediately)
 
         }
 
+        const WeatherState currentWeather = GetWeatherState(
+            WeatherTestScheduleEnabled ? weatherAnimationTime : shiftClockSeconds,
+            weatherSchedule);
         BeginDrawing();
         const int backgroundScenarioStage =
             shiftClockSeconds < MorningStageEndSeconds ? 0 :
@@ -4811,8 +5001,13 @@ RunGameResult RunGame(bool startImmediately)
             DrawBoardingPassenger(passenger, gameplayAnimationTime);
         for (const BoardingPassenger& technician : maintenanceTechnicians)
             DrawBoardingPassenger(technician, gameplayAnimationTime);
+        if (!shiftComplete)
+            DrawWeatherParticles(currentWeather, weatherAnimationTime, sceneCamera);
         }
         EndMode3D();
+
+        if (!showMainMenu && !shiftComplete)
+            DrawWeatherOverlay(currentWeather);
 
         const Camera3D& activeCamera = sceneCamera;
         if (!showMainMenu)
