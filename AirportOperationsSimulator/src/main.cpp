@@ -1232,6 +1232,7 @@ bool RunGame(bool startImmediately)
     bool exitRequested = false;
     float menuAnimationTime = 0.0f;
     float gameplayAnimationTime = 0.0f;
+    int simulationSpeedMultiplier = 1;
     std::vector<FlightPlan> flights;
     // Keep the original parking bays available for later vehicle-movement work.
     constexpr Vector2 BaggageTugParkingPositions[] = {
@@ -1634,6 +1635,14 @@ bool RunGame(bool startImmediately)
     constexpr int NotificationIconY = 16;
     constexpr int NotificationIconSize = 48;
     constexpr int NotificationIconGap = 8;
+    constexpr int SimulationSpeedPanelWidth = 238;
+    constexpr int SimulationSpeedPanelHeight = 88;
+    constexpr int SimulationSpeedPanelXOffset = 18;
+    constexpr int SimulationSpeedPanelY = 16;
+    constexpr int SimulationSpeedButtonY = 66;
+    constexpr int SimulationSpeedButtonWidth = 58;
+    constexpr int SimulationSpeedButtonHeight = 18;
+    constexpr int SimulationSpeedButtonStride = 66;
     const auto buildActiveNotificationOrder = [&flights]()
     {
         std::vector<std::size_t> order;
@@ -1677,6 +1686,28 @@ bool RunGame(bool startImmediately)
         const Rectangle details = notificationDetailsBounds(slot);
         return Rectangle{details.x + 8.0f, details.y + 55.0f,
             details.width - 16.0f, 19.0f};
+    };
+    const auto simulationSpeedButtonBounds = [](int speed)
+    {
+        return Rectangle{
+            static_cast<float>(GetScreenWidth() - SimulationSpeedPanelWidth -
+                SimulationSpeedPanelXOffset + 24 +
+                (speed - 1) * SimulationSpeedButtonStride),
+            static_cast<float>(SimulationSpeedPanelY + SimulationSpeedButtonY),
+            static_cast<float>(SimulationSpeedButtonWidth),
+            static_cast<float>(SimulationSpeedButtonHeight)};
+    };
+    const auto selectSimulationSpeedAtPosition = [&](Vector2 position)
+    {
+        for (int speed = 1; speed <= 3; ++speed)
+        {
+            if (CheckCollisionPointRec(position, simulationSpeedButtonBounds(speed)))
+            {
+                simulationSpeedMultiplier = speed;
+                return true;
+            }
+        }
+        return false;
     };
 
     std::deque<std::size_t> arrivalQueue;
@@ -1861,7 +1892,7 @@ bool RunGame(bool startImmediately)
     Vector2 refuellingTankerCrewPosition{};
     Vector2 refuellingTankerRearStagingPosition{};
     Vector2 refuellingTankerAircraftPosition{};
-    constexpr float SimulationSpeed = 4.0f;
+    constexpr float BaseSimulationSpeed = 4.0f;
     constexpr float ShiftClockRate = 4.0f;
     constexpr float StandardFlightOnTimeSeconds = 8.0f * 60.0f;
     constexpr float PriorityFlightOnTimeSeconds = 5.0f * 60.0f;
@@ -3002,14 +3033,22 @@ bool RunGame(bool startImmediately)
             else
                 isPaused = !isPaused;
         }
+        if (!showMainMenu && !shiftComplete)
+        {
+            if (IsKeyPressed(KEY_ONE)) simulationSpeedMultiplier = 1;
+            else if (IsKeyPressed(KEY_TWO)) simulationSpeedMultiplier = 2;
+            else if (IsKeyPressed(KEY_THREE)) simulationSpeedMultiplier = 3;
+        }
+        const float speedScaledRealDeltaTime = realDeltaTime *
+            static_cast<float>(simulationSpeedMultiplier);
         const float deltaTime = (shiftComplete || isPaused) ? 0.0f :
-            realDeltaTime * SimulationSpeed;
+            speedScaledRealDeltaTime * BaseSimulationSpeed;
         if (exitRequested) break;
         if (showMainMenu)
             menuAnimationTime += realDeltaTime;
         else if (!isPaused)
         {
-            gameplayAnimationTime += realDeltaTime;
+            gameplayAnimationTime += speedScaledRealDeltaTime;
             if (!shiftComplete)
                 shiftClockSeconds += deltaTime * ShiftClockRate;
             // Let the tug finish its ordered post-departure return even when
@@ -3093,9 +3132,9 @@ bool RunGame(bool startImmediately)
                     tryRerouteForClosure(plan);
             }
             refuellingMessageTime = std::max(0.0f,
-                refuellingMessageTime - realDeltaTime);
+                refuellingMessageTime - speedScaledRealDeltaTime);
             priorityNotificationTime = std::max(0.0f,
-                priorityNotificationTime - realDeltaTime);
+                priorityNotificationTime - speedScaledRealDeltaTime);
             const auto updateBaggageLoading = [&](BaggageLoadingState& state,
                 float& timeRemaining, const char* aircraftName)
             {
@@ -3699,77 +3738,91 @@ bool RunGame(bool startImmediately)
             const float panelHeight = 374.0f;
             const float panelX = (GetScreenWidth() - panelWidth) * 0.5f;
             const float panelY = (GetScreenHeight() - panelHeight) * 0.5f;
-            if (showRestartConfirmation)
+            if (!selectSimulationSpeedAtPosition(mouse))
             {
-                const float confirmWidth = 460.0f;
-                const float confirmHeight = 272.0f;
-                const float confirmX = (GetScreenWidth() - confirmWidth) * 0.5f;
-                const float confirmY = (GetScreenHeight() - confirmHeight) * 0.5f;
-                const Rectangle cancelButton{confirmX + 32.0f,
-                    confirmY + 182.0f, 188.0f, 48.0f};
-                const Rectangle confirmButton{confirmX + 240.0f,
-                    confirmY + 182.0f, 188.0f, 48.0f};
-                if (CheckCollisionPointRec(mouse, cancelButton))
-                    showRestartConfirmation = false;
-                else if (CheckCollisionPointRec(mouse, confirmButton))
+                if (showRestartConfirmation)
                 {
-                    restartRequested = true;
-                    exitRequested = true;
+                    const float confirmWidth = 460.0f;
+                    const float confirmHeight = 272.0f;
+                    const float confirmX = (GetScreenWidth() - confirmWidth) * 0.5f;
+                    const float confirmY = (GetScreenHeight() - confirmHeight) * 0.5f;
+                    const Rectangle cancelButton{confirmX + 32.0f,
+                        confirmY + 182.0f, 188.0f, 48.0f};
+                    const Rectangle confirmButton{confirmX + 240.0f,
+                        confirmY + 182.0f, 188.0f, 48.0f};
+                    if (CheckCollisionPointRec(mouse, cancelButton))
+                        showRestartConfirmation = false;
+                    else if (CheckCollisionPointRec(mouse, confirmButton))
+                    {
+                        restartRequested = true;
+                        exitRequested = true;
+                    }
                 }
-            }
-            else
-            {
-                const Rectangle resumeButton{panelX + 40.0f, panelY + 174.0f,
-                    panelWidth - 80.0f, 54.0f};
-                const Rectangle mainMenuButton{panelX + 40.0f, panelY + 242.0f,
-                    panelWidth - 80.0f, 46.0f};
-                const Rectangle restartButton{panelX + 40.0f, panelY + 302.0f,
-                    panelWidth - 80.0f, 46.0f};
-                if (CheckCollisionPointRec(mouse, resumeButton))
-                    isPaused = false;
-                else if (CheckCollisionPointRec(mouse, mainMenuButton))
+                else
                 {
-                    isPaused = false;
-                    showMainMenu = true;
+                    const Rectangle resumeButton{panelX + 40.0f, panelY + 174.0f,
+                        panelWidth - 80.0f, 54.0f};
+                    const Rectangle mainMenuButton{panelX + 40.0f, panelY + 242.0f,
+                        panelWidth - 80.0f, 46.0f};
+                    const Rectangle restartButton{panelX + 40.0f, panelY + 302.0f,
+                        panelWidth - 80.0f, 46.0f};
+                    if (CheckCollisionPointRec(mouse, resumeButton))
+                        isPaused = false;
+                    else if (CheckCollisionPointRec(mouse, mainMenuButton))
+                    {
+                        isPaused = false;
+                        showMainMenu = true;
+                    }
+                    else if (CheckCollisionPointRec(mouse, restartButton))
+                        showRestartConfirmation = true;
                 }
-                else if (CheckCollisionPointRec(mouse, restartButton))
-                    showRestartConfirmation = true;
             }
         }
         else if (!showMainMenu && !isPaused && !shiftComplete &&
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            if (cameraController.IsGateViewActive())
+            if (!selectSimulationSpeedAtPosition(mouse))
             {
                 const bool departureAvailable =
                     pushbackAvailableAtGate(selectedGateId);
                 const GateNavigationButtons buttons =
                     GetGateNavigationButtons(departureAvailable);
-                if (CheckCollisionPointRec(mouse, buttons.previous))
-                    selectAdjacentGate(-1);
-                else if (CheckCollisionPointRec(mouse, buttons.next))
-                    selectAdjacentGate(1);
-                else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
-                    bringServiceCrewToSelectedGate();
-                else if (departureAvailable &&
-                    CheckCollisionPointRec(mouse, buttons.departure))
+                const bool gateViewActive = cameraController.IsGateViewActive();
+                const bool clickedGateNavigation = gateViewActive &&
+                    (CheckCollisionPointRec(mouse, buttons.previous) ||
+                     CheckCollisionPointRec(mouse, buttons.next) ||
+                     CheckCollisionPointRec(mouse, buttons.bringServiceCrew) ||
+                     (departureAvailable &&
+                        CheckCollisionPointRec(mouse, buttons.departure)));
+                if (clickedGateNavigation)
                 {
-                    FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
-                    if (plan != nullptr && plan->departureFlight)
-                        startPushback(selectedGateId, *plan);
-                    else
+                    if (CheckCollisionPointRec(mouse, buttons.previous))
+                        selectAdjacentGate(-1);
+                    else if (CheckCollisionPointRec(mouse, buttons.next))
+                        selectAdjacentGate(1);
+                    else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
+                        bringServiceCrewToSelectedGate();
+                    else if (departureAvailable &&
+                        CheckCollisionPointRec(mouse, buttons.departure))
                     {
-                        refuellingMessage = "No departing aircraft is parked at this gate.";
-                        refuellingMessageTime = 2.5f;
+                        FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
+                        if (plan != nullptr && plan->departureFlight)
+                            startPushback(selectedGateId, *plan);
+                        else
+                        {
+                            refuellingMessage = "No departing aircraft is parked at this gate.";
+                            refuellingMessageTime = 2.5f;
+                        }
                     }
                 }
-                else if (CheckCollisionPointRec(mouse, buttons.disembarkPassengers) ||
+                else if (gateViewActive &&
+                    (CheckCollisionPointRec(mouse, buttons.disembarkPassengers) ||
                     CheckCollisionPointRec(mouse, buttons.maintenanceInspection) ||
                     CheckCollisionPointRec(mouse, buttons.refuelAircraft) ||
                     CheckCollisionPointRec(mouse, buttons.cateringAndWater) ||
                     CheckCollisionPointRec(mouse, buttons.loadBaggage) ||
-                    CheckCollisionPointRec(mouse, buttons.boardPassengers))
+                    CheckCollisionPointRec(mouse, buttons.boardPassengers)))
                 {
                     FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
                     if (plan == nullptr)
@@ -3826,13 +3879,13 @@ bool RunGame(bool startImmediately)
                                 progress.boardingTimeRemaining);
                     }
                 }
-                else if (CheckCollisionPointRec(mouse, buttons.overview))
+                else if (gateViewActive &&
+                    CheckCollisionPointRec(mouse, buttons.overview))
                 {
                     cameraController.ReturnToOverview();
                     selectedGateId.clear();
                 }
-            }
-            else
+                else if (!gateViewActive)
             {
                 const std::vector<std::size_t> notificationOrder =
                     buildActiveNotificationOrder();
@@ -3987,6 +4040,7 @@ bool RunGame(bool startImmediately)
                     }
                 }
             }
+        }
         }
         if (!showMainMenu && !isPaused)
         {
@@ -5017,10 +5071,11 @@ bool RunGame(bool startImmediately)
                 static_cast<int>(aircraftScreen.y), 25.0f, Color{74, 238, 216, 255});
         }
 
-        const int timePanelWidth = 238;
-        const int timePanelHeight = 60;
-        const int timePanelX = GetScreenWidth() - timePanelWidth - 18;
-        const int timePanelY = 16;
+        const int timePanelWidth = SimulationSpeedPanelWidth;
+        const int timePanelHeight = SimulationSpeedPanelHeight;
+        const int timePanelX = GetScreenWidth() - timePanelWidth -
+            SimulationSpeedPanelXOffset;
+        const int timePanelY = SimulationSpeedPanelY;
         const Rectangle timePanel{static_cast<float>(timePanelX),
             static_cast<float>(timePanelY), static_cast<float>(timePanelWidth),
             static_cast<float>(timePanelHeight)};
@@ -5039,7 +5094,8 @@ bool RunGame(bool startImmediately)
             2.0f, Color{200, 242, 236, 255});
         DrawText("LIVE SIMULATION", timePanelX + 48, timePanelY + 8, 10,
             Color{124, 204, 207, 255});
-        DrawText("SIM 4X", timePanelX + timePanelWidth - 53, timePanelY + 8, 9,
+        DrawText(TextFormat("SIM %dX", simulationSpeedMultiplier),
+            timePanelX + timePanelWidth - 53, timePanelY + 8, 9,
             Color{124, 204, 207, 255});
         DrawText(FormatShiftTime(shiftClockSeconds).c_str(), timePanelX + 48,
             timePanelY + 24, 24, RAYWHITE);
@@ -5051,6 +5107,23 @@ bool RunGame(bool startImmediately)
             priorityFlightTotal, priorityFlightsOnTime,
             priorityTasksHandledOnTime, priorityTasksHandledLate),
             timePanelX + 12, timePanelY + 47, 9, Color{231, 199, 119, 255});
+        for (int speed = 1; speed <= 3; ++speed)
+        {
+            const Rectangle button = simulationSpeedButtonBounds(speed);
+            const bool selected = simulationSpeedMultiplier == speed;
+            const bool hovered = CheckCollisionPointRec(GetMousePosition(), button);
+            const Color buttonColor = selected ? Color{35, 123, 127, 255} :
+                hovered ? Color{40, 82, 94, 255} : Color{20, 47, 60, 255};
+            DrawRectangleRounded(button, 0.22f, 4, buttonColor);
+            DrawRectangleRoundedLinesEx(button, 0.22f, 4, 1.0f,
+                selected ? Color{104, 240, 220, 255} :
+                    Color{77, 137, 151, 255});
+            const char* speedLabel = TextFormat("%dX", speed);
+            DrawText(speedLabel,
+                static_cast<int>(button.x + (button.width -
+                    static_cast<float>(MeasureText(speedLabel, 10))) * 0.5f),
+                static_cast<int>(button.y + 4.0f), 10, RAYWHITE);
+        }
 
         const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
             (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
