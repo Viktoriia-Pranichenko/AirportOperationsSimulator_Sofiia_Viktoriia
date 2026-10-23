@@ -1143,7 +1143,7 @@ namespace
     }
 }
 
-int main()
+bool RunGame(bool startImmediately)
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
@@ -1185,9 +1185,11 @@ int main()
     Airplane staticEastWingAircraft = makeStaticAircraftAtGate(
         "EAST_1", AircraftSize::Large, Color{98, 174, 128, 255});
     AirportGround airportGround(terminal);
-    bool showMainMenu = true;
+    bool showMainMenu = !startImmediately;
     bool showGameplayGuide = false;
     bool isPaused = false;
+    bool showRestartConfirmation = false;
+    bool restartRequested = false;
     bool exitRequested = false;
     float menuAnimationTime = 0.0f;
     float gameplayAnimationTime = 0.0f;
@@ -2980,7 +2982,12 @@ int main()
             });
         const float realDeltaTime = GetFrameTime();
         if (!showMainMenu && IsKeyPressed(KEY_ESCAPE))
-            isPaused = !isPaused;
+        {
+            if (isPaused && showRestartConfirmation)
+                showRestartConfirmation = false;
+            else
+                isPaused = !isPaused;
+        }
         const float deltaTime = (shiftComplete || isPaused) ? 0.0f :
             realDeltaTime * SimulationSpeed;
         if (exitRequested) break;
@@ -3674,20 +3681,45 @@ int main()
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            const float panelWidth = 430.0f;
-            const float panelHeight = 294.0f;
+            const float panelWidth = 480.0f;
+            const float panelHeight = 374.0f;
             const float panelX = (GetScreenWidth() - panelWidth) * 0.5f;
             const float panelY = (GetScreenHeight() - panelHeight) * 0.5f;
-            const Rectangle resumeButton{panelX + 42.0f, panelY + 158.0f,
-                panelWidth - 84.0f, 54.0f};
-            const Rectangle mainMenuButton{panelX + 42.0f, panelY + 226.0f,
-                panelWidth - 84.0f, 44.0f};
-            if (CheckCollisionPointRec(mouse, resumeButton))
-                isPaused = false;
-            else if (CheckCollisionPointRec(mouse, mainMenuButton))
+            if (showRestartConfirmation)
             {
-                isPaused = false;
-                showMainMenu = true;
+                const float confirmWidth = 460.0f;
+                const float confirmHeight = 272.0f;
+                const float confirmX = (GetScreenWidth() - confirmWidth) * 0.5f;
+                const float confirmY = (GetScreenHeight() - confirmHeight) * 0.5f;
+                const Rectangle cancelButton{confirmX + 32.0f,
+                    confirmY + 182.0f, 188.0f, 48.0f};
+                const Rectangle confirmButton{confirmX + 240.0f,
+                    confirmY + 182.0f, 188.0f, 48.0f};
+                if (CheckCollisionPointRec(mouse, cancelButton))
+                    showRestartConfirmation = false;
+                else if (CheckCollisionPointRec(mouse, confirmButton))
+                {
+                    restartRequested = true;
+                    exitRequested = true;
+                }
+            }
+            else
+            {
+                const Rectangle resumeButton{panelX + 40.0f, panelY + 174.0f,
+                    panelWidth - 80.0f, 54.0f};
+                const Rectangle mainMenuButton{panelX + 40.0f, panelY + 242.0f,
+                    panelWidth - 80.0f, 46.0f};
+                const Rectangle restartButton{panelX + 40.0f, panelY + 302.0f,
+                    panelWidth - 80.0f, 46.0f};
+                if (CheckCollisionPointRec(mouse, resumeButton))
+                    isPaused = false;
+                else if (CheckCollisionPointRec(mouse, mainMenuButton))
+                {
+                    isPaused = false;
+                    showMainMenu = true;
+                }
+                else if (CheckCollisionPointRec(mouse, restartButton))
+                    showRestartConfirmation = true;
             }
         }
         else if (!showMainMenu && !isPaused && !shiftComplete &&
@@ -5492,51 +5524,63 @@ int main()
         {
             const float screenWidth = static_cast<float>(GetScreenWidth());
             const float screenHeight = static_cast<float>(GetScreenHeight());
-            const float panelWidth = 430.0f;
-            const float panelHeight = 294.0f;
+            const float panelWidth = 480.0f;
+            const float panelHeight = 374.0f;
             const float panelX = (screenWidth - panelWidth) * 0.5f;
             const float panelY = (screenHeight - panelHeight) * 0.5f;
             const Rectangle panel{panelX, panelY, panelWidth, panelHeight};
-            const Rectangle resumeButton{panelX + 42.0f, panelY + 158.0f,
-                panelWidth - 84.0f, 54.0f};
-            const Rectangle mainMenuButton{panelX + 42.0f, panelY + 226.0f,
-                panelWidth - 84.0f, 44.0f};
+            const Rectangle resumeButton{panelX + 40.0f, panelY + 174.0f,
+                panelWidth - 80.0f, 54.0f};
+            const Rectangle mainMenuButton{panelX + 40.0f, panelY + 242.0f,
+                panelWidth - 80.0f, 46.0f};
+            const Rectangle restartButton{panelX + 40.0f, panelY + 302.0f,
+                panelWidth - 80.0f, 46.0f};
             const Vector2 mouse = GetMousePosition();
             const bool resumeHovered = CheckCollisionPointRec(mouse, resumeButton);
             const bool mainMenuHovered = CheckCollisionPointRec(mouse, mainMenuButton);
+            const bool restartHovered = CheckCollisionPointRec(mouse, restartButton);
             const float pulse = 0.5f + 0.5f * std::sin(gameplayAnimationTime * 1.8f);
 
             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
-                Fade(Color{3, 13, 21, 255}, 0.68f));
-            DrawRectangleRounded(panel, 0.035f, 12, Color{10, 29, 40, 250});
+                Fade(Color{3, 13, 21, 255}, 0.72f));
+            DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Fade(Color{5, 20, 29, 255}, 0.12f), Fade(Color{2, 8, 15, 255}, 0.24f));
+            DrawRectangleRounded(panel, 0.035f, 12, Color{8, 24, 35, 255});
+            DrawRectangleRounded({panel.x + 5.0f, panel.y + 5.0f,
+                panel.width - 10.0f, panel.height - 10.0f},
+                0.035f, 12, Fade(Color{20, 43, 55, 255}, 0.35f));
             DrawRectangleRoundedLinesEx(panel, 0.035f, 12, 2.0f,
                 Color{76, 224, 211, 255});
             DrawRectangle(static_cast<int>(panel.x + 1.0f),
                 static_cast<int>(panel.y + 1.0f),
                 static_cast<int>(panel.width - 2.0f), 4,
                 Fade(Color{91, 222, 218, 255}, 0.78f + pulse * 0.22f));
-            DrawCircle(static_cast<int>(panel.x + 45.0f),
-                static_cast<int>(panel.y + 58.0f), 23.0f,
+            DrawCircle(static_cast<int>(panel.x + 49.0f),
+                static_cast<int>(panel.y + 54.0f), 24.0f,
                 Fade(Color{39, 190, 202, 255}, 0.12f + pulse * 0.06f));
-            DrawCircleLines(static_cast<int>(panel.x + 45.0f),
-                static_cast<int>(panel.y + 58.0f), 18.0f,
+            DrawCircleLines(static_cast<int>(panel.x + 49.0f),
+                static_cast<int>(panel.y + 54.0f), 19.0f,
                 Color{89, 227, 225, 255});
-            DrawText("A", static_cast<int>(panel.x + 37.0f),
-                static_cast<int>(panel.y + 45.0f), 27,
+            DrawText("A", static_cast<int>(panel.x + 41.0f),
+                static_cast<int>(panel.y + 41.0f), 27,
                 Color{120, 239, 230, 255});
-            DrawText("AERODROME", static_cast<int>(panel.x + 82.0f),
-                static_cast<int>(panel.y + 39.0f), 17,
+            DrawText("PAUSE MENU", static_cast<int>(panel.x + 91.0f),
+                static_cast<int>(panel.y + 31.0f), 24,
                 Color{221, 237, 240, 255});
             DrawText("AIRPORT OPERATIONS SIMULATOR",
-                static_cast<int>(panel.x + 82.0f),
-                static_cast<int>(panel.y + 61.0f), 9,
+                static_cast<int>(panel.x + 92.0f),
+                static_cast<int>(panel.y + 61.0f), 10,
                 Color{114, 158, 170, 255});
-            DrawText("SIMULATION PAUSED",
-                static_cast<int>(panel.x + 42.0f),
-                static_cast<int>(panel.y + 103.0f), 23,
+            DrawRectangle(static_cast<int>(panel.x + 34.0f),
+                static_cast<int>(panel.y + 88.0f),
+                static_cast<int>(panel.width - 68.0f), 1,
+                Color{53, 93, 105, 255});
+            DrawText("SIMULATION FROZEN",
+                static_cast<int>(panel.x + 40.0f),
+                static_cast<int>(panel.y + 108.0f), 13,
                 Color{107, 220, 221, 255});
-            DrawText("Your airfield state is saved exactly as it is.",
-                static_cast<int>(panel.x + 43.0f),
+            DrawText("Aircraft, vehicles, services and timers are paused.",
+                static_cast<int>(panel.x + 40.0f),
                 static_cast<int>(panel.y + 132.0f), 11,
                 Color{180, 201, 207, 255});
 
@@ -5564,9 +5608,62 @@ int main()
             };
             drawPauseButton(resumeButton, "RESUME", resumeHovered, true);
             drawPauseButton(mainMenuButton, "MAIN MENU", mainMenuHovered, false);
+            drawPauseButton(restartButton, "RESTART", restartHovered, false);
             DrawText("ESC  /  RESUME", static_cast<int>(panel.x + panel.width - 112.0f),
                 static_cast<int>(panel.y + panel.height - 20.0f), 9,
                 Color{114, 158, 170, 255});
+
+            if (showRestartConfirmation)
+            {
+                const float confirmWidth = 460.0f;
+                const float confirmHeight = 272.0f;
+                const float confirmX = (screenWidth - confirmWidth) * 0.5f;
+                const float confirmY = (screenHeight - confirmHeight) * 0.5f;
+                const Rectangle confirmPanel{confirmX, confirmY,
+                    confirmWidth, confirmHeight};
+                const Rectangle cancelButton{confirmX + 32.0f,
+                    confirmY + 182.0f, 188.0f, 48.0f};
+                const Rectangle confirmButton{confirmX + 240.0f,
+                    confirmY + 182.0f, 188.0f, 48.0f};
+                const bool cancelHovered = CheckCollisionPointRec(mouse, cancelButton);
+                const bool confirmHovered = CheckCollisionPointRec(mouse, confirmButton);
+
+                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                    Fade(Color{3, 13, 21, 255}, 0.48f));
+                DrawRectangleRounded(confirmPanel, 0.035f, 12,
+                    Color{10, 29, 40, 255});
+                DrawRectangleRoundedLinesEx(confirmPanel, 0.035f, 12, 2.0f,
+                    Color{76, 224, 211, 255});
+                DrawRectangle(static_cast<int>(confirmPanel.x + 1.0f),
+                    static_cast<int>(confirmPanel.y + 1.0f),
+                    static_cast<int>(confirmPanel.width - 2.0f), 4,
+                    Color{91, 222, 218, 255});
+                DrawText("RESTART FROM THE BEGINNING?",
+                    static_cast<int>(confirmPanel.x + 32.0f),
+                    static_cast<int>(confirmPanel.y + 42.0f), 21,
+                    Color{107, 220, 221, 255});
+                DrawText("All flights, services, passengers, vehicles and timers",
+                    static_cast<int>(confirmPanel.x + 33.0f),
+                    static_cast<int>(confirmPanel.y + 91.0f), 11,
+                    Color{180, 201, 207, 255});
+                DrawText("will reset to their initial state.",
+                    static_cast<int>(confirmPanel.x + 33.0f),
+                    static_cast<int>(confirmPanel.y + 111.0f), 11,
+                    Color{180, 201, 207, 255});
+                drawPauseButton(cancelButton, "CANCEL", cancelHovered, true);
+                DrawRectangleRounded(confirmButton, 0.08f, 8,
+                    confirmHovered ? Color{116, 52, 57, 255} : Color{86, 39, 46, 248});
+                DrawRectangleRoundedLinesEx(confirmButton, 0.08f, 8,
+                    confirmHovered ? 2.0f : 1.0f,
+                    Color{222, 126, 126, 255});
+                DrawText("RESTART", static_cast<int>(confirmButton.x +
+                    (confirmButton.width - MeasureText("RESTART", 15)) * 0.5f),
+                    static_cast<int>(confirmButton.y + 15.0f), 15, RAYWHITE);
+                DrawText("ESC  /  CANCEL",
+                    static_cast<int>(confirmPanel.x + confirmPanel.width - 116.0f),
+                    static_cast<int>(confirmPanel.y + confirmPanel.height - 20.0f), 9,
+                    Color{114, 158, 170, 255});
+            }
         }
 
         EndDrawing();
@@ -5574,5 +5671,13 @@ int main()
 
     UnloadRenderTexture(airplanePreviewTarget);
     CloseWindow();
+    return restartRequested ? 1 : 0;
+}
+
+int main()
+{
+    bool startImmediately = false;
+    while (RunGame(startImmediately))
+        startImmediately = true;
     return 0;
 }
