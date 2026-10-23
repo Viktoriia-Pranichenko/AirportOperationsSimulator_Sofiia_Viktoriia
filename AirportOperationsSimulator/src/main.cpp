@@ -407,6 +407,7 @@ namespace
         Vector2 pushbackStartPosition{};
         Vector2 pushbackTargetPosition{};
         bool departureAuthorized{false};
+        bool departureAuthorizationRequested{false};
         bool taxiToStandQueued{false};
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
@@ -1729,8 +1730,8 @@ int main()
     std::string activePassengerServiceGate;
     enum class PushbackTugMotion
     {
-        Parked, PushingAircraft, ReturningFromAircraft,
-        ReturningAlongSide, ReturningToCrewPosition
+        Parked, PushingAircraft, WaitingForAuthorisation,
+        WaitingForAircraftDeparture, ReturningFromAircraft
     };
     PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
     std::string pushbackTugPositioningGate;
@@ -1739,6 +1740,8 @@ int main()
     float pushbackTugCrewHeading = 0.0f;
     Vector2 pushbackTugReturnLanePosition{};
     Vector2 pushbackTugReturnSidePosition{};
+    std::vector<Vector2> pushbackTugReturnPath;
+    std::size_t pushbackTugReturnPathIndex{0};
     std::string boardingStairsGateId;
     Vector2 boardingStairsCrewPositions[2]{};
     float boardingStairsCrewHeadings[2]{};
@@ -2684,13 +2687,21 @@ int main()
         plan.pushbackTargetPosition = localToWorld(0.0f, 16.0f);
         pushbackTugs.front().SetPosition(nosePosition.x, nosePosition.y);
         pushbackTugs.front().SetHeadingDegrees(pushbackTugNoseHeading);
-        const float dx = pushbackTugCrewPosition.x - aircraft.position.x;
-        const float dz = pushbackTugCrewPosition.y - aircraft.position.y;
+        const float dx = pushbackTugCrewPosition.x - plan.pushbackTargetPosition.x;
+        const float dz = pushbackTugCrewPosition.y - plan.pushbackTargetPosition.y;
         const float localSide = dx * cosine + dz * sine;
         const float side = localSide >= 0.0f ? 1.0f : -1.0f;
-        pushbackTugReturnLanePosition = localToWorld(side * 22.0f, 12.0f);
         const float crewLongitudinal = -dx * sine + dz * cosine;
-        pushbackTugReturnSidePosition = localToWorld(side * 22.0f,
+        const auto pushedLocalToWorld = [&](float localX, float localZ)
+        {
+            return Vector2{
+                plan.pushbackTargetPosition.x + localX * cosine - localZ * sine,
+                plan.pushbackTargetPosition.y + localX * sine + localZ * cosine};
+        };
+        // Clear the aircraft nose first, then use a wide side lane to avoid
+        // cutting across the fuselage on the way back to the tug's gate-side bay.
+        pushbackTugReturnLanePosition = pushedLocalToWorld(0.0f, -56.0f);
+        pushbackTugReturnSidePosition = pushedLocalToWorld(side * 24.0f,
             crewLongitudinal);
         pushbackTugPositioningGate = gateId;
         pushbackTugMotion = PushbackTugMotion::PushingAircraft;
@@ -2701,16 +2712,39 @@ int main()
     const auto updatePushbackMotion = [&](float deltaTime)
     {
         if (pushbackTugMotion == PushbackTugMotion::Parked) return;
-        FlightPlan* plan = findParkedFlightAtGate(pushbackTugPositioningGate);
+        FlightPlan* plan = nullptr;
+        for (FlightPlan& candidate : flights)
+        {
+            if (candidate.spawned && candidate.standAssigned &&
+                candidate.parkingStandId == pushbackTugPositioningGate)
+            {
+                plan = &candidate;
+                break;
+            }
+        }
         if (plan == nullptr || pushbackTugs.empty()) return;
-        const auto movePushbackTugToward = [&](Vector2& current, Vector2 target)
+        if (pushbackTugMotion == PushbackTugMotion::WaitingForAircraftDeparture)
+        {
+            if (plan->airplane.state != AirplaneState::Departed) return;
+            pushbackTugMotion = PushbackTugMotion::ReturningFromAircraft;
+        }
+        const auto movePushbackTugToward = [&](Vector2& current, Vector2 target,
+            bool reversing)
         {
             const float dx = target.x - current.x;
             const float dz = target.y - current.y;
             const bool arrived = moveServiceTruckToward(current, target, deltaTime);
             if (!arrived && dx * dx + dz * dz > 0.0025f)
-                pushbackTugs.front().SetHeadingDegrees(
-                    std::atan2(-dx, -dz) / DEG2RAD);
+            {
+                float desiredHeading = std::atan2(-dx, -dz) / DEG2RAD;
+                if (reversing) desiredHeading += 180.0f;
+                float currentHeading = pushbackTugNoseHeading;
+                float difference = std::remainder(desiredHeading - currentHeading, 360.0f);
+                const float maxTurn = 110.0f * deltaTime;
+                difference = std::clamp(difference, -maxTurn, maxTurn);
+                pushbackTugNoseHeading = std::remainder(currentHeading + difference, 360.0f);
+                pushbackTugs.front().SetHeadingDegrees(pushbackTugNoseHeading);
+            }
             return arrived;
         };
         if (pushbackTugMotion == PushbackTugMotion::PushingAircraft)
@@ -2737,36 +2771,37 @@ int main()
                     (-42.0f * plan->airplane.renderScale - 3.5f) * std::cos(radians)};
             pushbackTugs.front().SetPosition(tugPosition.x, tugPosition.y);
             if (distance <= step || distance <= 0.05f)
-                pushbackTugMotion = PushbackTugMotion::ReturningFromAircraft;
+            {
+                pushbackTugMotion = PushbackTugMotion::WaitingForAuthorisation;
+                plan->pushbackState = FlightPlan::PushbackState::Complete;
+                refuellingMessage = "Pushback complete. Authorise departure at the gate.";
+                refuellingMessageTime = 4.0f;
+            }
+        }
+        else if (pushbackTugMotion == PushbackTugMotion::WaitingForAuthorisation)
+        {
+            // Keep the tug coupled at the nose and the aircraft stationary until
+            // the player explicitly issues the existing gate authorisation command.
         }
         else if (pushbackTugMotion == PushbackTugMotion::ReturningFromAircraft)
         {
             Vector2 current = pushbackTugs.front().GetPosition();
-            if (movePushbackTugToward(current, pushbackTugReturnLanePosition))
-                pushbackTugMotion = PushbackTugMotion::ReturningAlongSide;
-            pushbackTugs.front().SetPosition(current.x, current.y);
-        }
-        else if (pushbackTugMotion == PushbackTugMotion::ReturningAlongSide)
-        {
-            Vector2 current = pushbackTugs.front().GetPosition();
-            if (movePushbackTugToward(current, pushbackTugReturnSidePosition))
-                pushbackTugMotion = PushbackTugMotion::ReturningToCrewPosition;
-            pushbackTugs.front().SetPosition(current.x, current.y);
-        }
-        else if (pushbackTugMotion == PushbackTugMotion::ReturningToCrewPosition)
-        {
-            Vector2 current = pushbackTugs.front().GetPosition();
-            if (movePushbackTugToward(current, pushbackTugCrewPosition))
+            while (pushbackTugReturnPathIndex < pushbackTugReturnPath.size())
             {
-                pushbackTugs.front().SetPosition(current.x, current.y);
-                pushbackTugs.front().SetHeadingDegrees(pushbackTugCrewHeading);
-                pushbackTugMotion = PushbackTugMotion::Parked;
-                plan->pushbackState = FlightPlan::PushbackState::Complete;
-                pushbackTugPositioningGate.clear();
-                refuellingMessage = "Pushback complete. Authorise departure at the gate.";
-                refuellingMessageTime = 4.0f;
+                const Vector2 target = pushbackTugReturnPath[pushbackTugReturnPathIndex];
+                if (!movePushbackTugToward(current, target, true)) break;
+                ++pushbackTugReturnPathIndex;
             }
             pushbackTugs.front().SetPosition(current.x, current.y);
+            if (pushbackTugReturnPathIndex >= pushbackTugReturnPath.size())
+            {
+                pushbackTugs.front().SetHeadingDegrees(pushbackTugCrewHeading);
+                pushbackTugMotion = PushbackTugMotion::Parked;
+                plan->departureAuthorizationRequested = false;
+                pushbackTugPositioningGate.clear();
+                refuellingMessage = "Pushback tug returned after aircraft departure.";
+                refuellingMessageTime = 4.0f;
+            }
         }
     };
     const auto startMaintenanceInspection = [&](const std::string& gateId,
@@ -2933,7 +2968,9 @@ int main()
         {
             if (!shiftComplete)
                 shiftClockSeconds += deltaTime * ShiftClockRate;
-            updatePushbackMotion(deltaTime);
+            // Let the tug finish its ordered post-departure return even when
+            // the final aircraft has completed the shift and the clock is paused.
+            updatePushbackMotion(shiftComplete ? realDeltaTime : deltaTime);
             const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
                 (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
             if (scenarioStage == 1 && !taxiwayClosureAttempted &&
@@ -3745,10 +3782,63 @@ int main()
                         else if (selected.airplane.state == AirplaneState::Parked &&
                             selected.departureFlight &&
                             selected.pushbackState == FlightPlan::PushbackState::Complete &&
-                            !selected.departureAuthorized)
+                            !selected.departureAuthorized &&
+                            !selected.departureAuthorizationRequested &&
+                            pushbackTugMotion == PushbackTugMotion::WaitingForAuthorisation &&
+                            pushbackTugPositioningGate == selected.parkingStandId)
                         {
+                            selected.departureAuthorizationRequested = true;
                             selected.departureAuthorized = true;
-                            refuellingMessage = "Departure authorised at gate.";
+                            pushbackTugReturnPath.clear();
+                            pushbackTugReturnPath.push_back(
+                                pushbackTugs.front().GetPosition());
+                            const Vector2 rawReturnPoints[] = {
+                                pushbackTugReturnLanePosition,
+                                pushbackTugReturnSidePosition,
+                                pushbackTugCrewPosition};
+                            Vector2 previous = pushbackTugReturnPath.front();
+                            for (std::size_t corner = 0;
+                                corner < 3; ++corner)
+                            {
+                                const Vector2 current = rawReturnPoints[corner];
+                                if (corner + 1 == 3)
+                                {
+                                    pushbackTugReturnPath.push_back(current);
+                                    break;
+                                }
+                                const Vector2 next = rawReturnPoints[corner + 1];
+                                const float inX = current.x - previous.x;
+                                const float inY = current.y - previous.y;
+                                const float outX = next.x - current.x;
+                                const float outY = next.y - current.y;
+                                const float inLength = std::sqrt(inX * inX + inY * inY);
+                                const float outLength = std::sqrt(outX * outX + outY * outY);
+                                const float radius = std::min(4.0f,
+                                    std::min(inLength, outLength) * 0.35f);
+                                const Vector2 before{
+                                    current.x - inX / inLength * radius,
+                                    current.y - inY / inLength * radius};
+                                const Vector2 after{
+                                    current.x + outX / outLength * radius,
+                                    current.y + outY / outLength * radius};
+                                pushbackTugReturnPath.push_back(before);
+                                for (int sample = 1; sample <= 6; ++sample)
+                                {
+                                    const float t = static_cast<float>(sample) / 6.0f;
+                                    const float oneMinusT = 1.0f - t;
+                                    pushbackTugReturnPath.push_back({
+                                        oneMinusT * oneMinusT * before.x +
+                                            2.0f * oneMinusT * t * current.x +
+                                            t * t * after.x,
+                                        oneMinusT * oneMinusT * before.y +
+                                            2.0f * oneMinusT * t * current.y +
+                                            t * t * after.y});
+                                }
+                                previous = current;
+                            }
+                            pushbackTugReturnPathIndex = 1;
+                            pushbackTugMotion = PushbackTugMotion::WaitingForAircraftDeparture;
+                            refuellingMessage = "Departure authorised. The tug will return after the aircraft departs.";
                             refuellingMessageTime = 3.0f;
                         }
                         else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
@@ -3970,8 +4060,12 @@ int main()
                 availableTask = "TAXI TO STAND";
             else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
                 plan.pushbackState == FlightPlan::PushbackState::Complete &&
-                !plan.departureAuthorized && aircraftServicesComplete(plan.parkingStandId))
+                !plan.departureAuthorized && !plan.departureAuthorizationRequested &&
+                aircraftServicesComplete(plan.parkingStandId))
                 availableTask = "AUTHORIZE DEPARTURE AT GATE";
+            else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
+                plan.departureAuthorizationRequested)
+                availableTask = "TUG WAITING FOR AIRCRAFT DEPARTURE";
             else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
                 plan.pushbackState == FlightPlan::PushbackState::Complete &&
                 plan.departureAuthorized &&
@@ -5043,6 +5137,7 @@ int main()
                 (selected.airplane.state == AirplaneState::Parked && selected.departureFlight ?
                     (selected.pushbackState != FlightPlan::PushbackState::Complete ?
                         "PUSHBACK REQUIRED" :
+                     selected.departureAuthorizationRequested ? "TUG WAITING FOR AIRCRAFT DEPARTURE" :
                      !selected.departureAuthorized ? "AUTHORIZE DEPARTURE AT GATE" :
                      selected.departureTaxiWindowOpen ? "DEPARTURE AUTHORISED" :
                         TextFormat("TAXI OUT OPENS %s",
