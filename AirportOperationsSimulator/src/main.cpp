@@ -1147,6 +1147,9 @@ int main()
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
+    // Escape is handled by the main menu and pause menu, not by Raylib's
+    // default immediate window-close behavior.
+    SetExitKey(KEY_NULL);
     rlSetClipPlanes(10.0, 4000.0);
 
     CameraController cameraController;
@@ -1184,8 +1187,10 @@ int main()
     AirportGround airportGround(terminal);
     bool showMainMenu = true;
     bool showGameplayGuide = false;
+    bool isPaused = false;
     bool exitRequested = false;
     float menuAnimationTime = 0.0f;
+    float gameplayAnimationTime = 0.0f;
     std::vector<FlightPlan> flights;
     // Keep the original parking bays available for later vehicle-movement work.
     constexpr Vector2 BaggageTugParkingPositions[] = {
@@ -2972,12 +2977,16 @@ int main()
                     plan.airplane.state == AirplaneState::Incident;
             });
         const float realDeltaTime = GetFrameTime();
-        const float deltaTime = shiftComplete ? 0.0f : realDeltaTime * SimulationSpeed;
+        if (!showMainMenu && IsKeyPressed(KEY_ESCAPE))
+            isPaused = !isPaused;
+        const float deltaTime = (shiftComplete || isPaused) ? 0.0f :
+            realDeltaTime * SimulationSpeed;
         if (exitRequested) break;
         if (showMainMenu)
             menuAnimationTime += realDeltaTime;
-        else
+        else if (!isPaused)
         {
+            gameplayAnimationTime += realDeltaTime;
             if (!shiftComplete)
                 shiftClockSeconds += deltaTime * ShiftClockRate;
             // Let the tug finish its ordered post-departure return even when
@@ -3659,7 +3668,27 @@ int main()
             showMainMenu = false;
         else if (showMainMenu && !showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
             exitRequested = true;
-        else if (!showMainMenu && !shiftComplete &&
+        else if (!showMainMenu && isPaused &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            const Vector2 mouse = GetMousePosition();
+            const float panelWidth = 430.0f;
+            const float panelHeight = 294.0f;
+            const float panelX = (GetScreenWidth() - panelWidth) * 0.5f;
+            const float panelY = (GetScreenHeight() - panelHeight) * 0.5f;
+            const Rectangle resumeButton{panelX + 42.0f, panelY + 158.0f,
+                panelWidth - 84.0f, 54.0f};
+            const Rectangle mainMenuButton{panelX + 42.0f, panelY + 226.0f,
+                panelWidth - 84.0f, 44.0f};
+            if (CheckCollisionPointRec(mouse, resumeButton))
+                isPaused = false;
+            else if (CheckCollisionPointRec(mouse, mainMenuButton))
+            {
+                isPaused = false;
+                showMainMenu = true;
+            }
+        }
+        else if (!showMainMenu && !isPaused && !shiftComplete &&
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
@@ -3951,17 +3980,12 @@ int main()
                 }
             }
         }
-        if (!showMainMenu)
+        if (!showMainMenu && !isPaused)
         {
         if (cameraController.IsGateViewActive())
         {
             if (IsKeyPressed(KEY_LEFT)) selectAdjacentGate(-1);
             else if (IsKeyPressed(KEY_RIGHT)) selectAdjacentGate(1);
-            else if (IsKeyPressed(KEY_ESCAPE))
-            {
-                cameraController.ReturnToOverview();
-                selectedGateId.clear();
-            }
         }
         for (std::size_t flightIndex = 0; flightIndex < flights.size(); ++flightIndex)
         {
@@ -4512,9 +4536,9 @@ int main()
             if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
                 plan.airplane.Draw(plan.airplane.renderScale);
         for (const BoardingPassenger& passenger : boardingPassengers)
-            DrawBoardingPassenger(passenger, static_cast<float>(GetTime()));
+            DrawBoardingPassenger(passenger, gameplayAnimationTime);
         for (const BoardingPassenger& technician : maintenanceTechnicians)
-            DrawBoardingPassenger(technician, static_cast<float>(GetTime()));
+            DrawBoardingPassenger(technician, gameplayAnimationTime);
         }
         EndMode3D();
 
@@ -4529,7 +4553,7 @@ int main()
                     aircraft.position, activeCamera);
                 const Vector2 center{aircraftScreen.x, aircraftScreen.y - 38.0f};
                 const float pulse = 0.5f + 0.5f * std::sin(
-                    static_cast<float>(GetTime()) * 3.4f);
+                    gameplayAnimationTime * 3.4f);
                 DrawCircleV(center, 21.0f,
                     Fade(Color{255, 78, 101, 255}, 0.09f + pulse * 0.09f));
                 DrawCircleV(center, 16.0f,
@@ -4552,7 +4576,7 @@ int main()
                     aircraft.position, activeCamera);
                 const Vector2 center{aircraftScreen.x, aircraftScreen.y - 38.0f};
                 const float pulse = 0.5f + 0.5f * std::sin(
-                    static_cast<float>(GetTime()) * 3.4f);
+                    gameplayAnimationTime * 3.4f);
                 const Color green{112, 235, 151, 255};
                 DrawCircleV(center, 21.0f,
                     Fade(green, 0.10f + pulse * 0.12f));
@@ -4593,7 +4617,7 @@ int main()
             !waterServiceTrucks.empty())
         {
             const float pulse = 0.5f + 0.5f * std::sin(
-                static_cast<float>(GetTime()) * 4.0f);
+                gameplayAnimationTime * 4.0f);
             const auto drawWorkingIndicator = [&](Vector2 worldPosition,
                 const char* label, Color accent)
             {
@@ -4623,7 +4647,7 @@ int main()
             const Vector2 end = ProjectAirportPoint(
                 baggageBeltAnimationEnd, activeCamera);
             DrawLineEx(start, end, 3.0f, Color{255, 201, 91, 190});
-            const float phase = static_cast<float>(GetTime()) * 0.85f;
+            const float phase = gameplayAnimationTime * 0.85f;
             for (int bag = 0; bag < 3; ++bag)
             {
                 const float travel = std::fmod(phase + bag * 0.34f, 1.0f);
@@ -4647,7 +4671,7 @@ int main()
             passengerBoardingStairs.size() >= 2)
         {
             const float pulse = 0.5f + 0.5f * std::sin(
-                static_cast<float>(GetTime()) * 4.2f);
+                gameplayAnimationTime * 4.2f);
             for (const PassengerBoardingStairs& stairs : passengerBoardingStairs)
             {
                 const Vector2 screen = ProjectAirportPoint(stairs.GetPosition(),
@@ -4971,7 +4995,7 @@ int main()
                 }
             }
             DrawAnimatedRouteArrows(*routeIds, airportGround, activeCamera,
-                static_cast<float>(GetTime()));
+                gameplayAnimationTime);
             const Vector2 aircraftScreen = ProjectAirportPoint(
                 selected.airplane.position, activeCamera);
             DrawCircleLines(static_cast<int>(aircraftScreen.x),
@@ -5460,6 +5484,87 @@ int main()
                 static_cast<int>(panel.x + panel.width - 105.0f),
                 static_cast<int>(panel.y + panel.height - 33.0f), 12,
                 Color{116, 226, 202, 255});
+        }
+
+        if (isPaused && !showMainMenu)
+        {
+            const float screenWidth = static_cast<float>(GetScreenWidth());
+            const float screenHeight = static_cast<float>(GetScreenHeight());
+            const float panelWidth = 430.0f;
+            const float panelHeight = 294.0f;
+            const float panelX = (screenWidth - panelWidth) * 0.5f;
+            const float panelY = (screenHeight - panelHeight) * 0.5f;
+            const Rectangle panel{panelX, panelY, panelWidth, panelHeight};
+            const Rectangle resumeButton{panelX + 42.0f, panelY + 158.0f,
+                panelWidth - 84.0f, 54.0f};
+            const Rectangle mainMenuButton{panelX + 42.0f, panelY + 226.0f,
+                panelWidth - 84.0f, 44.0f};
+            const Vector2 mouse = GetMousePosition();
+            const bool resumeHovered = CheckCollisionPointRec(mouse, resumeButton);
+            const bool mainMenuHovered = CheckCollisionPointRec(mouse, mainMenuButton);
+            const float pulse = 0.5f + 0.5f * std::sin(gameplayAnimationTime * 1.8f);
+
+            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Fade(Color{3, 13, 21, 255}, 0.68f));
+            DrawRectangleRounded(panel, 0.035f, 12, Color{10, 29, 40, 250});
+            DrawRectangleRoundedLinesEx(panel, 0.035f, 12, 2.0f,
+                Color{76, 224, 211, 255});
+            DrawRectangle(static_cast<int>(panel.x + 1.0f),
+                static_cast<int>(panel.y + 1.0f),
+                static_cast<int>(panel.width - 2.0f), 4,
+                Fade(Color{91, 222, 218, 255}, 0.78f + pulse * 0.22f));
+            DrawCircle(static_cast<int>(panel.x + 45.0f),
+                static_cast<int>(panel.y + 58.0f), 23.0f,
+                Fade(Color{39, 190, 202, 255}, 0.12f + pulse * 0.06f));
+            DrawCircleLines(static_cast<int>(panel.x + 45.0f),
+                static_cast<int>(panel.y + 58.0f), 18.0f,
+                Color{89, 227, 225, 255});
+            DrawText("A", static_cast<int>(panel.x + 37.0f),
+                static_cast<int>(panel.y + 45.0f), 27,
+                Color{120, 239, 230, 255});
+            DrawText("AERODROME", static_cast<int>(panel.x + 82.0f),
+                static_cast<int>(panel.y + 39.0f), 17,
+                Color{221, 237, 240, 255});
+            DrawText("AIRPORT OPERATIONS SIMULATOR",
+                static_cast<int>(panel.x + 82.0f),
+                static_cast<int>(panel.y + 61.0f), 9,
+                Color{114, 158, 170, 255});
+            DrawText("SIMULATION PAUSED",
+                static_cast<int>(panel.x + 42.0f),
+                static_cast<int>(panel.y + 103.0f), 23,
+                Color{107, 220, 221, 255});
+            DrawText("Your airfield state is saved exactly as it is.",
+                static_cast<int>(panel.x + 43.0f),
+                static_cast<int>(panel.y + 132.0f), 11,
+                Color{180, 201, 207, 255});
+
+            const auto drawPauseButton = [](Rectangle bounds, const char* label,
+                bool hovered, bool primary)
+            {
+                const Color fill = primary ?
+                    (hovered ? Color{25, 126, 144, 250} : Color{18, 88, 109, 242}) :
+                    (hovered ? Color{32, 66, 80, 248} : Color{14, 38, 51, 234});
+                const Color border = primary ?
+                    Color{91, 222, 218, 255} : Color{65, 115, 128, 230};
+                DrawRectangleRounded(bounds, 0.08f, 8, fill);
+                DrawRectangleRoundedLinesEx(bounds, 0.08f, 8,
+                    hovered ? 2.0f : 1.0f, border);
+                DrawRectangle(static_cast<int>(bounds.x + 1.0f),
+                    static_cast<int>(bounds.y + 1.0f), 4,
+                    static_cast<int>(bounds.height - 2.0f),
+                    primary ? Color{111, 237, 227, 255} : border);
+                const int fontSize = primary ? 18 : 15;
+                const int textWidth = MeasureText(label, fontSize);
+                DrawText(label, static_cast<int>(bounds.x +
+                    (bounds.width - textWidth) * 0.5f),
+                    static_cast<int>(bounds.y + (bounds.height - fontSize) * 0.5f),
+                    fontSize, RAYWHITE);
+            };
+            drawPauseButton(resumeButton, "RESUME", resumeHovered, true);
+            drawPauseButton(mainMenuButton, "MAIN MENU", mainMenuHovered, false);
+            DrawText("ESC  /  RESUME", static_cast<int>(panel.x + panel.width - 112.0f),
+                static_cast<int>(panel.y + panel.height - 20.0f), 9,
+                Color{114, 158, 170, 255});
         }
 
         EndDrawing();
