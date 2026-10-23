@@ -54,12 +54,14 @@ namespace
         return {camera.position, direction};
     }
 
-    constexpr Color Wall{211, 204, 177, 255};
-    constexpr Color WallSide{164, 180, 175, 255};
-    constexpr Color Roof{43, 73, 94, 255};
-    constexpr Color Trim{91, 127, 140, 255};
-    constexpr Color Glass{35, 104, 134, 255};
-    constexpr Color GlassHighlight{136, 192, 199, 255};
+    constexpr Color Wall{207, 216, 213, 255};
+    constexpr Color WallSide{151, 174, 178, 255};
+    constexpr Color Roof{24, 48, 66, 255};
+    constexpr Color RoofEdge{16, 35, 50, 255};
+    constexpr Color RoofLight{100, 157, 169, 255};
+    constexpr Color Trim{75, 132, 147, 255};
+    constexpr Color Glass{30, 101, 130, 255};
+    constexpr Color GlassHighlight{143, 207, 211, 255};
     constexpr Color DoorFrame{226, 216, 187, 255};
     constexpr float WallHeight = 12.0f;
     constexpr float RoofY = 12.65f;
@@ -158,10 +160,53 @@ namespace
             {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
         Box({0.0f, RoofY, 31.0f}, {218.0f, 1.3f, 54.0f}, Roof);
 
+        // Thin perimeter fascias add a second roof layer without extending
+        // beyond the existing roof footprint.
+        Box({0.0f, RoofY - 0.58f, BackFacadeZ + 0.6f},
+            {216.0f, 0.34f, 0.42f}, RoofEdge);
+        Box({0.0f, RoofY - 0.58f, MainHallRearZ - 0.55f},
+            {216.0f, 0.34f, 0.42f}, RoofEdge);
+        for (float side : {-1.0f, 1.0f})
+        {
+            Box({side * (SideWingCenterX - 9.65f), RoofY - 0.58f,
+                SideWingCenterZ}, {0.42f, 0.34f, SideWingLength}, RoofEdge);
+        }
+
+        // A raised, inset glass lantern gives the central hall a clear focal
+        // roofline while remaining inside the existing rear-hall roof.
+        Box({0.0f, RoofY + 0.82f, 29.0f}, {132.0f, 0.42f, 18.0f}, RoofEdge);
+        Box({0.0f, RoofY + 1.08f, 29.0f}, {124.0f, 0.18f, 12.0f}, Glass);
+        for (float x : {-48.0f, -24.0f, 0.0f, 24.0f, 48.0f})
+            Box({x, RoofY + 1.2f, 29.0f}, {0.34f, 0.12f, 11.5f}, RoofLight);
+
+        // Repeating skylights break up the long wing roofs and pick up the
+        // blue-grey glazing used on the terminal facades.
+        for (float side : {-1.0f, 1.0f})
+        {
+            for (float z : {-20.0f, -64.0f, -108.0f, -152.0f})
+            {
+                Box({side * SideWingCenterX, RoofY + 0.32f, z},
+                    {8.0f, 0.3f, 15.0f}, RoofEdge);
+                Box({side * SideWingCenterX, RoofY + 0.5f, z},
+                    {6.2f, 0.12f, 12.0f}, Glass);
+            }
+        }
+
         // The floor band wraps the apron-facing sides and makes the two levels distinct.
         Box({0.0f, 6.0f, BackFacadeZ - 0.12f}, {216.0f, 0.55f, 0.38f}, Trim);
         Box({LeftInnerX + 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
         Box({RightInnerX - 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
+
+        // A fine upper-level belt and corner caps make the two-storey facade
+        // read as separate, finished architectural levels.
+        Box({0.0f, 11.25f, BackFacadeZ - 0.08f},
+            {216.0f, 0.32f, 0.22f}, RoofLight);
+        Box({0.0f, 11.25f, MainHallRearZ + 0.08f},
+            {212.0f, 0.32f, 0.22f}, RoofLight);
+        Box({LeftInnerX + 0.08f, 11.25f, SideWingCenterZ},
+            {0.22f, 0.32f, SideWingLength - 2.0f}, RoofLight);
+        Box({RightInnerX - 0.08f, 11.25f, SideWingCenterZ},
+            {0.22f, 0.32f, SideWingLength - 2.0f}, RoofLight);
 
         // Four evenly spaced boarding doors line the main apron-facing section.
         for (float x : BackGateXs) DrawBackDoor(x);
