@@ -211,9 +211,9 @@ namespace
         constexpr Color centerLine{220, 174, 82, 255};
         // These shallow 3D paint bars have world-space width, unlike GL line
         // primitives, which remain one pixel wide and can flicker in perspective.
-        constexpr float paintY = 0.0275f;
+        constexpr float paintY = 0.06f;
         constexpr float paintThickness = 0.025f;
-        constexpr float paintWidth = 0.36f;
+        constexpr float paintWidth = 0.55f;
         constexpr float endInset = 0.75f;
         constexpr float dashGap = 1.5f;
         centerX *= TerminalScale;

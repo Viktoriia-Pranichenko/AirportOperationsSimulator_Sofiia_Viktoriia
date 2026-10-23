@@ -659,7 +659,7 @@ namespace
         else if (digit == '7') row = 3;
         if (row < 0) return;
 
-        constexpr float y = 0.112f;
+        constexpr float y = 0.15f;
         constexpr float barWidth = 3.3f;
         constexpr float barDepth = 0.72f;
         constexpr float halfWidth = 1.65f;
@@ -731,17 +731,17 @@ namespace
 
         const Color runwayPaint{235, 236, 226, 255};
         for (float edgeX : {runwayX - 19.0f, runwayX + 19.0f})
-            DrawCubeV({edgeX, 0.105f, -10.0f}, {0.62f, 0.025f, runwayLength - 22.0f}, runwayPaint);
+            DrawCubeV({edgeX, 0.15f, -10.0f}, {0.62f, 0.025f, runwayLength - 22.0f}, runwayPaint);
         for (int dash = 0; dash < 9; ++dash)
         {
             const float z = runwayFarZ + 38.0f + static_cast<float>(dash) * 31.0f;
-            DrawCubeV({runwayX, 0.11f, z}, {0.8f, 0.03f, 14.0f}, runwayPaint);
+            DrawCubeV({runwayX, 0.15f, z}, {0.8f, 0.03f, 14.0f}, runwayPaint);
         }
         for (float thresholdZ : {runwayFarZ + 12.0f, runwayNearZ - 12.0f})
             for (int stripe = 0; stripe < 8; ++stripe)
             {
                 const float x = runwayX - 17.5f + static_cast<float>(stripe) * 5.0f;
-                DrawCubeV({x, 0.11f, thresholdZ}, {2.0f, 0.03f, 2.4f}, runwayPaint);
+                DrawCubeV({x, 0.15f, thresholdZ}, {2.0f, 0.03f, 2.4f}, runwayPaint);
             }
         for (float endSign : {-1.0f, 1.0f})
         {
@@ -1145,8 +1145,9 @@ namespace
 
 int main()
 {
-    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
+    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
+    rlSetClipPlanes(10.0, 4000.0);
 
     CameraController cameraController;
     const Camera3D airplanePreviewCamera{

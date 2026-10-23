@@ -10,9 +10,9 @@ namespace
     constexpr float ParkingSpaceDepth = 10.5f;
     constexpr float AisleCenterZ = -55.0f;
     constexpr float AisleWidth = 20.0f;
-    constexpr float PaintY = 0.035f;
+    constexpr float PaintY = 0.06f;
     constexpr float PaintThickness = 0.04f;
-    constexpr float PaintWidth = 0.25f;
+    constexpr float PaintWidth = 0.5f;
     constexpr Color ParkingMarking{231, 232, 219, 255};
 
     void DrawParkingRow(float aisleEdgeZ, float outwardDirection, float offsetZ)

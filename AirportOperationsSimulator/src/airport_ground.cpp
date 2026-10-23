@@ -43,8 +43,8 @@ namespace
         // Simple seven-segment glyphs drawn directly onto the runway surface.
         constexpr float halfHeight = 5.0f;
         constexpr float halfWidth = 2.6f;
-        constexpr float lineWidth = 1.15f;
-        constexpr float paintY = 0.112f;
+        constexpr float lineWidth = 1.3f;
+        constexpr float paintY = 0.15f;
         const Vector3 topLeft{centerX - halfHeight, 0.0f, centerZ - halfWidth};
         const Vector3 topRight{centerX - halfHeight, 0.0f, centerZ + halfWidth};
         const Vector3 middleLeft{centerX, 0.0f, centerZ - halfWidth};
@@ -127,9 +127,9 @@ namespace
         const float northEdge = centerZ - runway.width * 0.5f + 2.0f;
         const float southEdge = centerZ + runway.width * 0.5f - 2.0f;
         DrawFlatSegment({centerX - edgeX, 0.0f, northEdge},
-            {centerX + edgeX, 0.0f, northEdge}, 0.55f, 0.108f, RunwayMarking);
+            {centerX + edgeX, 0.0f, northEdge}, 0.9f, 0.15f, RunwayMarking);
         DrawFlatSegment({centerX - edgeX, 0.0f, southEdge},
-            {centerX + edgeX, 0.0f, southEdge}, 0.55f, 0.108f, RunwayMarking);
+            {centerX + edgeX, 0.0f, southEdge}, 0.9f, 0.15f, RunwayMarking);
 
         const float halfLength = runway.length * 0.5f;
         const float aimingPointDistance = halfLength - 50.0f;
@@ -140,7 +140,7 @@ namespace
             if (std::fabs(dashCenter + aimingPointDistance) < 22.0f ||
                 std::fabs(dashCenter - aimingPointDistance) < 22.0f) continue;
             DrawFlatSegment({centerX + offset, 0.0f, centerZ},
-                {centerX + offset + 12.0f, 0.0f, centerZ}, 0.55f, 0.109f, RunwayMarking);
+                {centerX + offset + 12.0f, 0.0f, centerZ}, 0.9f, 0.15f, RunwayMarking);
         }
 
         // Eight transverse threshold stripes at each runway end.
@@ -150,9 +150,9 @@ namespace
             const float westX = centerX - halfLength + 8.0f;
             const float eastX = centerX + halfLength - 8.0f;
             DrawFlatSegment({westX, 0.0f, z - 0.85f}, {westX, 0.0f, z + 0.85f},
-                1.2f, 0.111f, RunwayMarking);
+                1.5f, 0.15f, RunwayMarking);
             DrawFlatSegment({eastX, 0.0f, z - 0.85f}, {eastX, 0.0f, z + 0.85f},
-                1.2f, 0.111f, RunwayMarking);
+                1.5f, 0.15f, RunwayMarking);
         }
 
         // Mark both runway directions just inside their threshold stripes.
@@ -166,14 +166,14 @@ namespace
             for (int zSide : {-1, 1})
                 DrawFlatSegment({x - 10.0f, 0.0f, centerZ + zSide * 5.0f},
                     {x + 10.0f, 0.0f, centerZ + zSide * 5.0f},
-                    1.8f, 0.11f, RunwayMarking);
+                    1.8f, 0.15f, RunwayMarking);
         }
     }
 
     void DrawTaxiwaySurface(Vector3 from, Vector3 to, float width)
     {
-        DrawFlatSegment(from, to, width + 4.0f, 0.012f, TaxiwayShoulder);
-        DrawFlatSegment(from, to, width, 0.026f, TaxiwaySurface);
+        DrawFlatSegment(from, to, width + 4.0f, 0.028f, TaxiwayShoulder);
+        DrawFlatSegment(from, to, width, 0.045f, TaxiwaySurface);
     }
 
     void DrawTaxiwayCenterline(Vector3 from, Vector3 to,
@@ -186,7 +186,7 @@ namespace
             from.z = holdLineZ;
         }
 
-        DrawFlatSegment(from, to, 0.31f, 0.075f, TaxiwayCenterline);
+        DrawFlatSegment(from, to, 0.75f, 0.12f, TaxiwayCenterline);
     }
 
 }
@@ -761,9 +761,9 @@ void AirportGround::Draw(Color grassColor) const
 
         DrawCylinder({node.position.x, -0.015f, node.position.z},
             (widestLane + 4.0f) * 0.5f, (widestLane + 4.0f) * 0.5f,
-            0.027f, 20, TaxiwayShoulder);
+            0.051f, 20, TaxiwayShoulder);
         DrawCylinder({node.position.x, -0.02f, node.position.z},
-            widestLane * 0.5f, widestLane * 0.5f, 0.046f, 20, TaxiwaySurface);
+            widestLane * 0.5f, widestLane * 0.5f, 0.073f, 20, TaxiwaySurface);
     }
 
     // Paint continuous centerlines after the intersection pads so they remain
@@ -818,9 +818,9 @@ void AirportGround::Draw(Color grassColor) const
     const auto drawHoldMarking = [](float x, float solidOne, float solidTwo,
         float dashedOne, float dashedTwo)
     {
-        constexpr float lineY = 0.135f;
+        constexpr float lineY = 0.17f;
         constexpr float lineThickness = 0.025f;
-        constexpr float lineDepth = 0.25f;
+        constexpr float lineDepth = 0.4f;
         constexpr Color HoldMarking{245, 197, 55, 255};
         DrawCubeV({x, lineY, solidOne}, {13.5f, lineThickness, lineDepth}, HoldMarking);
         DrawCubeV({x, lineY, solidTwo}, {13.5f, lineThickness, lineDepth}, HoldMarking);
