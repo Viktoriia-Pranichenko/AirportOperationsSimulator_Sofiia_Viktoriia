@@ -64,7 +64,10 @@ namespace
     constexpr Color GlassHighlight{143, 207, 211, 255};
     constexpr Color DoorFrame{226, 216, 187, 255};
     constexpr float WallHeight = 12.0f;
-    constexpr float RoofY = 12.65f;
+    constexpr float AddedStoreyHeight = 6.0f;
+    constexpr float ThirdStoreyCenterY = WallHeight + AddedStoreyHeight * 0.5f;
+    constexpr float FourthStoreyCenterY = WallHeight + AddedStoreyHeight * 1.5f;
+    constexpr float RoofY = WallHeight + AddedStoreyHeight * 2.0f + 0.65f;
     constexpr float BackFacadeZ = -8.0f;
     constexpr float MainHallRearZ = 57.0f;
     constexpr float TerminalZOffset = 8.0f;
@@ -143,7 +146,7 @@ namespace
 
     void DrawTerminal()
     {
-        // Three connected, two-storey blocks make a U around the open central apron.
+        // The original two-storey blocks retain their exact ground-level footprint.
         Box({0.0f, WallHeight * 0.5f, 0.0f}, {216.0f, WallHeight, 16.0f}, Wall);
         Box({-SideWingCenterX, WallHeight * 0.5f, SideWingCenterZ},
             {18.0f, WallHeight, SideWingLength}, WallSide);
@@ -152,7 +155,22 @@ namespace
         // A broader central terminal hall continues behind the U-shaped boarding concourse.
         Box({0.0f, WallHeight * 0.5f, 31.0f}, {216.0f, WallHeight, 52.0f}, WallSide);
 
-        // Roof slabs and fascia read clearly above the upper-storey glazing.
+        // Two new six-unit storeys extend the same connected blocks vertically.
+        // Their X/Z dimensions exactly match the original walls and keep the
+        // terminal's footprint, position and orientation unchanged.
+        for (float floorCenterY : {ThirdStoreyCenterY, FourthStoreyCenterY})
+        {
+            Box({0.0f, floorCenterY, 0.0f},
+                {216.0f, AddedStoreyHeight, 16.0f}, Wall);
+            Box({-SideWingCenterX, floorCenterY, SideWingCenterZ},
+                {18.0f, AddedStoreyHeight, SideWingLength}, WallSide);
+            Box({SideWingCenterX, floorCenterY, SideWingCenterZ},
+                {18.0f, AddedStoreyHeight, SideWingLength}, WallSide);
+            Box({0.0f, floorCenterY, 31.0f},
+                {216.0f, AddedStoreyHeight, 52.0f}, WallSide);
+        }
+
+        // The original roof sections now sit on top of all four storeys.
         Box({0.0f, RoofY, 0.0f}, {218.0f, 1.3f, 18.0f}, Roof);
         Box({-SideWingCenterX, RoofY, SideWingCenterZ},
             {20.0f, 1.3f, SideWingLength + 2.0f}, Roof);
@@ -197,15 +215,30 @@ namespace
         Box({LeftInnerX + 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
         Box({RightInnerX - 0.14f, 6.0f, SideWingCenterZ}, {0.38f, 0.55f, SideWingLength}, Trim);
 
-        // A fine upper-level belt and corner caps make the two-storey facade
-        // read as separate, finished architectural levels.
-        Box({0.0f, 11.25f, BackFacadeZ - 0.08f},
+        // Continuous bands mark the two added floor boundaries. The former
+        // roofline belt is lifted to the top of the new fourth storey.
+        for (float floorLineY : {WallHeight, WallHeight + AddedStoreyHeight})
+        {
+            Box({0.0f, floorLineY, BackFacadeZ - 0.12f},
+                {216.0f, 0.55f, 0.38f}, Trim);
+            Box({0.0f, floorLineY, MainHallRearZ + 0.05f},
+                {212.0f, 0.55f, 0.38f}, Trim);
+            Box({LeftInnerX + 0.14f, floorLineY, SideWingCenterZ},
+                {0.38f, 0.55f, SideWingLength}, Trim);
+            Box({RightInnerX - 0.14f, floorLineY, SideWingCenterZ},
+                {0.38f, 0.55f, SideWingLength}, Trim);
+        }
+        Box({0.0f, WallHeight + AddedStoreyHeight * 2.0f - 0.75f,
+            BackFacadeZ - 0.08f},
             {216.0f, 0.32f, 0.22f}, RoofLight);
-        Box({0.0f, 11.25f, MainHallRearZ + 0.08f},
+        Box({0.0f, WallHeight + AddedStoreyHeight * 2.0f - 0.75f,
+            MainHallRearZ + 0.08f},
             {212.0f, 0.32f, 0.22f}, RoofLight);
-        Box({LeftInnerX + 0.08f, 11.25f, SideWingCenterZ},
+        Box({LeftInnerX + 0.08f, WallHeight + AddedStoreyHeight * 2.0f - 0.75f,
+            SideWingCenterZ},
             {0.22f, 0.32f, SideWingLength - 2.0f}, RoofLight);
-        Box({RightInnerX - 0.08f, 11.25f, SideWingCenterZ},
+        Box({RightInnerX - 0.08f, WallHeight + AddedStoreyHeight * 2.0f - 0.75f,
+            SideWingCenterZ},
             {0.22f, 0.32f, SideWingLength - 2.0f}, RoofLight);
 
         // Four evenly spaced boarding doors line the main apron-facing section.
@@ -218,13 +251,18 @@ namespace
         for (float x : backUpperWindowXs)
         {
             DrawBackWindow(x, 9.0f, 7.0f, 3.2f);
+            DrawBackWindow(x, ThirdStoreyCenterY, 7.0f, 3.2f);
+            DrawBackWindow(x, FourthStoreyCenterY, 7.0f, 3.2f);
         }
-        Box({0.0f, 6.0f, MainHallRearZ + 0.05f}, {212.0f, 0.55f, 0.38f}, Trim);
+        Box({0.0f, 6.0f, MainHallRearZ + 0.05f},
+            {212.0f, 0.55f, 0.38f}, Trim);
         constexpr float mainHallWindowXs[] = {-72.0f, -48.0f, -24.0f, 0.0f, 24.0f, 48.0f, 72.0f};
         for (float x : mainHallWindowXs)
         {
             DrawMainHallWindow(x, 2.55f);
             DrawMainHallWindow(x, 9.0f);
+            DrawMainHallWindow(x, ThirdStoreyCenterY);
+            DrawMainHallWindow(x, FourthStoreyCenterY);
         }
 
         // Three evenly spaced gates on each extended wing, aligned to the side stands.
@@ -247,6 +285,10 @@ namespace
         {
             DrawSideWindow(LeftInnerX + 0.13f, z, 9.0f, 7.0f, 3.2f);
             DrawSideWindow(RightInnerX - 0.13f, z, 9.0f, 7.0f, 3.2f);
+            DrawSideWindow(LeftInnerX + 0.13f, z, ThirdStoreyCenterY, 7.0f, 3.2f);
+            DrawSideWindow(RightInnerX - 0.13f, z, ThirdStoreyCenterY, 7.0f, 3.2f);
+            DrawSideWindow(LeftInnerX + 0.13f, z, FourthStoreyCenterY, 7.0f, 3.2f);
+            DrawSideWindow(RightInnerX - 0.13f, z, FourthStoreyCenterY, 7.0f, 3.2f);
         }
     }
 
