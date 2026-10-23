@@ -1228,6 +1228,8 @@ bool RunGame(bool startImmediately)
     bool showGameplayGuide = false;
     bool isPaused = false;
     bool showRestartConfirmation = false;
+    bool showEndShiftConfirmation = false;
+    bool shiftEndedEarly = false;
     bool restartRequested = false;
     bool exitRequested = false;
     float menuAnimationTime = 0.0f;
@@ -3025,18 +3027,22 @@ bool RunGame(bool startImmediately)
 
     while (!WindowShouldClose())
     {
-        const bool shiftComplete = std::all_of(flights.begin(), flights.end(),
+        const bool allFlightsResolved = std::all_of(flights.begin(), flights.end(),
             [](const FlightPlan& plan)
             {
                 return !plan.departureFlight ||
                     plan.airplane.state == AirplaneState::Departed ||
                     plan.airplane.state == AirplaneState::Incident;
             });
+        const bool shiftComplete = shiftEndedEarly || allFlightsResolved;
         const float realDeltaTime = GetFrameTime();
         if (!showMainMenu && IsKeyPressed(KEY_ESCAPE))
         {
-            if (isPaused && showRestartConfirmation)
+            if (isPaused && (showRestartConfirmation || showEndShiftConfirmation))
+            {
                 showRestartConfirmation = false;
+                showEndShiftConfirmation = false;
+            }
             else
                 isPaused = !isPaused;
         }
@@ -3060,7 +3066,8 @@ bool RunGame(bool startImmediately)
                 shiftClockSeconds += deltaTime * ShiftClockRate;
             // Let the tug finish its ordered post-departure return even when
             // the final aircraft has completed the shift and the clock is paused.
-            updatePushbackMotion(shiftComplete ? realDeltaTime : deltaTime);
+            updatePushbackMotion(shiftComplete && !shiftEndedEarly ?
+                realDeltaTime : deltaTime);
             const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
                 (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
             if (scenarioStage == 1 && !taxiwayClosureAttempted &&
@@ -3742,12 +3749,12 @@ bool RunGame(bool startImmediately)
         {
             const Vector2 mouse = GetMousePosition();
             const float panelWidth = 480.0f;
-            const float panelHeight = 374.0f;
+            const float panelHeight = 424.0f;
             const float panelX = (GetScreenWidth() - panelWidth) * 0.5f;
             const float panelY = (GetScreenHeight() - panelHeight) * 0.5f;
             if (!selectSimulationSpeedAtPosition(mouse))
             {
-                if (showRestartConfirmation)
+                if (showRestartConfirmation || showEndShiftConfirmation)
                 {
                     const float confirmWidth = 460.0f;
                     const float confirmHeight = 272.0f;
@@ -3758,11 +3765,23 @@ bool RunGame(bool startImmediately)
                     const Rectangle confirmButton{confirmX + 240.0f,
                         confirmY + 182.0f, 188.0f, 48.0f};
                     if (CheckCollisionPointRec(mouse, cancelButton))
+                    {
                         showRestartConfirmation = false;
+                        showEndShiftConfirmation = false;
+                    }
                     else if (CheckCollisionPointRec(mouse, confirmButton))
                     {
-                        restartRequested = true;
-                        exitRequested = true;
+                        if (showEndShiftConfirmation)
+                        {
+                            shiftEndedEarly = true;
+                            showEndShiftConfirmation = false;
+                            isPaused = false;
+                        }
+                        else
+                        {
+                            restartRequested = true;
+                            exitRequested = true;
+                        }
                     }
                 }
                 else
@@ -3773,6 +3792,8 @@ bool RunGame(bool startImmediately)
                         panelWidth - 80.0f, 46.0f};
                     const Rectangle restartButton{panelX + 40.0f, panelY + 302.0f,
                         panelWidth - 80.0f, 46.0f};
+                    const Rectangle endShiftButton{panelX + 40.0f, panelY + 356.0f,
+                        panelWidth - 80.0f, 46.0f};
                     if (CheckCollisionPointRec(mouse, resumeButton))
                         isPaused = false;
                     else if (CheckCollisionPointRec(mouse, mainMenuButton))
@@ -3782,6 +3803,8 @@ bool RunGame(bool startImmediately)
                     }
                     else if (CheckCollisionPointRec(mouse, restartButton))
                         showRestartConfirmation = true;
+                    else if (CheckCollisionPointRec(mouse, endShiftButton))
+                        showEndShiftConfirmation = true;
                 }
             }
         }
@@ -5498,9 +5521,11 @@ bool RunGame(bool startImmediately)
             DrawRectangleRounded(panel, 0.035f, 12, Color{13, 29, 39, 255});
             DrawRectangleRoundedLinesEx(panel, 0.035f, 12, 2.0f,
                 Color{76, 224, 211, 255});
-            DrawText("SHIFT RESULTS", static_cast<int>(panel.x + 28.0f),
+            DrawText(shiftEndedEarly ? "SHIFT ENDED EARLY" : "SHIFT RESULTS",
+                static_cast<int>(panel.x + 28.0f),
                 static_cast<int>(panel.y + 22.0f), 24, RAYWHITE);
-            DrawText(TextFormat("OPERATIONS COMPLETE  |  SHIFT ENDED %s",
+            DrawText(TextFormat("%s  |  SHIFT TIME %s",
+                shiftEndedEarly ? "CURRENT RESULTS" : "OPERATIONS COMPLETE",
                 FormatShiftTime(shiftClockSeconds).c_str()),
                 static_cast<int>(panel.x + 30.0f), static_cast<int>(panel.y + 55.0f),
                 11, Color{124, 204, 207, 255});
@@ -5577,7 +5602,7 @@ bool RunGame(bool startImmediately)
             const float screenWidth = static_cast<float>(GetScreenWidth());
             const float screenHeight = static_cast<float>(GetScreenHeight());
             const float panelWidth = 480.0f;
-            const float panelHeight = 374.0f;
+            const float panelHeight = 424.0f;
             const float panelX = (screenWidth - panelWidth) * 0.5f;
             const float panelY = (screenHeight - panelHeight) * 0.5f;
             const Rectangle panel{panelX, panelY, panelWidth, panelHeight};
@@ -5587,10 +5612,13 @@ bool RunGame(bool startImmediately)
                 panelWidth - 80.0f, 46.0f};
             const Rectangle restartButton{panelX + 40.0f, panelY + 302.0f,
                 panelWidth - 80.0f, 46.0f};
+            const Rectangle endShiftButton{panelX + 40.0f, panelY + 356.0f,
+                panelWidth - 80.0f, 46.0f};
             const Vector2 mouse = GetMousePosition();
             const bool resumeHovered = CheckCollisionPointRec(mouse, resumeButton);
             const bool mainMenuHovered = CheckCollisionPointRec(mouse, mainMenuButton);
             const bool restartHovered = CheckCollisionPointRec(mouse, restartButton);
+            const bool endShiftHovered = CheckCollisionPointRec(mouse, endShiftButton);
             const float pulse = 0.5f + 0.5f * std::sin(gameplayAnimationTime * 1.8f);
 
             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
@@ -5661,11 +5689,12 @@ bool RunGame(bool startImmediately)
             drawPauseButton(resumeButton, "RESUME", resumeHovered, true);
             drawPauseButton(mainMenuButton, "MAIN MENU", mainMenuHovered, false);
             drawPauseButton(restartButton, "RESTART", restartHovered, false);
+            drawPauseButton(endShiftButton, "END SHIFT", endShiftHovered, false);
             DrawText("ESC  /  RESUME", static_cast<int>(panel.x + panel.width - 112.0f),
                 static_cast<int>(panel.y + panel.height - 20.0f), 9,
                 Color{114, 158, 170, 255});
 
-            if (showRestartConfirmation)
+            if (showRestartConfirmation || showEndShiftConfirmation)
             {
                 const float confirmWidth = 460.0f;
                 const float confirmHeight = 272.0f;
@@ -5690,15 +5719,20 @@ bool RunGame(bool startImmediately)
                     static_cast<int>(confirmPanel.y + 1.0f),
                     static_cast<int>(confirmPanel.width - 2.0f), 4,
                     Color{91, 222, 218, 255});
-                DrawText("RESTART FROM THE BEGINNING?",
+                DrawText(showEndShiftConfirmation ? "END THIS SHIFT EARLY?" :
+                    "RESTART FROM THE BEGINNING?",
                     static_cast<int>(confirmPanel.x + 32.0f),
                     static_cast<int>(confirmPanel.y + 42.0f), 21,
                     Color{107, 220, 221, 255});
-                DrawText("All flights, services, passengers, vehicles and timers",
+                DrawText(showEndShiftConfirmation ?
+                    "The shift will stop now and show current flight statistics." :
+                    "All flights, services, passengers, vehicles and timers",
                     static_cast<int>(confirmPanel.x + 33.0f),
                     static_cast<int>(confirmPanel.y + 91.0f), 11,
                     Color{180, 201, 207, 255});
-                DrawText("will reset to their initial state.",
+                DrawText(showEndShiftConfirmation ?
+                    "You can restart a new shift from the results screen." :
+                    "will reset to their initial state.",
                     static_cast<int>(confirmPanel.x + 33.0f),
                     static_cast<int>(confirmPanel.y + 111.0f), 11,
                     Color{180, 201, 207, 255});
@@ -5708,8 +5742,10 @@ bool RunGame(bool startImmediately)
                 DrawRectangleRoundedLinesEx(confirmButton, 0.08f, 8,
                     confirmHovered ? 2.0f : 1.0f,
                     Color{222, 126, 126, 255});
-                DrawText("RESTART", static_cast<int>(confirmButton.x +
-                    (confirmButton.width - MeasureText("RESTART", 15)) * 0.5f),
+                const char* confirmLabel = showEndShiftConfirmation ?
+                    "END SHIFT" : "RESTART";
+                DrawText(confirmLabel, static_cast<int>(confirmButton.x +
+                    (confirmButton.width - MeasureText(confirmLabel, 15)) * 0.5f),
                     static_cast<int>(confirmButton.y + 15.0f), 15, RAYWHITE);
                 DrawText("ESC  /  CANCEL",
                     static_cast<int>(confirmPanel.x + confirmPanel.width - 116.0f),
