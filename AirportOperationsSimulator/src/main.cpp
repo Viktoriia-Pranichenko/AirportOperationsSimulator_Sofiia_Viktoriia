@@ -258,7 +258,7 @@ namespace
             {centerX, centerY - 2.0f}, {centerX, centerY + 4.0f}, accent);
         DrawTriangle({centerX + 13.0f, centerY + 1.0f},
             {centerX, centerY - 2.0f}, {centerX, centerY + 4.0f}, accent);
-        const char* label = "Aircraft ready for departure";
+        const char* label = "PUSHBACK AIRCRAFT";
         int fontSize = 12;
         while (fontSize > 9 && MeasureText(label, fontSize) > bounds.width - 48.0f)
             --fontSize;
@@ -401,6 +401,11 @@ namespace
         bool arrivalFlight{false};
         bool routeStarted{false};
         bool departureQueued{false};
+        enum class PushbackState { NotStarted, MovingAircraft, Complete };
+        PushbackState pushbackState{PushbackState::NotStarted};
+        Vector2 pushbackStartPosition{};
+        Vector2 pushbackTargetPosition{};
+        bool departureAuthorized{false};
         bool taxiToStandQueued{false};
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
@@ -1402,10 +1407,6 @@ int main()
     std::unordered_map<std::string, std::string> occupiedNodes;
     std::unordered_map<std::string, std::string> occupiedSections;
     std::unordered_map<std::string, std::string> occupiedStands;
-    occupiedNodes["GATE_1"] = staticGate1Aircraft.flightId;
-    occupiedStands["GATE_1"] = staticGate1Aircraft.flightId;
-    occupiedNodes["EAST_1"] = staticEastWingAircraft.flightId;
-    occupiedStands["EAST_1"] = staticEastWingAircraft.flightId;
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
     float shiftClockSeconds = 0.0f;
@@ -1473,15 +1474,56 @@ int main()
     float gate1BoardingTimeRemaining = 0.0f;
     float eastWingBoardingTimeRemaining = 0.0f;
     enum class DisembarkingState { Idle, Disembarking, ReturningStairs, Complete };
+    struct AircraftServiceProgress
+    {
+        bool refuellingStarted{false};
+        bool refuellingFinished{false};
+        float refuellingTimeRemaining{0.0f};
+        BaggageLoadingState baggage = BaggageLoadingState::Idle;
+        float baggageTimeRemaining{0.0f};
+        CateringWaterState cateringWater = CateringWaterState::Idle;
+        float cateringWaterTimeRemaining{0.0f};
+        MaintenanceInspectionState maintenance = MaintenanceInspectionState::Idle;
+        float maintenanceProgress{0.0f};
+        BoardingState boarding = BoardingState::Idle;
+        float boardingTimeRemaining{0.0f};
+        DisembarkingState disembarking = DisembarkingState::Idle;
+        float disembarkingTimeRemaining{0.0f};
+    };
+    std::unordered_map<std::string, AircraftServiceProgress> serviceProgressByFlight;
+    const auto findParkedFlightAtGate = [&](const std::string& gateId) -> FlightPlan*
+    {
+        for (FlightPlan& plan : flights)
+            if (plan.spawned && plan.standAssigned &&
+                plan.parkingStandId == gateId &&
+                plan.airplane.state == AirplaneState::Parked)
+                return &plan;
+        return nullptr;
+    };
+    const auto serviceProgressForGate = [&](const std::string& gateId)
+        -> AircraftServiceProgress*
+    {
+        FlightPlan* plan = findParkedFlightAtGate(gateId);
+        if (plan == nullptr) return nullptr;
+        return &serviceProgressByFlight[plan->airplane.flightId];
+    };
     DisembarkingState gate1Disembarking = DisembarkingState::Idle;
     DisembarkingState eastWingDisembarking = DisembarkingState::Idle;
     float gate1DisembarkingTimeRemaining = 0.0f;
     float eastWingDisembarkingTimeRemaining = 0.0f;
     std::string activePassengerServiceGate;
-    enum class PushbackTugMotion { Parked, InPosition };
+    enum class PushbackTugMotion
+    {
+        Parked, PushingAircraft, ReturningFromAircraft,
+        ReturningAlongSide, ReturningToCrewPosition
+    };
     PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
     std::string pushbackTugPositioningGate;
     float pushbackTugNoseHeading = 0.0f;
+    Vector2 pushbackTugCrewPosition{};
+    float pushbackTugCrewHeading = 0.0f;
+    Vector2 pushbackTugReturnLanePosition{};
+    Vector2 pushbackTugReturnSidePosition{};
     std::string boardingStairsGateId;
     Vector2 boardingStairsCrewPositions[2]{};
     float boardingStairsCrewHeadings[2]{};
@@ -1493,21 +1535,21 @@ int main()
     int boardingPassengerSpawnWaves = 0;
     const auto aircraftServicesComplete = [&](const std::string& gateId)
     {
-        if (gateId == "GATE_1")
-            return gate1Disembarking == DisembarkingState::Complete &&
-                gate1MaintenanceInspection == MaintenanceInspectionState::Complete &&
-                gate1RefuellingFinished &&
-                gate1CateringWater == CateringWaterState::Complete &&
-                gate1BaggageLoading == BaggageLoadingState::Complete &&
-                gate1Boarding == BoardingState::Complete;
-        if (gateId == "EAST_1")
-            return eastWingDisembarking == DisembarkingState::Complete &&
-                eastWingMaintenanceInspection == MaintenanceInspectionState::Complete &&
-                eastWingRefuellingFinished &&
-                eastWingCateringWater == CateringWaterState::Complete &&
-                eastWingBaggageLoading == BaggageLoadingState::Complete &&
-                eastWingBoarding == BoardingState::Complete;
-        return false;
+        const AircraftServiceProgress* progress = serviceProgressForGate(gateId);
+        return progress != nullptr &&
+            progress->disembarking == DisembarkingState::Complete &&
+            progress->maintenance == MaintenanceInspectionState::Complete &&
+            progress->refuellingFinished &&
+            progress->cateringWater == CateringWaterState::Complete &&
+            progress->baggage == BaggageLoadingState::Complete &&
+            progress->boarding == BoardingState::Complete;
+    };
+    const auto pushbackAvailableAtGate = [&](const std::string& gateId)
+    {
+        FlightPlan* plan = findParkedFlightAtGate(gateId);
+        return plan != nullptr && plan->departureFlight &&
+            plan->pushbackState == FlightPlan::PushbackState::NotStarted &&
+            aircraftServicesComplete(gateId);
     };
     Vector2 cateringTruckCrewPosition{};
     Vector2 waterTruckCrewPosition{};
@@ -1717,10 +1759,9 @@ int main()
     };
     const auto bringServiceCrewToSelectedGate = [&]()
     {
-        if (pushbackTugMotion == PushbackTugMotion::InPosition &&
-            pushbackTugPositioningGate == selectedGateId)
+        if (pushbackTugMotion != PushbackTugMotion::Parked)
         {
-            refuellingMessage = "The pushback tug is already at the aircraft nose.";
+            refuellingMessage = "Wait for pushback to finish before moving the crew.";
             refuellingMessageTime = 2.5f;
             return;
         }
@@ -1757,6 +1798,12 @@ int main()
             return;
         }
         if (selectedGateId.empty()) return;
+        if (findParkedFlightAtGate(selectedGateId) == nullptr)
+        {
+            refuellingMessage = "No parked aircraft is available at this gate.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
 
         const AirportParkingStand* selectedGate = nullptr;
         const AirportParkingStand* referenceGate = nullptr;
@@ -1766,13 +1813,6 @@ int main()
             if (stand.id == "GATE_4") referenceGate = &stand;
         }
         if (selectedGate == nullptr || referenceGate == nullptr) return;
-
-        if (serviceCrewGateId != selectedGateId &&
-            pushbackTugMotion == PushbackTugMotion::InPosition)
-        {
-            pushbackTugMotion = PushbackTugMotion::Parked;
-            pushbackTugPositioningGate.clear();
-        }
 
         if (baggageTugs.empty())
         {
@@ -1857,6 +1897,8 @@ int main()
         const Vector2 pushback = place(placements[2], WingVehicleSpacingScale);
         pushbackTugs.front().SetPosition(pushback.x, pushback.y);
         pushbackTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        pushbackTugCrewPosition = pushback;
+        pushbackTugCrewHeading = vehicleHeadingDegrees;
         const Vector2 beltLoader = place(placements[3], WingVehicleSpacingScale);
         baggageBeltLoaders.front().SetPosition(beltLoader.x, beltLoader.y);
         baggageBeltLoaders.back().SetHeadingDegrees(vehicleHeadingDegrees);
@@ -2328,17 +2370,18 @@ int main()
             refuellingMessageTime = 2.5f;
             return;
         }
-        const bool otherServiceStarted = gateId == "GATE_1" ?
-            (gate1RefuellingStarted ||
-                gate1MaintenanceInspection != MaintenanceInspectionState::Idle ||
-                gate1CateringWater != CateringWaterState::Idle ||
-                gate1BaggageLoading != BaggageLoadingState::Idle ||
-                gate1Boarding != BoardingState::Idle) :
-            (eastWingRefuellingStarted ||
-                eastWingMaintenanceInspection != MaintenanceInspectionState::Idle ||
-                eastWingCateringWater != CateringWaterState::Idle ||
-                eastWingBaggageLoading != BaggageLoadingState::Idle ||
-                eastWingBoarding != BoardingState::Idle);
+        const AircraftServiceProgress* service = serviceProgressForGate(gateId);
+        if (service == nullptr)
+        {
+            refuellingMessage = "No parked aircraft is available at this gate.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        const bool otherServiceStarted = service->refuellingStarted ||
+            service->maintenance != MaintenanceInspectionState::Idle ||
+            service->cateringWater != CateringWaterState::Idle ||
+            service->baggage != BaggageLoadingState::Idle ||
+            service->boarding != BoardingState::Idle;
         if (otherServiceStarted)
         {
             refuellingMessage = "Passenger disembarking must be the first service.";
@@ -2385,9 +2428,9 @@ int main()
         current.y += dz / distance * step;
         return false;
     };
-    const auto startDepartureTugPositioning = [&](const std::string& gateId,
-        const Airplane& aircraft)
+    const auto startPushback = [&](const std::string& gateId, FlightPlan& plan)
     {
+        Airplane& aircraft = plan.airplane;
         if (!aircraftServicesComplete(gateId))
         {
             refuellingMessage = "Complete all services and boarding before departure.";
@@ -2400,10 +2443,10 @@ int main()
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (pushbackTugMotion == PushbackTugMotion::InPosition &&
-            pushbackTugPositioningGate == gateId)
+        if (pushbackTugMotion != PushbackTugMotion::Parked ||
+            plan.pushbackState != FlightPlan::PushbackState::NotStarted)
         {
-            refuellingMessage = "The pushback tug is already at the aircraft nose.";
+            refuellingMessage = "Pushback has already started for this aircraft.";
             refuellingMessageTime = 2.5f;
             return;
         }
@@ -2417,18 +2460,100 @@ int main()
                 aircraft.position.x + localX * cosine - localZ * sine,
                 aircraft.position.y + localX * sine + localZ * cosine};
         };
-        // The tug's tow point is at local +Z. Place that rear point at the
-        // aircraft's -42 nose tip, leaving the cab pointing away from the plane.
+        // Position the tug at the nose, then tow the aircraft backwards along
+        // its stand axis before the tug returns to its assigned crew position.
         const float noseTipZ = -42.0f * aircraft.renderScale;
         const float noseClearZ = noseTipZ - 3.5f;
         pushbackTugNoseHeading = -aircraft.headingDegrees;
         const Vector2 nosePosition = localToWorld(0.0f, noseClearZ);
+        plan.pushbackStartPosition = aircraft.position;
+        plan.pushbackTargetPosition = localToWorld(0.0f, 16.0f);
         pushbackTugs.front().SetPosition(nosePosition.x, nosePosition.y);
         pushbackTugs.front().SetHeadingDegrees(pushbackTugNoseHeading);
+        const float dx = pushbackTugCrewPosition.x - aircraft.position.x;
+        const float dz = pushbackTugCrewPosition.y - aircraft.position.y;
+        const float localSide = dx * cosine + dz * sine;
+        const float side = localSide >= 0.0f ? 1.0f : -1.0f;
+        pushbackTugReturnLanePosition = localToWorld(side * 22.0f, 12.0f);
+        const float crewLongitudinal = -dx * sine + dz * cosine;
+        pushbackTugReturnSidePosition = localToWorld(side * 22.0f,
+            crewLongitudinal);
         pushbackTugPositioningGate = gateId;
-        pushbackTugMotion = PushbackTugMotion::InPosition;
-        refuellingMessage = "Pushback tug is positioned at the aircraft nose.";
-        refuellingMessageTime = 3.0f;
+        pushbackTugMotion = PushbackTugMotion::PushingAircraft;
+        plan.pushbackState = FlightPlan::PushbackState::MovingAircraft;
+        refuellingMessage = "Pushback in progress.";
+        refuellingMessageTime = 2.5f;
+    };
+    const auto updatePushbackMotion = [&](float deltaTime)
+    {
+        if (pushbackTugMotion == PushbackTugMotion::Parked) return;
+        FlightPlan* plan = findParkedFlightAtGate(pushbackTugPositioningGate);
+        if (plan == nullptr || pushbackTugs.empty()) return;
+        const auto movePushbackTugToward = [&](Vector2& current, Vector2 target)
+        {
+            const float dx = target.x - current.x;
+            const float dz = target.y - current.y;
+            const bool arrived = moveServiceTruckToward(current, target, deltaTime);
+            if (!arrived && dx * dx + dz * dz > 0.0025f)
+                pushbackTugs.front().SetHeadingDegrees(
+                    std::atan2(-dx, -dz) / DEG2RAD);
+            return arrived;
+        };
+        if (pushbackTugMotion == PushbackTugMotion::PushingAircraft)
+        {
+            Vector2& position = plan->airplane.position;
+            const float dx = plan->pushbackTargetPosition.x - position.x;
+            const float dz = plan->pushbackTargetPosition.y - position.y;
+            const float distance = std::sqrt(dx * dx + dz * dz);
+            constexpr float PushbackSpeed = 3.5f;
+            const float step = PushbackSpeed * deltaTime;
+            if (distance <= step || distance <= 0.05f)
+                position = plan->pushbackTargetPosition;
+            else
+            {
+                position.x += dx / distance * step;
+                position.y += dz / distance * step;
+            }
+
+            const float radians = plan->airplane.headingDegrees * DEG2RAD;
+            const Vector2 tugPosition{
+                position.x + 0.0f * std::cos(radians) -
+                    (-42.0f * plan->airplane.renderScale - 3.5f) * std::sin(radians),
+                position.y + 0.0f * std::sin(radians) +
+                    (-42.0f * plan->airplane.renderScale - 3.5f) * std::cos(radians)};
+            pushbackTugs.front().SetPosition(tugPosition.x, tugPosition.y);
+            if (distance <= step || distance <= 0.05f)
+                pushbackTugMotion = PushbackTugMotion::ReturningFromAircraft;
+        }
+        else if (pushbackTugMotion == PushbackTugMotion::ReturningFromAircraft)
+        {
+            Vector2 current = pushbackTugs.front().GetPosition();
+            if (movePushbackTugToward(current, pushbackTugReturnLanePosition))
+                pushbackTugMotion = PushbackTugMotion::ReturningAlongSide;
+            pushbackTugs.front().SetPosition(current.x, current.y);
+        }
+        else if (pushbackTugMotion == PushbackTugMotion::ReturningAlongSide)
+        {
+            Vector2 current = pushbackTugs.front().GetPosition();
+            if (movePushbackTugToward(current, pushbackTugReturnSidePosition))
+                pushbackTugMotion = PushbackTugMotion::ReturningToCrewPosition;
+            pushbackTugs.front().SetPosition(current.x, current.y);
+        }
+        else if (pushbackTugMotion == PushbackTugMotion::ReturningToCrewPosition)
+        {
+            Vector2 current = pushbackTugs.front().GetPosition();
+            if (movePushbackTugToward(current, pushbackTugCrewPosition))
+            {
+                pushbackTugs.front().SetPosition(current.x, current.y);
+                pushbackTugs.front().SetHeadingDegrees(pushbackTugCrewHeading);
+                pushbackTugMotion = PushbackTugMotion::Parked;
+                plan->pushbackState = FlightPlan::PushbackState::Complete;
+                pushbackTugPositioningGate.clear();
+                refuellingMessage = "Pushback complete. Authorise departure at the gate.";
+                refuellingMessageTime = 4.0f;
+            }
+            pushbackTugs.front().SetPosition(current.x, current.y);
+        }
     };
     const auto startMaintenanceInspection = [&](const std::string& gateId,
         const Airplane& aircraft, bool passengersDisembarked,
@@ -2539,7 +2664,13 @@ int main()
             if (moveTankerToward(refuellingTankerAircraftPosition, deltaTime))
             {
                 refuellingTankerMotion = RefuellingTankerMotion::Refuelling;
-                if (activeRefuellingGate == "GATE_1")
+                if (AircraftServiceProgress* progress =
+                    serviceProgressForGate(activeRefuellingGate))
+                {
+                    progress->refuellingStarted = true;
+                    progress->refuellingTimeRemaining = 6.0f;
+                }
+                else if (activeRefuellingGate == "GATE_1")
                 {
                     gate1RefuellingStarted = true;
                     gate1RefuellingTimeRemaining = 6.0f;
@@ -2588,6 +2719,7 @@ int main()
         {
             if (!shiftComplete)
                 shiftClockSeconds += deltaTime * ShiftClockRate;
+            updatePushbackMotion(deltaTime);
             const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
                 (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
             if (scenarioStage == 1 && !taxiwayClosureAttempted &&
@@ -2701,6 +2833,14 @@ int main()
                 gate1BaggageLoadingTimeRemaining, "Gate 1");
             updateBaggageLoading(eastWingBaggageLoading,
                 eastWingBaggageLoadingTimeRemaining, "East Wing Gate 1");
+            for (FlightPlan& plan : flights)
+            {
+                if (!plan.spawned) continue;
+                AircraftServiceProgress& progress =
+                    serviceProgressByFlight[plan.airplane.flightId];
+                updateBaggageLoading(progress.baggage,
+                    progress.baggageTimeRemaining, plan.flightName.c_str());
+            }
             const auto updateCateringAndWater = [&](CateringWaterState& state,
                 float& timeRemaining, const char* aircraftName)
             {
@@ -2802,6 +2942,14 @@ int main()
                 gate1CateringWaterTimeRemaining, "Gate 1");
             updateCateringAndWater(eastWingCateringWater,
                 eastWingCateringWaterTimeRemaining, "East Wing Gate 1");
+            for (FlightPlan& plan : flights)
+            {
+                if (!plan.spawned) continue;
+                AircraftServiceProgress& progress =
+                    serviceProgressByFlight[plan.airplane.flightId];
+                updateCateringAndWater(progress.cateringWater,
+                    progress.cateringWaterTimeRemaining, plan.flightName.c_str());
+            }
             const auto updateMaintenanceInspection = [&](const char* gateId,
                 MaintenanceInspectionState& state, float& progress,
                 const Airplane& aircraft, const char* aircraftName)
@@ -3003,11 +3151,15 @@ int main()
                     }
                 }
             };
-            updateMaintenanceInspection("GATE_1", gate1MaintenanceInspection,
-                gate1MaintenanceProgress, staticGate1Aircraft, "Gate 1");
-            updateMaintenanceInspection("EAST_1", eastWingMaintenanceInspection,
-                eastWingMaintenanceProgress, staticEastWingAircraft,
-                "East Wing Gate 1");
+            for (FlightPlan& plan : flights)
+            {
+                if (!plan.spawned) continue;
+                AircraftServiceProgress& progress =
+                    serviceProgressByFlight[plan.airplane.flightId];
+                updateMaintenanceInspection(plan.parkingStandId.c_str(),
+                    progress.maintenance, progress.maintenanceProgress,
+                    plan.airplane, plan.flightName.c_str());
+            }
             const auto advancePassengerFlow = [&](const std::string& gateId,
                 const Airplane& aircraft, bool reversePath)
             {
@@ -3069,21 +3221,15 @@ int main()
                 boardingPassengers.clear();
                 passengerServiceCompletionMessage = std::string(aircraftName) +
                     " passenger " + serviceName + " complete.";
-                const bool gate1 = activePassengerServiceGate == "GATE_1";
-                startBoardingStairsReturn(gate1 ? staticGate1Aircraft :
-                    staticEastWingAircraft);
+                FlightPlan* plan = findParkedFlightAtGate(activePassengerServiceGate);
+                AircraftServiceProgress* progress =
+                    serviceProgressForGate(activePassengerServiceGate);
+                if (plan == nullptr || progress == nullptr) return;
+                startBoardingStairsReturn(plan->airplane);
                 if (serviceName[0] == 'b')
-                {
-                    if (gate1) gate1Boarding = BoardingState::ReturningStairs;
-                    else eastWingBoarding = BoardingState::ReturningStairs;
-                }
+                    progress->boarding = BoardingState::ReturningStairs;
                 else
-                {
-                    if (gate1) gate1Disembarking =
-                        DisembarkingState::ReturningStairs;
-                    else eastWingDisembarking =
-                        DisembarkingState::ReturningStairs;
-                }
+                    progress->disembarking = DisembarkingState::ReturningStairs;
             };
             if (gate1Boarding == BoardingState::Boarding)
             {
@@ -3125,6 +3271,30 @@ int main()
                     finishPassengerService("East Wing Gate 1", "disembarking");
                 }
             }
+            for (FlightPlan& plan : flights)
+            {
+                if (!plan.spawned || plan.airplane.state != AirplaneState::Parked)
+                    continue;
+                AircraftServiceProgress& progress =
+                    serviceProgressByFlight[plan.airplane.flightId];
+                const std::string& gateId = plan.parkingStandId;
+                if (progress.boarding == BoardingState::Boarding)
+                {
+                    advancePassengerFlow(gateId, plan.airplane, false);
+                    progress.boardingTimeRemaining = std::max(0.0f,
+                        progress.boardingTimeRemaining - deltaTime);
+                    if (progress.boardingTimeRemaining <= 0.0f)
+                        finishPassengerService(gateId.c_str(), "boarding");
+                }
+                if (progress.disembarking == DisembarkingState::Disembarking)
+                {
+                    advancePassengerFlow(gateId, plan.airplane, true);
+                    progress.disembarkingTimeRemaining = std::max(0.0f,
+                        progress.disembarkingTimeRemaining - deltaTime);
+                    if (progress.disembarkingTimeRemaining <= 0.0f)
+                        finishPassengerService(gateId.c_str(), "disembarking");
+                }
+            }
             const auto updateBoardingStairsReturn = [&](float frameTime)
             {
                 bool allReturned = passengerBoardingStairs.size() >= 2;
@@ -3151,20 +3321,13 @@ int main()
                 }
                 if (!allReturned) return;
 
-                const bool gate1 = activePassengerServiceGate == "GATE_1";
-                if (gate1)
+                if (AircraftServiceProgress* progress =
+                    serviceProgressForGate(activePassengerServiceGate))
                 {
-                    if (gate1Boarding == BoardingState::ReturningStairs)
-                        gate1Boarding = BoardingState::Complete;
-                    if (gate1Disembarking == DisembarkingState::ReturningStairs)
-                        gate1Disembarking = DisembarkingState::Complete;
-                }
-                else
-                {
-                    if (eastWingBoarding == BoardingState::ReturningStairs)
-                        eastWingBoarding = BoardingState::Complete;
-                    if (eastWingDisembarking == DisembarkingState::ReturningStairs)
-                        eastWingDisembarking = DisembarkingState::Complete;
+                    if (progress->boarding == BoardingState::ReturningStairs)
+                        progress->boarding = BoardingState::Complete;
+                    if (progress->disembarking == DisembarkingState::ReturningStairs)
+                        progress->disembarking = DisembarkingState::Complete;
                 }
                 activePassengerServiceGate.clear();
                 refuellingMessage = passengerServiceCompletionMessage;
@@ -3175,13 +3338,32 @@ int main()
                 gate1Disembarking == DisembarkingState::ReturningStairs ||
                 eastWingDisembarking == DisembarkingState::ReturningStairs)
                 updateBoardingStairsReturn(deltaTime);
+            if (!activePassengerServiceGate.empty())
+            {
+                AircraftServiceProgress* progress =
+                    serviceProgressForGate(activePassengerServiceGate);
+                if (progress != nullptr &&
+                    (progress->boarding == BoardingState::ReturningStairs ||
+                     progress->disembarking == DisembarkingState::ReturningStairs))
+                    updateBoardingStairsReturn(deltaTime);
+            }
             updateRefuelling(gate1RefuellingTimeRemaining,
                 gate1RefuellingFinished, "Gate 1", deltaTime);
             updateRefuelling(eastWingRefuellingTimeRemaining,
                 eastWingRefuellingFinished, "East Wing Gate 1", deltaTime);
+            for (FlightPlan& plan : flights)
+            {
+                if (!plan.spawned) continue;
+                AircraftServiceProgress& progress =
+                    serviceProgressByFlight[plan.airplane.flightId];
+                updateRefuelling(progress.refuellingTimeRemaining,
+                    progress.refuellingFinished, plan.flightName.c_str(), deltaTime);
+            }
             if (refuellingTankerMotion == RefuellingTankerMotion::Refuelling &&
-                ((activeRefuellingGate == "GATE_1" && gate1RefuellingFinished) ||
-                    (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
+                ((serviceProgressForGate(activeRefuellingGate) != nullptr &&
+                    serviceProgressForGate(activeRefuellingGate)->refuellingFinished) ||
+                 (activeRefuellingGate == "GATE_1" && gate1RefuellingFinished) ||
+                 (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
                 refuellingTankerMotion = RefuellingTankerMotion::ReturningBehindAircraft;
             updateTankerMotion(deltaTime);
             cameraController.Update(realDeltaTime);
@@ -3221,7 +3403,7 @@ int main()
             if (cameraController.IsGateViewActive())
             {
                 const bool departureAvailable =
-                    aircraftServicesComplete(selectedGateId);
+                    pushbackAvailableAtGate(selectedGateId);
                 const GateNavigationButtons buttons =
                     GetGateNavigationButtons(departureAvailable);
                 if (CheckCollisionPointRec(mouse, buttons.previous))
@@ -3233,112 +3415,77 @@ int main()
                 else if (departureAvailable &&
                     CheckCollisionPointRec(mouse, buttons.departure))
                 {
-                    if (selectedGateId == "GATE_1")
-                        startDepartureTugPositioning("GATE_1", staticGate1Aircraft);
-                    else if (selectedGateId == "EAST_1")
-                        startDepartureTugPositioning("EAST_1", staticEastWingAircraft);
-                }
-                else if (selectedGateId == "GATE_1" &&
-                    CheckCollisionPointRec(mouse, buttons.disembarkPassengers))
-                    startPassengerDisembarking("GATE_1", staticGate1Aircraft,
-                        gate1Disembarking, gate1DisembarkingTimeRemaining);
-                else if (selectedGateId == "EAST_1" &&
-                    CheckCollisionPointRec(mouse, buttons.disembarkPassengers))
-                    startPassengerDisembarking("EAST_1", staticEastWingAircraft,
-                        eastWingDisembarking, eastWingDisembarkingTimeRemaining);
-                else if (selectedGateId == "GATE_1" &&
-                    CheckCollisionPointRec(mouse, buttons.maintenanceInspection))
-                    startMaintenanceInspection("GATE_1", staticGate1Aircraft,
-                        gate1Disembarking == DisembarkingState::Complete,
-                        gate1MaintenanceInspection, gate1MaintenanceProgress);
-                else if (selectedGateId == "EAST_1" &&
-                    CheckCollisionPointRec(mouse, buttons.maintenanceInspection))
-                    startMaintenanceInspection("EAST_1", staticEastWingAircraft,
-                        eastWingDisembarking == DisembarkingState::Complete,
-                        eastWingMaintenanceInspection,
-                        eastWingMaintenanceProgress);
-                else if (selectedGateId == "GATE_1" &&
-                    CheckCollisionPointRec(mouse, buttons.refuelAircraft))
-                {
-                    if (gate1Disembarking != DisembarkingState::Complete)
+                    FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
+                    if (plan != nullptr && plan->departureFlight)
+                        startPushback(selectedGateId, *plan);
+                    else
                     {
-                        refuellingMessage = "Disembark passengers before refuelling.";
+                        refuellingMessage = "No departing aircraft is parked at this gate.";
                         refuellingMessageTime = 2.5f;
                     }
-                    else if (gate1MaintenanceInspection !=
-                        MaintenanceInspectionState::Complete)
+                }
+                else if (CheckCollisionPointRec(mouse, buttons.disembarkPassengers) ||
+                    CheckCollisionPointRec(mouse, buttons.maintenanceInspection) ||
+                    CheckCollisionPointRec(mouse, buttons.refuelAircraft) ||
+                    CheckCollisionPointRec(mouse, buttons.cateringAndWater) ||
+                    CheckCollisionPointRec(mouse, buttons.loadBaggage) ||
+                    CheckCollisionPointRec(mouse, buttons.boardPassengers))
+                {
+                    FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
+                    if (plan == nullptr)
                     {
-                        refuellingMessage = "Complete the maintenance inspection before refuelling.";
+                        refuellingMessage = "No parked aircraft is available at this gate.";
                         refuellingMessageTime = 2.5f;
                     }
                     else
-                    handleRefuellingClick("GATE_1", gate1RefuellingStarted,
-                        gate1RefuellingFinished, gate1RefuellingTimeRemaining,
-                        staticGate1Aircraft);
-                }
-                else if (selectedGateId == "EAST_1" &&
-                    CheckCollisionPointRec(mouse, buttons.refuelAircraft))
-                {
-                    if (eastWingDisembarking != DisembarkingState::Complete)
                     {
-                        refuellingMessage = "Disembark passengers before refuelling.";
-                        refuellingMessageTime = 2.5f;
+                        Airplane& aircraft = plan->airplane;
+                        AircraftServiceProgress& progress =
+                            serviceProgressByFlight[aircraft.flightId];
+                        if (CheckCollisionPointRec(mouse, buttons.disembarkPassengers))
+                            startPassengerDisembarking(selectedGateId, aircraft,
+                                progress.disembarking, progress.disembarkingTimeRemaining);
+                        else if (CheckCollisionPointRec(mouse, buttons.maintenanceInspection))
+                            startMaintenanceInspection(selectedGateId, aircraft,
+                                progress.disembarking == DisembarkingState::Complete,
+                                progress.maintenance, progress.maintenanceProgress);
+                        else if (CheckCollisionPointRec(mouse, buttons.refuelAircraft))
+                        {
+                            if (progress.disembarking != DisembarkingState::Complete)
+                            {
+                                refuellingMessage = "Disembark passengers before refuelling.";
+                                refuellingMessageTime = 2.5f;
+                            }
+                            else if (progress.maintenance != MaintenanceInspectionState::Complete)
+                            {
+                                refuellingMessage = "Complete the maintenance inspection before refuelling.";
+                                refuellingMessageTime = 2.5f;
+                            }
+                            else
+                                handleRefuellingClick(selectedGateId,
+                                    progress.refuellingStarted,
+                                    progress.refuellingFinished,
+                                    progress.refuellingTimeRemaining, aircraft);
+                        }
+                        else if (CheckCollisionPointRec(mouse, buttons.cateringAndWater))
+                            startCateringAndWater(selectedGateId, aircraft,
+                                progress.disembarking == DisembarkingState::Complete,
+                                progress.refuellingFinished, progress.cateringWater);
+                        else if (CheckCollisionPointRec(mouse, buttons.loadBaggage))
+                            startBaggageLoading(selectedGateId, aircraft,
+                                progress.refuellingFinished,
+                                progress.cateringWater == CateringWaterState::Complete,
+                                progress.disembarking == DisembarkingState::Complete,
+                                progress.baggage, progress.baggageTimeRemaining);
+                        else
+                            startPassengerBoarding(selectedGateId, aircraft,
+                                progress.disembarking == DisembarkingState::Complete,
+                                progress.refuellingFinished,
+                                progress.cateringWater == CateringWaterState::Complete,
+                                progress.baggage, progress.boarding,
+                                progress.boardingTimeRemaining);
                     }
-                    else if (eastWingMaintenanceInspection !=
-                        MaintenanceInspectionState::Complete)
-                    {
-                        refuellingMessage = "Complete the maintenance inspection before refuelling.";
-                        refuellingMessageTime = 2.5f;
-                    }
-                    else
-                    handleRefuellingClick("EAST_1", eastWingRefuellingStarted,
-                        eastWingRefuellingFinished, eastWingRefuellingTimeRemaining,
-                        staticEastWingAircraft);
                 }
-                else if ((selectedGateId == "GATE_1" || selectedGateId == "EAST_1") &&
-                    CheckCollisionPointRec(mouse, buttons.cateringAndWater))
-                {
-                    const bool isGate1 = selectedGateId == "GATE_1";
-                    startCateringAndWater(selectedGateId,
-                        isGate1 ? staticGate1Aircraft : staticEastWingAircraft,
-                        (isGate1 ? gate1Disembarking : eastWingDisembarking) ==
-                            DisembarkingState::Complete,
-                        isGate1 ? gate1RefuellingFinished :
-                            eastWingRefuellingFinished,
-                        isGate1 ? gate1CateringWater : eastWingCateringWater);
-                }
-                else if (selectedGateId == "GATE_1" &&
-                    CheckCollisionPointRec(mouse, buttons.loadBaggage))
-                    startBaggageLoading("GATE_1", staticGate1Aircraft,
-                        gate1RefuellingFinished,
-                        gate1CateringWater == CateringWaterState::Complete,
-                        gate1Disembarking == DisembarkingState::Complete,
-                        gate1BaggageLoading,
-                        gate1BaggageLoadingTimeRemaining);
-                else if (selectedGateId == "EAST_1" &&
-                    CheckCollisionPointRec(mouse, buttons.loadBaggage))
-                    startBaggageLoading("EAST_1", staticEastWingAircraft,
-                        eastWingRefuellingFinished,
-                        eastWingCateringWater == CateringWaterState::Complete,
-                        eastWingDisembarking == DisembarkingState::Complete,
-                        eastWingBaggageLoading,
-                        eastWingBaggageLoadingTimeRemaining);
-                else if (selectedGateId == "GATE_1" &&
-                    CheckCollisionPointRec(mouse, buttons.boardPassengers))
-                    startPassengerBoarding("GATE_1", staticGate1Aircraft,
-                        gate1Disembarking == DisembarkingState::Complete,
-                        gate1RefuellingFinished,
-                        gate1CateringWater == CateringWaterState::Complete,
-                        gate1BaggageLoading, gate1Boarding,
-                        gate1BoardingTimeRemaining);
-                else if (selectedGateId == "EAST_1" &&
-                    CheckCollisionPointRec(mouse, buttons.boardPassengers))
-                    startPassengerBoarding("EAST_1", staticEastWingAircraft,
-                        eastWingDisembarking == DisembarkingState::Complete,
-                        eastWingRefuellingFinished,
-                        eastWingCateringWater == CateringWaterState::Complete,
-                        eastWingBaggageLoading, eastWingBoarding,
-                        eastWingBoardingTimeRemaining);
                 else if (CheckCollisionPointRec(mouse, buttons.overview))
                 {
                     cameraController.ReturnToOverview();
@@ -3365,10 +3512,15 @@ int main()
                             selected.requestOrder = nextRequestOrder++;
                             taxiToStandQueue.push_back(static_cast<std::size_t>(selectedFlightIndex));
                         }
-                        else if (selected.airplane.state == AirplaneState::Parked && selected.departureFlight &&
-                            selected.departureTaxiWindowOpen && !selected.departureQueued &&
-                            selected.airplane.TransitionTo(AirplaneState::PreparingForDeparture))
-                            selected.preparationTime = 3.0f;
+                        else if (selected.airplane.state == AirplaneState::Parked &&
+                            selected.departureFlight &&
+                            selected.pushbackState == FlightPlan::PushbackState::Complete &&
+                            !selected.departureAuthorized)
+                        {
+                            selected.departureAuthorized = true;
+                            refuellingMessage = "Departure authorised at gate.";
+                            refuellingMessageTime = 3.0f;
+                        }
                         else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                         {
                             const auto runway = std::find_if(airportGround.GetRunways().begin(),
@@ -3470,6 +3622,12 @@ int main()
                     plan.departureScheduleReached = true;
                 plan.departureTaxiWindowOpen = shiftClockSeconds >= std::max(0.0f,
                     plan.departureScheduledSeconds - DepartureTaxiLeadSeconds);
+                if (airplane.state == AirplaneState::Parked &&
+                    plan.pushbackState == FlightPlan::PushbackState::Complete &&
+                    plan.departureAuthorized && plan.departureTaxiWindowOpen &&
+                    !plan.departureQueued &&
+                    airplane.TransitionTo(AirplaneState::PreparingForDeparture))
+                    plan.preparationTime = 3.0f;
             }
             if (!plan.spawned)
             {
@@ -3529,6 +3687,12 @@ int main()
                 !plan.taxiToStandQueued)
                 availableTask = "TAXI TO STAND";
             else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
+                plan.pushbackState == FlightPlan::PushbackState::Complete &&
+                !plan.departureAuthorized && aircraftServicesComplete(plan.parkingStandId))
+                availableTask = "AUTHORIZE DEPARTURE AT GATE";
+            else if (airplane.state == AirplaneState::Parked && plan.departureFlight &&
+                plan.pushbackState == FlightPlan::PushbackState::Complete &&
+                plan.departureAuthorized &&
                 plan.departureTaxiWindowOpen && !plan.departureQueued)
                 availableTask = "TAXI TO RUNWAY";
             else if (airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
@@ -3959,24 +4123,6 @@ int main()
         for (const FlightPlan& plan : flights)
             if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
                 plan.airplane.Draw(plan.airplane.renderScale);
-        staticGate1Aircraft.Draw(staticGate1Aircraft.renderScale);
-        staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
-        if (pushbackTugPositioningGate == "GATE_1" &&
-            pushbackTugMotion == PushbackTugMotion::InPosition)
-        {
-            // The tug sits low beneath the aircraft nose; redraw the aircraft
-            // last so its silhouette visibly occludes the tug in top-down view.
-            rlDisableDepthTest();
-            staticGate1Aircraft.Draw(staticGate1Aircraft.renderScale);
-            rlEnableDepthTest();
-        }
-        else if (pushbackTugPositioningGate == "EAST_1" &&
-            pushbackTugMotion == PushbackTugMotion::InPosition)
-        {
-            rlDisableDepthTest();
-            staticEastWingAircraft.Draw(staticEastWingAircraft.renderScale);
-            rlEnableDepthTest();
-        }
         for (const BoardingPassenger& passenger : boardingPassengers)
             DrawBoardingPassenger(passenger, static_cast<float>(GetTime()));
         for (const BoardingPassenger& technician : maintenanceTechnicians)
@@ -4041,18 +4187,20 @@ int main()
                     static_cast<int>(center.y + 13.0f), 8,
                     Color{227, 255, 233, 255});
             };
-            if (!aircraftServicesComplete("GATE_1"))
-                drawServiceNeededMarker(staticGate1Aircraft);
-            else
-                drawDepartureReadyMarker(staticGate1Aircraft);
-            if (!aircraftServicesComplete("EAST_1"))
-                drawServiceNeededMarker(staticEastWingAircraft);
-            else
-                drawDepartureReadyMarker(staticEastWingAircraft);
+            for (const FlightPlan& plan : flights)
+            {
+                if (!plan.spawned || plan.airplane.state != AirplaneState::Parked)
+                    continue;
+                if (!aircraftServicesComplete(plan.parkingStandId))
+                    drawServiceNeededMarker(plan.airplane);
+                else
+                    drawDepartureReadyMarker(plan.airplane);
+            }
         }
-        const bool cateringWaterActive =
-            gate1CateringWater == CateringWaterState::Working ||
-            eastWingCateringWater == CateringWaterState::Working;
+        const bool cateringWaterActive = std::any_of(
+            serviceProgressByFlight.begin(), serviceProgressByFlight.end(),
+            [](const auto& entry)
+            { return entry.second.cateringWater == CateringWaterState::Working; });
         if (cateringWaterActive && !cateringTrucks.empty() &&
             !waterServiceTrucks.empty())
         {
@@ -4076,9 +4224,10 @@ int main()
             drawWorkingIndicator(waterServiceTrucks.front().GetPosition(),
                 "WATER", Color{107, 213, 241, 255});
         }
-        const bool baggageLoadingActive =
-            gate1BaggageLoading == BaggageLoadingState::Loading ||
-            eastWingBaggageLoading == BaggageLoadingState::Loading;
+        const bool baggageLoadingActive = std::any_of(
+            serviceProgressByFlight.begin(), serviceProgressByFlight.end(),
+            [](const auto& entry)
+            { return entry.second.baggage == BaggageLoadingState::Loading; });
         if (baggageLoadingActive)
         {
             const Vector2 start = ProjectAirportPoint(
@@ -4101,10 +4250,12 @@ int main()
                     Color{255, 224, 157, 255});
             }
         }
-        if ((gate1Boarding == BoardingState::Boarding ||
-            eastWingBoarding == BoardingState::Boarding ||
-            gate1Disembarking == DisembarkingState::Disembarking ||
-            eastWingDisembarking == DisembarkingState::Disembarking) &&
+        const bool passengerServiceActive = std::any_of(
+            serviceProgressByFlight.begin(), serviceProgressByFlight.end(),
+            [](const auto& entry)
+            { return entry.second.boarding == BoardingState::Boarding ||
+                entry.second.disembarking == DisembarkingState::Disembarking; });
+        if (passengerServiceActive &&
             passengerBoardingStairs.size() >= 2)
         {
             const float pulse = 0.5f + 0.5f * std::sin(
@@ -4119,9 +4270,11 @@ int main()
                 DrawCircleLines(static_cast<int>(center.x),
                     static_cast<int>(center.y), 6.0f + pulse * 2.0f,
                     Color{117, 205, 239, 255});
-                const bool disembarking =
-                    gate1Disembarking == DisembarkingState::Disembarking ||
-                    eastWingDisembarking == DisembarkingState::Disembarking;
+                const bool disembarking = std::any_of(
+                    serviceProgressByFlight.begin(), serviceProgressByFlight.end(),
+                    [](const auto& entry)
+                    { return entry.second.disembarking ==
+                        DisembarkingState::Disembarking; });
                 const char* passengerAction = disembarking ? "EXITING" : "BOARDING";
                 DrawText(passengerAction, static_cast<int>(center.x - 27.0f),
                     static_cast<int>(center.y - 20.0f), 8,
@@ -4138,7 +4291,7 @@ int main()
             else if (selectedGateId.rfind("GATE_", 0) == 0)
                 gateLabel = "GATE " + selectedGateId.substr(5);
             const bool departureAvailable =
-                aircraftServicesComplete(selectedGateId);
+                pushbackAvailableAtGate(selectedGateId);
             const GateNavigationButtons buttons =
                 GetGateNavigationButtons(departureAvailable);
             DrawGateNavigationButton(buttons.previous, "PREV GATE");
@@ -4147,38 +4300,24 @@ int main()
             DrawGateNavigationButton(buttons.bringServiceCrew, "Bring Service Crew");
             if (departureAvailable)
                 DrawDepartureButton(buttons.departure);
-            if (selectedGateId == "GATE_1" || selectedGateId == "EAST_1")
+            if (findParkedFlightAtGate(selectedGateId) != nullptr)
             {
-                const bool isGate1 = selectedGateId == "GATE_1";
-                const bool fuelFinished = isGate1 ? gate1RefuellingFinished :
-                    eastWingRefuellingFinished;
-                const bool fuelStarted = isGate1 ? gate1RefuellingStarted :
-                    eastWingRefuellingStarted;
-                const float fuelRemaining = isGate1 ? gate1RefuellingTimeRemaining :
-                    eastWingRefuellingTimeRemaining;
-                const DisembarkingState disembarkingState = isGate1 ?
-                    gate1Disembarking : eastWingDisembarking;
-                const float disembarkingRemaining = isGate1 ?
-                    gate1DisembarkingTimeRemaining :
-                    eastWingDisembarkingTimeRemaining;
-                const MaintenanceInspectionState maintenanceState = isGate1 ?
-                    gate1MaintenanceInspection : eastWingMaintenanceInspection;
-                const float maintenanceProgress = isGate1 ?
-                    gate1MaintenanceProgress : eastWingMaintenanceProgress;
-                const BaggageLoadingState baggageState = isGate1 ?
-                    gate1BaggageLoading : eastWingBaggageLoading;
-                const float baggageRemaining = isGate1 ?
-                    gate1BaggageLoadingTimeRemaining :
-                    eastWingBaggageLoadingTimeRemaining;
-                const CateringWaterState cateringWaterState = isGate1 ?
-                    gate1CateringWater : eastWingCateringWater;
-                const float cateringWaterRemaining = isGate1 ?
-                    gate1CateringWaterTimeRemaining :
-                    eastWingCateringWaterTimeRemaining;
-                const BoardingState boardingState = isGate1 ?
-                    gate1Boarding : eastWingBoarding;
-                const float boardingRemaining = isGate1 ?
-                    gate1BoardingTimeRemaining : eastWingBoardingTimeRemaining;
+                const AircraftServiceProgress& progress =
+                    serviceProgressByFlight[findParkedFlightAtGate(
+                        selectedGateId)->airplane.flightId];
+                const bool fuelFinished = progress.refuellingFinished;
+                const bool fuelStarted = progress.refuellingStarted;
+                const float fuelRemaining = progress.refuellingTimeRemaining;
+                const DisembarkingState disembarkingState = progress.disembarking;
+                const float disembarkingRemaining = progress.disembarkingTimeRemaining;
+                const MaintenanceInspectionState maintenanceState = progress.maintenance;
+                const float maintenanceProgress = progress.maintenanceProgress;
+                const BaggageLoadingState baggageState = progress.baggage;
+                const float baggageRemaining = progress.baggageTimeRemaining;
+                const CateringWaterState cateringWaterState = progress.cateringWater;
+                const float cateringWaterRemaining = progress.cateringWaterTimeRemaining;
+                const BoardingState boardingState = progress.boarding;
+                const float boardingRemaining = progress.boardingTimeRemaining;
                 std::string disembarkLabel = "DISEMBARK PAX";
                 float disembarkProgress = -1.0f;
                 if (disembarkingState == DisembarkingState::Disembarking)
@@ -4598,7 +4737,10 @@ int main()
             const char* command = selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization ?
                 (selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND") :
                 (selected.airplane.state == AirplaneState::Parked && selected.departureFlight ?
-                    (selected.departureTaxiWindowOpen ? "AUTHORIZE TAXI TO RUNWAY" :
+                    (selected.pushbackState != FlightPlan::PushbackState::Complete ?
+                        "PUSHBACK REQUIRED" :
+                     !selected.departureAuthorized ? "AUTHORIZE DEPARTURE AT GATE" :
+                     selected.departureTaxiWindowOpen ? "DEPARTURE AUTHORISED" :
                         TextFormat("TAXI OUT OPENS %s",
                             FormatShiftTime(std::max(0.0f, selected.departureScheduledSeconds -
                                 DepartureTaxiLeadSeconds)).c_str())) :
