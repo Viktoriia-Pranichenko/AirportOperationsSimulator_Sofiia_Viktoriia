@@ -22,6 +22,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1070,19 +1071,19 @@ namespace
         };
         drawScenarioCard({scenarioX, scenarioY, scenarioCardWidth, 92.0f},
             "06:00  /  MORNING", "Start safely",
-            "Complete the 3-flight wave",
-            "safely and on schedule.",
+            "Clear the morning arrival wave",
+            "and keep stands turning over.",
             Color{245, 190, 107, 255});
         drawScenarioCard({scenarioX + scenarioCardWidth + scenarioGap,
             scenarioY, scenarioCardWidth, 92.0f},
             "09:00  /  BUSY PERIOD", "Keep traffic moving",
-            "Handle 4 flights as Taxiway A",
-            "west closes; share the open route.",
+            "Work the midday peak while",
+            "Taxiway A west is closed.",
             Color{93, 208, 222, 255});
         drawScenarioCard({scenarioX + (scenarioCardWidth + scenarioGap) * 2.0f,
             scenarioY, scenarioCardWidth, 92.0f},
             "17:00  /  EVENING", "Protect the priority",
-            "Depart AO900 by 19:02",
+            "Depart AO900 by 19:00",
             "for its on-time bonus.",
             Color{190, 155, 240, 255});
 
@@ -1287,22 +1288,170 @@ int main()
     // Inbound flights enter on separate runways and use the existing graph to
     // reach different stands. Route nodes also include the curved taxiway
     // samples, so the aircraft can follow the authored bends smoothly.
-    // Edit these minute offsets to configure the shift's scheduled inbound flights.
+    //
+    // The shift is built from five overlapping waves. Arrivals cluster a few
+    // minutes apart inside each wave, then their scheduled departures keep the
+    // apron busy while the next wave is inbound. GATE_1 and EAST_1 stay
+    // occupied by the static aircraft, so player traffic uses the remaining
+    // eight stands and every configured preferred stand is unique to the time
+    // window in which its flight is on the ground.
+    // Edit these minute offsets to retime the shift.
+    const auto findParkingStand = [&terminal](const std::string& standId)
+        -> const AirportParkingStand*
+    {
+        for (const AirportParkingStand& stand : terminal.GetParkingStands())
+            if (stand.id == standId) return &stand;
+        return nullptr;
+    };
+    const auto runwayExists = [&airportGround](const std::string& runwayId)
+    {
+        return std::any_of(airportGround.GetRunways().begin(),
+            airportGround.GetRunways().end(),
+            [&runwayId](const AirportRunway& runway) { return runway.id == runwayId; });
+    };
+    // These two stands are occupied by the static gate aircraft for the whole
+    // shift, so no scheduled flight may claim them.
+    const std::unordered_set<std::string> permanentlyOccupiedStandIds{
+        "GATE_1", "EAST_1"};
+    // A departure taxi request opens this far ahead of its scheduled slot so
+    // the player can sequence aircraft through the stand and taxiway network.
+    constexpr float DepartureTaxiLeadMinutes = 25.0f;
+    constexpr float DepartureTaxiLeadSeconds = DepartureTaxiLeadMinutes * 60.0f;
+    // Reject duplicate flight numbers up front: one flight number must never
+    // produce two independent aircraft or two reservations.
+    std::unordered_set<std::string> scheduledFlightIds;
+    const auto claimFlightId = [&scheduledFlightIds](const char* flightId)
+    {
+        return flightId != nullptr && flightId[0] != '\0' &&
+            scheduledFlightIds.insert(flightId).second;
+    };
+
     struct ArrivalScheduleEntry { const char* flight; const char* name; const char* airline;
         const char* origin; const char* destination; Color livery; const char* type; const char* approach;
         AircraftSize size; const char* runwayId; const char* runwayStart; const char* stand; float runwayZ;
         float arrivalMinute; float departureMinute; bool priority; int scenarioStage; };
     const ArrivalScheduleEntry arrivals[] = {
-        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)", {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_1", -507.0f, 0.0f, 75.0f, false, 0},
-        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)", {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "WEST_2", -642.0f, 30.0f, 120.0f, false, 0},
-        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)", {211, 185, 76, 255}, "Cargo jet", "APPROACH_C_E", AircraftSize::Large, "RUNWAY_C", "RUNWAY_C_END_E", "EAST_3", -777.0f, 195.0f, 300.0f, false, 1},
-        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)", {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large, "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 270.0f, 390.0f, false, 1},
-        {"AO708", "Crosswind 708", "Coastal Air", "Edinburgh (EDI)", "Cork (ORK)", {74, 161, 126, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Small, "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 360.0f, 480.0f, false, 1},
-        {"AO731", "Regional 731", "Meridian Air", "Manchester (MAN)", "Galway (GWY)", {182, 126, 66, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small, "RUNWAY_B", "RUNWAY_B_END_E", "EAST_4", -642.0f, 540.0f, 630.0f, false, 1},
-        {"AO900", "Evening Priority 900", "Northstar Air", "Paris (CDG)", "Dublin (DUB)", {198, 91, 67, 255}, "Passenger jet", "APPROACH_B_E", AircraftSize::Large, "RUNWAY_B", "RUNWAY_B_END_E", "EAST_2", -642.0f, 690.0f, 780.0f, true, 2}
+        // Morning wave: five arrivals inside the first hour while AO440 spawns
+        // parked and waits for its taxi-out window.
+        {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)",
+            {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
+            "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 0.0f, 75.0f, false, 0},
+        {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)",
+            {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small,
+            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 7.0f, 92.0f, false, 0},
+        {"AO214", "Harbour 214", "Northstar Air", "Aberdeen (ABZ)", "Dublin (DUB)",
+            {52, 164, 198, 255}, "Regional jet", "APPROACH_C_E", AircraftSize::Small,
+            "RUNWAY_C", "RUNWAY_C_END_E", "GATE_3", -777.0f, 14.0f, 104.0f, false, 0},
+        {"AO512", "Skyline 512", "Skyline Airways", "Bristol (BRS)", "Amsterdam (AMS)",
+            {98, 174, 128, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
+            "RUNWAY_A", "RUNWAY_END_E", "EAST_2", -507.0f, 22.0f, 118.0f, false, 0},
+        {"AO317", "Freightliner 317", "CargoLink", "Frankfurt (FRA)", "Prague (PRG)",
+            {211, 185, 76, 255}, "Cargo jet", "APPROACH_B_E", AircraftSize::Large,
+            "RUNWAY_B", "RUNWAY_B_END_E", "WEST_3", -642.0f, 38.0f, 140.0f, false, 0},
+
+        // Late-morning wave: overlaps the morning departures and runs into the
+        // 09:00 stage boundary.
+        {"AO708", "Crosswind 708", "Coastal Air", "Edinburgh (EDI)", "Cork (ORK)",
+            {74, 161, 126, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Small,
+            "RUNWAY_A", "RUNWAY_END_E", "GATE_4", -507.0f, 105.0f, 185.0f, false, 1},
+        {"AO731", "Regional 731", "Meridian Air", "Manchester (MAN)", "Galway (GWY)",
+            {182, 126, 66, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small,
+            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 118.0f, 198.0f, false, 1},
+        {"AO350", "Highland 350", "Coastal Air", "Inverness (INV)", "Cork (ORK)",
+            {88, 138, 108, 255}, "Passenger jet", "APPROACH_C_E", AircraftSize::Large,
+            "RUNWAY_C", "RUNWAY_C_END_E", "EAST_3", -777.0f, 132.0f, 212.0f, false, 1},
+        {"AO377", "Atlas 377", "Skyline Airways", "Berlin (BER)", "Amsterdam (AMS)",
+            {86, 150, 190, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
+            "RUNWAY_A", "RUNWAY_END_E", "WEST_2", -507.0f, 146.0f, 226.0f, false, 1},
+
+        // Midday peak: the arrival and departure bank straddles the Taxiway A
+        // west closure, so several flights queue for stands and the open route.
+        {"AO531", "Cargo 531", "CargoLink", "Leipzig (LEJ)", "Prague (PRG)",
+            {196, 172, 82, 255}, "Cargo jet", "APPROACH_B_E", AircraftSize::Large,
+            "RUNWAY_B", "RUNWAY_B_END_E", "EAST_2", -642.0f, 215.0f, 330.0f, false, 1},
+        {"AO548", "Metro 548", "Skyline Airways", "Leeds (LBA)", "Amsterdam (AMS)",
+            {102, 174, 142, 255}, "Regional jet", "APPROACH_A_E", AircraftSize::Small,
+            "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 228.0f, 342.0f, false, 1},
+        {"AO560", "Northwind 560", "Northstar Air", "Stockholm (ARN)", "Dublin (DUB)",
+            {44, 136, 176, 255}, "Passenger jet", "APPROACH_C_E", AircraftSize::Large,
+            "RUNWAY_C", "RUNWAY_C_END_E", "WEST_3", -777.0f, 241.0f, 355.0f, false, 1},
+        {"AO575", "Breeze 575", "Coastal Air", "Newcastle (NCL)", "Cork (ORK)",
+            {70, 158, 128, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small,
+            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_4", -642.0f, 254.0f, 368.0f, false, 1},
+        {"AO605", "Meridian 605", "Meridian Air", "Glasgow (GLA)", "Oslo (OSL)",
+            {150, 120, 90, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
+            "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 267.0f, 380.0f, false, 1},
+
+        // Afternoon wave: keeps the apron active between the midday departure
+        // bank and the evening priority arrival.
+        {"AO640", "Sunset 640", "Northstar Air", "Malaga (AGP)", "Dublin (DUB)",
+            {198, 118, 92, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
+            "RUNWAY_A", "RUNWAY_END_E", "EAST_2", -507.0f, 405.0f, 540.0f, false, 1},
+        {"AO655", "Silver 655", "Skyline Airways", "Paris (CDG)", "Amsterdam (AMS)",
+            {126, 158, 190, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small,
+            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 433.0f, 552.0f, false, 1},
+        {"AO670", "Cargo 670", "CargoLink", "Milan (MXP)", "Prague (PRG)",
+            {188, 160, 70, 255}, "Cargo jet", "APPROACH_C_E", AircraftSize::Large,
+            "RUNWAY_C", "RUNWAY_C_END_E", "WEST_2", -777.0f, 446.0f, 565.0f, false, 1},
+        {"AO685", "Coastal 685", "Coastal Air", "Bristol (BRS)", "Cork (ORK)",
+            {82, 150, 118, 255}, "Regional jet", "APPROACH_A_E", AircraftSize::Small,
+            "RUNWAY_A", "RUNWAY_END_E", "GATE_4", -507.0f, 460.0f, 578.0f, false, 1},
+
+        // Evening wave: the priority flight lands while three other aircraft
+        // are turning around for the last departure bank.
+        {"AO860", "Evening 860", "Skyline Airways", "Vienna (VIE)", "Amsterdam (AMS)",
+            {90, 164, 196, 255}, "Passenger jet", "APPROACH_C_E", AircraftSize::Large,
+            "RUNWAY_C", "RUNWAY_C_END_E", "EAST_2", -777.0f, 600.0f, 700.0f, false, 2},
+        {"AO900", "Evening Priority 900", "Northstar Air", "Paris (CDG)", "Dublin (DUB)",
+            {198, 91, 67, 255}, "Passenger jet", "APPROACH_B_E", AircraftSize::Large,
+            "RUNWAY_B", "RUNWAY_B_END_E", "EAST_3", -642.0f, 690.0f, 780.0f, true, 2},
+        {"AO920", "Late 920", "Coastal Air", "Exeter (EXT)", "Cork (ORK)",
+            {76, 164, 132, 255}, "Regional jet", "APPROACH_A_E", AircraftSize::Small,
+            "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 705.0f, 795.0f, false, 2},
+        {"AO940", "Nightfall 940", "Northstar Air", "Lisbon (LIS)", "Dublin (DUB)",
+            {188, 104, 84, 255}, "Passenger jet", "APPROACH_C_E", AircraftSize::Large,
+            "RUNWAY_C", "RUNWAY_C_END_E", "WEST_1", -777.0f, 720.0f, 810.0f, false, 2}
     };
     for (const ArrivalScheduleEntry& setup : arrivals)
     {
+        if (!claimFlightId(setup.flight))
+        {
+            TraceLog(LOG_WARNING,
+                "SCHEDULE: duplicate or empty arrival flight id '%s' ignored",
+                setup.flight != nullptr ? setup.flight : "");
+            continue;
+        }
+        const TaxiwayNode* approach = airportGround.FindNode(setup.approach);
+        const AirportParkingStand* preferredStand = findParkingStand(setup.stand);
+        const std::string departureHoldNodeId = std::string(setup.runwayId) == "RUNWAY_A" ?
+            "A_HOLD_E" : (std::string(setup.runwayId) == "RUNWAY_B" ?
+                "AB_LOWER_HOLD_E" : "BC_LOWER_HOLD_E");
+        if (approach == nullptr || preferredStand == nullptr ||
+            permanentlyOccupiedStandIds.count(setup.stand) != 0 ||
+            !runwayExists(setup.runwayId) ||
+            airportGround.FindNode(setup.runwayStart) == nullptr ||
+            airportGround.FindNode(departureHoldNodeId) == nullptr)
+        {
+            TraceLog(LOG_WARNING,
+                "SCHEDULE: arrival '%s' references an unknown node, runway or stand",
+                setup.flight);
+            continue;
+        }
+        if (setup.size == AircraftSize::Large &&
+            preferredStand->size != AircraftSize::Large)
+        {
+            TraceLog(LOG_WARNING,
+                "SCHEDULE: large arrival '%s' prefers small stand '%s'",
+                setup.flight, setup.stand);
+        }
+        if (setup.departureMinute <= setup.arrivalMinute +
+            DepartureTaxiLeadMinutes)
+        {
+            TraceLog(LOG_WARNING,
+                "SCHEDULE: arrival '%s' turnaround is shorter than its taxi window",
+                setup.flight);
+        }
+
         FlightPlan plan;
         plan.airplane.flightId = setup.flight;
         plan.airplane.aircraftType = setup.type;
@@ -1313,8 +1462,6 @@ int main()
         plan.destination = setup.destination;
         plan.livery = setup.livery;
         plan.airplane.liveryColor = setup.livery;
-        const TaxiwayNode* approach = airportGround.FindNode(setup.approach);
-        if (approach == nullptr) continue;
         plan.airplane.position = {approach->position.x, approach->position.z};
         plan.airplane.headingDegrees = 90.0f;
         plan.airplane.renderScale = setup.size == AircraftSize::Large ? 0.21f : 0.17f;
@@ -1327,24 +1474,17 @@ int main()
         plan.parkingStandId = setup.stand;
         plan.runwayId = setup.runwayId;
         plan.departureRunwayStart = setup.runwayStart;
-        plan.departureHoldNodeId = std::string(setup.runwayId) == "RUNWAY_A" ?
-            "A_HOLD_E" : (std::string(setup.runwayId) == "RUNWAY_B" ?
-                "AB_LOWER_HOLD_E" : "BC_LOWER_HOLD_E");
+        plan.departureHoldNodeId = departureHoldNodeId;
         plan.runwayZ = setup.runwayZ;
         plan.departureFlight = true;
-        for (const AirportParkingStand& stand : terminal.GetParkingStands())
-        {
-            if (stand.id == plan.parkingStandId)
-            {
-                plan.parkingHeadingDegrees = stand.headingDegrees;
-                break;
-            }
-        }
+        plan.parkingHeadingDegrees = preferredStand->headingDegrees;
         plan.arrivalFlight = false;
         flights.push_back(std::move(plan));
     }
 
     // Edit these entries to configure departures that begin parked at a stand.
+    // Each one spawns when its taxi window opens, but only after the stand is
+    // actually vacant (see the guarded spawn in the update loop).
     struct DepartureScheduleEntry
     {
         const char* flight;
@@ -1359,16 +1499,45 @@ int main()
         const char* runwayStart;
         const char* departureHold;
         float departureMinute;
+        int scenarioStage;
     };
     const DepartureScheduleEntry departures[] = {
         {"AO440", "Coastal 440", "Coastal Air", "Airport (HOME)", "Oslo (OSL)",
             {87, 158, 192, 255}, "Narrow-body jet", "GATE_4", "RUNWAY_A",
-            "RUNWAY_END_E", "A_HOLD_E", 90.0f}
+            "RUNWAY_END_E", "A_HOLD_E", 50.0f, 0},
+        {"AO365", "Sunrise 365", "Meridian Air", "Airport (HOME)", "Copenhagen (CPH)",
+            {208, 142, 72, 255}, "Narrow-body jet", "GATE_3", "RUNWAY_A",
+            "RUNWAY_END_E", "A_HOLD_E", 168.0f, 0},
+        {"AO590", "Meridian 590", "Meridian Air", "Airport (HOME)", "Stockholm (ARN)",
+            {184, 128, 68, 255}, "Narrow-body jet", "GATE_3", "RUNWAY_A",
+            "RUNWAY_END_E", "A_HOLD_E", 300.0f, 1},
+        {"AO700", "Meridian 700", "Meridian Air", "Airport (HOME)", "Oslo (OSL)",
+            {196, 136, 80, 255}, "Narrow-body jet", "GATE_3", "RUNWAY_B",
+            "RUNWAY_B_END_E", "AB_LOWER_HOLD_E", 520.0f, 1}
     };
     for (const DepartureScheduleEntry& setup : departures)
     {
+        if (!claimFlightId(setup.flight))
+        {
+            TraceLog(LOG_WARNING,
+                "SCHEDULE: duplicate or empty departure flight id '%s' ignored",
+                setup.flight != nullptr ? setup.flight : "");
+            continue;
+        }
         const TaxiwayNode* stand = airportGround.FindNode(setup.stand);
-        if (stand == nullptr) continue;
+        const AirportParkingStand* parkingStand = findParkingStand(setup.stand);
+        if (stand == nullptr || parkingStand == nullptr ||
+            permanentlyOccupiedStandIds.count(setup.stand) != 0 ||
+            !runwayExists(setup.runwayId) ||
+            airportGround.FindNode(setup.runwayStart) == nullptr ||
+            airportGround.FindNode(setup.departureHold) == nullptr)
+        {
+            TraceLog(LOG_WARNING,
+                "SCHEDULE: departure '%s' references an unknown node, runway or stand",
+                setup.flight);
+            continue;
+        }
+
         FlightPlan plan;
         plan.airplane.flightId = setup.flight;
         plan.airplane.aircraftType = setup.type;
@@ -1383,16 +1552,9 @@ int main()
         plan.airplane.headingDegrees = 180.0f;
         plan.airplane.state = AirplaneState::Parked;
         plan.airplane.renderScale = 0.17f;
-        for (const AirportParkingStand& parkingStand : terminal.GetParkingStands())
-        {
-            if (parkingStand.id == setup.stand)
-            {
-                plan.parkingHeadingDegrees = parkingStand.headingDegrees;
-                break;
-            }
-        }
+        plan.parkingHeadingDegrees = parkingStand->headingDegrees;
         plan.departureFlight = true;
-        plan.scenarioStage = 0;
+        plan.scenarioStage = setup.scenarioStage;
         plan.departureScheduledSeconds = setup.departureMinute * 60.0f;
         plan.parkingStandId = setup.stand;
         plan.runwayId = setup.runwayId;
@@ -1400,6 +1562,59 @@ int main()
         plan.departureHoldNodeId = setup.departureHold;
         flights.push_back(std::move(plan));
     }
+    TraceLog(LOG_INFO, "SCHEDULE: loaded %d aircraft (%d arrivals, %d departures)",
+        static_cast<int>(flights.size()),
+        static_cast<int>(std::count_if(flights.begin(), flights.end(),
+            [](const FlightPlan& plan) { return plan.hasArrivalSchedule; })),
+        static_cast<int>(std::count_if(flights.begin(), flights.end(),
+            [](const FlightPlan& plan) { return plan.departureFlight; })));
+
+    // The schedule panel geometry is shared by the click handler and the
+    // renderer so a row hit always matches the row that was drawn.
+    constexpr int SchedulePanelX = 16;
+    constexpr int SchedulePanelY = 16;
+    constexpr int SchedulePanelWidth = 380;
+    constexpr int ScheduleHeaderHeight = 30;
+    constexpr int ScheduleRowHeight = 20;
+    const auto scheduleRowCapacity = []()
+    {
+        return std::max(1, (GetScreenHeight() - SchedulePanelY - 12 -
+            ScheduleHeaderHeight) / ScheduleRowHeight);
+    };
+    // Upcoming and active flights sort first; completed flights fall to the end.
+    const auto buildScheduleOrder = [&flights]()
+    {
+        std::vector<std::size_t> order(flights.size());
+        for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+        const auto nextScheduleTime = [](const FlightPlan& plan)
+        {
+            if (plan.airplane.state == AirplaneState::Departed)
+                return std::numeric_limits<float>::infinity();
+            if (!plan.spawned)
+                return plan.hasArrivalSchedule ? plan.arrivalScheduledSeconds :
+                    plan.departureScheduledSeconds;
+            // Keep an inbound aircraft at the top of the list until it parks;
+            // after that its departure slot is the next event to watch.
+            if (plan.arrivalFlight)
+                return plan.arrivalScheduledSeconds;
+            return plan.departureFlight ? plan.departureScheduledSeconds :
+                std::numeric_limits<float>::infinity();
+        };
+        std::stable_sort(order.begin(), order.end(),
+            [&flights, &nextScheduleTime](std::size_t left, std::size_t right)
+            {
+                return nextScheduleTime(flights[left]) < nextScheduleTime(flights[right]);
+            });
+        return order;
+    };
+    // Leading rows that fit; one row is reserved for an overflow summary.
+    const auto visibleScheduleRows = [&flights, &scheduleRowCapacity]()
+    {
+        const int capacity = scheduleRowCapacity();
+        int rows = std::min(static_cast<int>(flights.size()), capacity);
+        if (rows < static_cast<int>(flights.size()) && rows > 0) --rows;
+        return rows;
+    };
 
     std::deque<std::size_t> arrivalQueue;
     std::deque<std::size_t> taxiToStandQueue;
@@ -1585,7 +1800,6 @@ int main()
     Vector2 refuellingTankerAircraftPosition{};
     constexpr float SimulationSpeed = 4.0f;
     constexpr float ShiftClockRate = 15.0f; // Combined rate is 60 shift seconds per real second.
-    constexpr float DepartureTaxiLeadSeconds = 25.0f * 60.0f;
     constexpr float PriorityTaskResponseSeconds = 10.0f * 60.0f;
     const auto sectionKey = [](const std::string& first, const std::string& second)
     {
@@ -3494,8 +3708,19 @@ int main()
             }
             else
             {
+                const int scheduleFlightRows = visibleScheduleRows();
+                const bool scheduleOverflow =
+                    static_cast<int>(flights.size()) > scheduleFlightRows;
+                const int schedulePanelRows =
+                    scheduleFlightRows + (scheduleOverflow ? 1 : 0);
+                const Rectangle schedulePanelBounds{
+                    static_cast<float>(SchedulePanelX),
+                    static_cast<float>(SchedulePanelY),
+                    static_cast<float>(SchedulePanelWidth),
+                    static_cast<float>(ScheduleHeaderHeight +
+                        schedulePanelRows * ScheduleRowHeight)};
                 const bool clickedSchedulePanel =
-                    mouse.x <= 406.0f && mouse.y >= 16.0f && mouse.y <= 172.0f;
+                    CheckCollisionPointRec(mouse, schedulePanelBounds);
                 const int rightPanelLeft = GetScreenWidth() - 326;
                 const bool clickedInfoPanel = selectedFlightIndex >= 0 &&
                     mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
@@ -3505,7 +3730,12 @@ int main()
                     FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
                     if (CheckCollisionPointRec(mouse, taxiButton))
                     {
-                        if (selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization &&
+                        if (!selected.spawned)
+                        {
+                            // The flight has not appeared on the ground yet;
+                            // it cannot accept a taxi or take-off command.
+                        }
+                        else if (selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization &&
                             !selected.taxiToStandQueued)
                         {
                             selected.taxiToStandQueued = true;
@@ -3528,7 +3758,9 @@ int main()
                                 { return item.id == selected.runwayId; });
                             const auto route = airportGround.FindRouteNodeIds(
                                 selected.departureHoldNodeId, selected.departureRunwayStart,
-                                routePurposeForTraffic(TaxiRoutePurpose::Departure));
+                                // Take-off clearance must enter the runway even
+                                // while a taxiway closure diverts surface traffic.
+                                TaxiRoutePurpose::Departure);
                             if (runway != airportGround.GetRunways().end() && runway->available &&
                                 runwayOwners.find(selected.runwayId) == runwayOwners.end() &&
                                 routeCanBeReserved(route, selected.airplane.flightId))
@@ -3558,7 +3790,25 @@ int main()
                         }
                     }
                 }
-                else if (!clickedSchedulePanel)
+                else if (clickedSchedulePanel)
+                {
+                    // Clicking a flight row is the fastest way to select an
+                    // aircraft when several are on the ground at once.
+                    const int row = static_cast<int>((mouse.y -
+                        static_cast<float>(SchedulePanelY + ScheduleHeaderHeight)) /
+                        static_cast<float>(ScheduleRowHeight));
+                    if (row >= 0 && row < scheduleFlightRows)
+                    {
+                        const std::vector<std::size_t> order = buildScheduleOrder();
+                        if (row < static_cast<int>(order.size()))
+                        {
+                            selectedGateId.clear();
+                            selectedFlightIndex =
+                                static_cast<int>(order[static_cast<std::size_t>(row)]);
+                        }
+                    }
+                }
+                else
                 {
                     // Resolve aircraft hits before the larger gate hit regions,
                     // since a parked aircraft can overlap its stand on screen.
@@ -3639,9 +3889,25 @@ int main()
                     // landing animation has a visible final descent in view.
                     const bool arrivingFromEast = plan.arrivalStartNode.find("_E") != std::string::npos;
                     const float approachDirection = arrivingFromEast ? -1.0f : 1.0f;
+                    // Several flights can share a runway in one wave. Keep
+                    // their holding positions separated instead of stacking
+                    // two aircraft on the same approach point.
+                    int holdingAhead = 0;
+                    for (const FlightPlan& other : flights)
+                    {
+                        if (!other.spawned ||
+                            other.arrivalStartNode != plan.arrivalStartNode)
+                            continue;
+                        if (other.airplane.state == AirplaneState::Holding ||
+                            other.airplane.state == AirplaneState::Arriving)
+                            ++holdingAhead;
+                    }
+                    const float holdDistance = 60.0f +
+                        static_cast<float>(holdingAhead) * 38.0f;
+                    const float holdLateral = (holdingAhead % 2 == 0) ? 0.0f : 11.0f;
                     airplane.position = {
-                        approach->position.x - approachDirection * 60.0f,
-                        approach->position.z};
+                        approach->position.x - approachDirection * holdDistance,
+                        approach->position.z + holdLateral};
                     airplane.altitude = 32.0f;
                     airplane.pitchDegrees = -5.0f;
                     airplane.headingDegrees = arrivingFromEast ? 270.0f : 90.0f;
@@ -3650,7 +3916,13 @@ int main()
                     plan.spawned = true;
                     plan.requestOrder = nextRequestOrder++;
                     arrivalQueue.push_back(flightIndex);
-                    occupiedNodes[plan.arrivalStartNode] = airplane.flightId;
+                    // Do not steal an approach node that another holding
+                    // flight already owns; this flight is cleared onto the
+                    // node only when its own route is reserved.
+                    const auto approachOwner = occupiedNodes.find(plan.arrivalStartNode);
+                    if (approachOwner == occupiedNodes.end() ||
+                        approachOwner->second == airplane.flightId)
+                        occupiedNodes[plan.arrivalStartNode] = airplane.flightId;
                     if (airplane.isPriority)
                     {
                         priorityNotification = "PRIORITY ARRIVAL: " + airplane.flightId +
@@ -3663,6 +3935,16 @@ int main()
                 {
                     const TaxiwayNode* stand = airportGround.FindNode(plan.parkingStandId);
                     if (stand == nullptr) continue;
+                    // A stand can only hold one aircraft. If an arrival is
+                    // still occupying this stand, keep the departure pending
+                    // until it is vacated rather than overwriting its owner.
+                    const auto standOwner = occupiedStands.find(plan.parkingStandId);
+                    const auto standNodeOwner = occupiedNodes.find(plan.parkingStandId);
+                    const bool standFree = standOwner == occupiedStands.end() ||
+                        standOwner->second == airplane.flightId;
+                    const bool standNodeFree = standNodeOwner == occupiedNodes.end() ||
+                        standNodeOwner->second == airplane.flightId;
+                    if (!standFree || !standNodeFree) continue;
                     airplane.position = {stand->position.x, stand->position.z};
                     airplane.state = AirplaneState::Parked;
                     plan.spawned = true;
@@ -4527,7 +4809,7 @@ int main()
             else if (routeIds.empty() && selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.departureHoldNodeId, selected.departureRunwayStart,
-                    routePurposeForTraffic(TaxiRoutePurpose::Departure));
+                    TaxiRoutePurpose::Departure);
             else if (routeIds.empty() && selected.arrivalFlight)
                 routeIds = airportGround.FindRouteNodeIds(
                     selected.arrivalStartNode, selected.parkingStandId,
@@ -4610,66 +4892,70 @@ int main()
             scenarioStage == 2 ? Color{241, 185, 70, 255} : Color{76, 224, 211, 255});
         DrawText(TextFormat("SHIFT SCENARIO  %d/3  -  %s", scenarioStage + 1, stageName),
             objectiveX + 12, objectiveY + 8, 11, RAYWHITE);
-        const char* objective = scenarioStage == 0 ?
-            "Objective: complete the 3-flight morning wave safely." :
-            (scenarioStage == 1 ?
-                "Objective: handle 4 flights; Taxiway A west closes 10:00-12:00." :
-                "Objective: depart priority AO900 by 19:02 for its on-time score.");
-        DrawText(objective, objectiveX + 12, objectiveY + 27, 9,
+        std::string objective;
+        if (scenarioStage == 0)
+            objective = "Objective: clear the " + std::to_string(stageFlightCount) +
+                "-flight morning wave by 09:00.";
+        else if (scenarioStage == 1)
+            objective = "Objective: handle " + std::to_string(stageFlightCount) +
+                " flights; Taxiway A west closes 10:00-12:00.";
+        else
+            objective = "Objective: depart priority AO900 by 19:00 for its on-time score.";
+        DrawText(objective.c_str(), objectiveX + 12, objectiveY + 27, 9,
             Color{202, 218, 221, 255});
         std::string scenarioStatus = TextFormat("STAGE FLIGHTS %d/%d", stageCompletedCount, stageFlightCount);
         if (scenarioStage == 1)
             scenarioStatus = taxiwayClosureActive ? "TAXIWAY A WEST CLOSED - ROUTES DIVERTED" :
                 (taxiwayClosureWaitingForTraffic ? "TAXIWAY CLOSURE WAITING FOR AIRCRAFT TO CLEAR" :
                     (taxiwayClosureAttempted ? "TAXIWAY A WEST REOPENED" : "TAXIWAY A WEST CLOSURE SCHEDULED"));
-        if (scenarioStage == 2 && stageCompletedCount > 0)
+        if (scenarioStage == 2 && priorityFlightsCompleted > 0)
             scenarioStatus = priorityFlightsOnTime > 0 ?
                 "PRIORITY FLIGHT COMPLETE - ON-TIME BONUS RECORDED" :
                 "PRIORITY FLIGHT COMPLETE - LATE, REDUCED SCORE";
         DrawText(scenarioStatus.c_str(), objectiveX + 12, objectiveY + 44, 9,
             scenarioStage == 2 ? Color{245, 199, 104, 255} : Color{116, 226, 202, 255});
 
-        const int panelX = 16;
-        const int panelY = 16;
-        constexpr int schedulePanelWidth = 380;
-        constexpr int scheduleRowHeight = 24;
-        const int scheduleHeaderHeight = 30;
-        DrawRectangle(panelX, panelY, schedulePanelWidth,
-            scheduleHeaderHeight + static_cast<int>(flights.size()) * scheduleRowHeight,
+        const std::vector<std::size_t> scheduleOrder = buildScheduleOrder();
+        const int scheduleFlightRows = visibleScheduleRows();
+        const int hiddenScheduleRows =
+            static_cast<int>(scheduleOrder.size()) - scheduleFlightRows;
+        const int schedulePanelRows =
+            scheduleFlightRows + (hiddenScheduleRows > 0 ? 1 : 0);
+        DrawRectangle(SchedulePanelX, SchedulePanelY, SchedulePanelWidth,
+            ScheduleHeaderHeight + schedulePanelRows * ScheduleRowHeight,
             Fade(Color{13, 26, 34, 255}, 0.88f));
-        DrawRectangle(panelX, panelY, schedulePanelWidth, scheduleHeaderHeight,
-            Color{33, 66, 82, 255});
-        DrawText("FLIGHT SCHEDULE", panelX + 10, panelY + 8, 13, RAYWHITE);
-        DrawText("NEXT EVENT", panelX + 250, panelY + 10, 10,
+        DrawRectangle(SchedulePanelX, SchedulePanelY, SchedulePanelWidth,
+            ScheduleHeaderHeight, Color{33, 66, 82, 255});
+        DrawText("FLIGHT SCHEDULE", SchedulePanelX + 10, SchedulePanelY + 8,
+            13, RAYWHITE);
+        DrawText(TextFormat("%d FLIGHTS", static_cast<int>(scheduleOrder.size())),
+            SchedulePanelX + 141, SchedulePanelY + 11, 9,
+            Color{147, 194, 203, 255});
+        DrawText("NEXT EVENT", SchedulePanelX + 250, SchedulePanelY + 10, 10,
             Color{147, 194, 203, 255});
 
-        std::vector<std::size_t> scheduleOrder(flights.size());
-        for (std::size_t i = 0; i < scheduleOrder.size(); ++i) scheduleOrder[i] = i;
-        const auto nextScheduleTime = [&](const FlightPlan& plan)
+        for (int row = 0; row < scheduleFlightRows; ++row)
         {
-            if (plan.airplane.state == AirplaneState::Departed)
-                return std::numeric_limits<float>::infinity();
-            if (!plan.spawned)
-                return plan.hasArrivalSchedule ? plan.arrivalScheduledSeconds :
-                    plan.departureScheduledSeconds;
-            return plan.departureFlight ? plan.departureScheduledSeconds :
-                std::numeric_limits<float>::infinity();
-        };
-        std::stable_sort(scheduleOrder.begin(), scheduleOrder.end(),
-            [&](std::size_t left, std::size_t right)
+            const FlightPlan& plan =
+                flights[scheduleOrder[static_cast<std::size_t>(row)]];
+            const int rowY = SchedulePanelY + ScheduleHeaderHeight +
+                row * ScheduleRowHeight + 3;
+            if (selectedFlightIndex == static_cast<int>(scheduleOrder[row]))
             {
-                return nextScheduleTime(flights[left]) < nextScheduleTime(flights[right]);
-            });
-        for (std::size_t row = 0; row < scheduleOrder.size(); ++row)
-        {
-            const FlightPlan& plan = flights[scheduleOrder[row]];
-            const int rowY = panelY + scheduleHeaderHeight + static_cast<int>(row) * scheduleRowHeight + 4;
+                DrawRectangle(SchedulePanelX + 2, rowY - 2,
+                    SchedulePanelWidth - 4, ScheduleRowHeight - 2,
+                    Color{36, 82, 92, 220});
+                DrawRectangle(SchedulePanelX + 2, rowY - 2, 2,
+                    ScheduleRowHeight - 2, Color{76, 224, 211, 255});
+            }
             const Color rowColor = plan.airplane.isPriority ? Color{248, 210, 132, 255} :
                 (plan.spawned && plan.airplane.state != AirplaneState::Departed ?
                     Color{235, 242, 245, 255} : Color{166, 184, 191, 255});
             std::string event;
             if (plan.airplane.state == AirplaneState::Departed)
                 event = "COMPLETE";
+            else if (plan.arrivalFlight)
+                event = "ARR " + FormatShiftTime(plan.arrivalScheduledSeconds);
             else if (plan.spawned && plan.departureFlight)
                 event = !plan.departureScheduleReached ?
                     "DEP " + FormatShiftTime(plan.departureScheduledSeconds) :
@@ -4681,17 +4967,18 @@ int main()
 
             if (plan.airplane.isPriority)
             {
-                DrawRectangle(panelX + 5, rowY, 13, 14, Color{164, 111, 36, 255});
-                DrawText("P", panelX + 8, rowY + 2, 9, RAYWHITE);
+                DrawRectangle(SchedulePanelX + 5, rowY, 13, 14, Color{164, 111, 36, 255});
+                DrawText("P", SchedulePanelX + 8, rowY + 2, 9, RAYWHITE);
             }
-            DrawText(plan.airplane.flightId.c_str(), panelX + (plan.airplane.isPriority ? 23 : 10),
+            DrawText(plan.airplane.flightId.c_str(),
+                SchedulePanelX + (plan.airplane.isPriority ? 23 : 10),
                 rowY, 12, rowColor);
-            DrawText(plan.destination.c_str(), panelX + 82, rowY, 11, rowColor);
-            DrawText(event.c_str(), panelX + 250, rowY, 11,
+            DrawText(plan.destination.c_str(), SchedulePanelX + 82, rowY, 11, rowColor);
+            DrawText(event.c_str(), SchedulePanelX + 250, rowY, 11,
                 plan.departureScheduleReached && plan.airplane.state != AirplaneState::Departed ?
                     Color{112, 225, 196, 255} : rowColor);
-            const Vector2 indicator{static_cast<float>(panelX + 363),
-                static_cast<float>(rowY + 7)};
+            const Vector2 indicator{static_cast<float>(SchedulePanelX + 363),
+                static_cast<float>(rowY + 6)};
             if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
                 DrawStateIndicator(plan.airplane.state, indicator, 12.0f);
             else
@@ -4707,6 +4994,13 @@ int main()
                         Color{150, 169, 177, 255});
                 }
             }
+        }
+        if (hiddenScheduleRows > 0)
+        {
+            const int rowY = SchedulePanelY + ScheduleHeaderHeight +
+                scheduleFlightRows * ScheduleRowHeight + 3;
+            DrawText(TextFormat("+ %d MORE FLIGHTS", hiddenScheduleRows),
+                SchedulePanelX + 10, rowY, 11, Color{147, 194, 203, 255});
         }
 
         // Show the details panel only when an aircraft is selected.
@@ -4725,7 +5019,9 @@ int main()
             DrawText(TextFormat("Name: %s", selected.flightName.c_str()), infoX + 154, infoY + 64, 13, Color{203, 219, 224, 255});
             DrawText(TextFormat("Type: %s", selected.airplane.aircraftType.c_str()), infoX + 154, infoY + 85, 12, Color{203, 219, 224, 255});
             DrawText(TextFormat("Airline: %s", selected.airline.c_str()), infoX + 14, infoY + 133, 14, Color{203, 219, 224, 255});
-            DrawText(TextFormat("State: %s", FlightStateLabel(selected.airplane.state)), infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
+            DrawText(TextFormat("State: %s", selected.spawned ?
+                FlightStateLabel(selected.airplane.state) : "SCHEDULED"),
+                infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
             DrawText(TextFormat("Schedule ARR %s  DEP %s",
                 selected.hasArrivalSchedule ? FormatShiftTime(selected.arrivalScheduledSeconds).c_str() : "--:--",
                 selected.departureFlight ? FormatShiftTime(selected.departureScheduledSeconds).c_str() : "--:--"),
@@ -4734,7 +5030,15 @@ int main()
                 infoX + 14, infoY + 205, 12, Color{116, 226, 202, 255});
             DrawText(TextFormat("Assigned stand: %s", selected.standAssigned ? selected.parkingStandId.c_str() : "Pending assignment"),
                 infoX + 14, infoY + 228, 12, Color{203, 219, 224, 255});
-            const char* command = selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization ?
+            const char* command = !selected.spawned ?
+                "SCHEDULED - NOT YET ON THE GROUND" :
+                selected.airplane.state == AirplaneState::Holding ?
+                "HOLDING - WAITING FOR RUNWAY OR STAND" :
+                selected.airplane.state == AirplaneState::Landing ?
+                    "ON APPROACH - CLEARED TO LAND" :
+                    selected.airplane.state == AirplaneState::TaxiingToStand ?
+                        "TAXIING TO STAND" :
+                        selected.airplane.state == AirplaneState::AwaitingTaxiAuthorization ?
                 (selected.taxiToStandQueued ? "TAXI REQUEST QUEUED" : "AUTHORIZE TAXI TO STAND") :
                 (selected.airplane.state == AirplaneState::Parked && selected.departureFlight ?
                     (selected.pushbackState != FlightPlan::PushbackState::Complete ?
