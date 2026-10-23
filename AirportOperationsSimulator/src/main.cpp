@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <initializer_list>
 #include <limits>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1890,40 +1891,49 @@ RunGameResult RunGame(bool startImmediately)
             std::max(plan.arrivalScheduledSeconds, plan.departureScheduledSeconds));
     }
     plannedShiftDurationSeconds = std::max(plannedShiftDurationSeconds,
-        8.0f * 60.0f * 60.0f) + 60.0f * 60.0f;
-    // Temporary visual test sequence. Set this to false to restore the normal
-    // full-shift schedule below.
-    constexpr bool WeatherTestScheduleEnabled = true;
-    const auto weatherStart = [&](float portion)
-    {
-        const float center = plannedShiftDurationSeconds * portion;
-        const float variation = static_cast<float>(GetRandomValue(-18, 18)) * 60.0f;
-        return std::max(0.0f, center + variation);
+        8.0f * 60.0f * 60.0f);
+    std::random_device weatherEntropy;
+    std::mt19937 weatherRandom(weatherEntropy());
+    std::vector<WeatherState> weatherOrder = {
+        WeatherState::NormalRain,
+        WeatherState::NormalRain,
+        WeatherState::HeavyRain
     };
+    std::shuffle(weatherOrder.begin(), weatherOrder.end(), weatherRandom);
     std::vector<WeatherEpisode> weatherSchedule;
-    if (WeatherTestScheduleEnabled)
+    weatherSchedule.reserve(3);
+    constexpr float WeatherEpisodeMinMinutes = 35.0f;
+    constexpr float WeatherEpisodeMaxMinutes = 55.0f;
+    constexpr float HeavyRainMinMinutes = 45.0f;
+    constexpr float HeavyRainMaxMinutes = 65.0f;
+    constexpr float ClearBufferMinutes = 15.0f;
+    const float weatherThirdDuration = plannedShiftDurationSeconds / 3.0f;
+    for (std::size_t index = 0; index < weatherOrder.size(); ++index)
     {
-        constexpr float FirstNormalRainSeconds = 20.0f;
-        constexpr float HeavyRainSeconds = 20.0f;
-        constexpr float FinalNormalRainSeconds = 20.0f;
-        weatherSchedule = {
-            {0.0f, FirstNormalRainSeconds, WeatherState::NormalRain},
-            {FirstNormalRainSeconds, HeavyRainSeconds, WeatherState::HeavyRain},
-            {FirstNormalRainSeconds + HeavyRainSeconds,
-                FinalNormalRainSeconds, WeatherState::NormalRain}
-        };
+        const WeatherState state = weatherOrder[index];
+        const bool heavyRain = state == WeatherState::HeavyRain;
+        const float minDurationMinutes = heavyRain ? HeavyRainMinMinutes :
+            WeatherEpisodeMinMinutes;
+        const float maxDurationMinutes = heavyRain ? HeavyRainMaxMinutes :
+            WeatherEpisodeMaxMinutes;
+        std::uniform_real_distribution<float> durationDistribution(
+            minDurationMinutes, maxDurationMinutes);
+        const float durationSeconds = durationDistribution(weatherRandom) * 60.0f;
+
+        const float segmentStart = static_cast<float>(index) * weatherThirdDuration;
+        const float earliestStart = segmentStart + ClearBufferMinutes * 60.0f;
+        const float latestStart = segmentStart + weatherThirdDuration -
+            durationSeconds - ClearBufferMinutes * 60.0f;
+        std::uniform_real_distribution<float> startDistribution(
+            earliestStart, std::max(earliestStart, latestStart));
+        weatherSchedule.push_back({startDistribution(weatherRandom),
+            durationSeconds, state});
     }
-    else
-    {
-        weatherSchedule = {
-            {weatherStart(0.15f), static_cast<float>(GetRandomValue(35, 55)) * 60.0f,
-                WeatherState::NormalRain},
-            {weatherStart(0.47f), static_cast<float>(GetRandomValue(48, 70)) * 60.0f,
-                WeatherState::HeavyRain},
-            {weatherStart(0.78f), static_cast<float>(GetRandomValue(32, 52)) * 60.0f,
-                WeatherState::NormalRain}
-        };
-    }
+    std::sort(weatherSchedule.begin(), weatherSchedule.end(),
+        [](const WeatherEpisode& left, const WeatherEpisode& right)
+        {
+            return left.startsAtSeconds < right.startsAtSeconds;
+        });
     float weatherAnimationTime = 0.0f;
     int shiftScore = 0;
     int completedFlights = 0;
@@ -4934,8 +4944,7 @@ RunGameResult RunGame(bool startImmediately)
         }
 
         const WeatherState currentWeather = GetWeatherState(
-            WeatherTestScheduleEnabled ? weatherAnimationTime : shiftClockSeconds,
-            weatherSchedule);
+            shiftClockSeconds, weatherSchedule);
         BeginDrawing();
         const int backgroundScenarioStage =
             shiftClockSeconds < MorningStageEndSeconds ? 0 :
