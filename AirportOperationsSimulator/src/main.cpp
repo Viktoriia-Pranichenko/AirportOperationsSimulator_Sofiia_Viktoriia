@@ -620,6 +620,45 @@ namespace
         }
     }
 
+    void DrawNotificationAircraftIcon(Rectangle bounds, Color accent)
+    {
+        DrawRectangleRounded(bounds, 0.2f, 4, Color{35, 58, 77, 255});
+        const Vector2 center{bounds.x + bounds.width * 0.5f,
+            bounds.y + bounds.height * 0.5f};
+        const Color engineColor{20, 37, 50, 255};
+        DrawTriangle({center.x - 2.0f, center.y - 5.0f},
+            {center.x - 18.0f, center.y + 2.0f},
+            {center.x - 3.0f, center.y + 5.0f}, accent);
+        DrawTriangle({center.x + 2.0f, center.y - 5.0f},
+            {center.x + 3.0f, center.y + 5.0f},
+            {center.x + 18.0f, center.y + 2.0f}, accent);
+        DrawTriangle({center.x - 2.0f, center.y + 5.0f},
+            {center.x - 9.0f, center.y + 11.0f},
+            {center.x - 2.0f, center.y + 9.0f}, accent);
+        DrawTriangle({center.x + 2.0f, center.y + 5.0f},
+            {center.x + 2.0f, center.y + 9.0f},
+            {center.x + 9.0f, center.y + 11.0f}, accent);
+        DrawRectangle(static_cast<int>(center.x - 2.0f),
+            static_cast<int>(center.y - 10.0f), 4, 21, accent);
+        DrawLineEx({center.x - 2.0f, center.y - 5.0f},
+            {center.x - 18.0f, center.y + 2.0f}, 2.4f, accent);
+        DrawLineEx({center.x - 18.0f, center.y + 2.0f},
+            {center.x - 3.0f, center.y + 5.0f}, 2.4f, accent);
+        DrawLineEx({center.x + 2.0f, center.y - 5.0f},
+            {center.x + 18.0f, center.y + 2.0f}, 2.4f, accent);
+        DrawLineEx({center.x + 18.0f, center.y + 2.0f},
+            {center.x + 3.0f, center.y + 5.0f}, 2.4f, accent);
+        DrawTriangle({center.x, center.y - 17.0f},
+            {center.x - 2.0f, center.y - 8.0f},
+            {center.x + 2.0f, center.y - 8.0f}, accent);
+        DrawRectangleRounded({center.x - 8.0f, center.y, 3.0f, 7.0f},
+            0.35f, 4, engineColor);
+        DrawRectangleRounded({center.x + 5.0f, center.y, 3.0f, 7.0f},
+            0.35f, 4, engineColor);
+        DrawLineEx({center.x, center.y - 7.0f},
+            {center.x, center.y - 2.0f}, 1.2f, Color{220, 248, 255, 255});
+    }
+
     void DrawAirplanePreview3D(const Airplane& airplane, Rectangle bounds,
         const Camera3D& previewCamera, RenderTexture2D& previewTarget)
     {
@@ -1591,51 +1630,53 @@ bool RunGame(bool startImmediately)
         static_cast<int>(std::count_if(flights.begin(), flights.end(),
             [](const FlightPlan& plan) { return plan.departureFlight; })));
 
-    // The schedule panel geometry is shared by the click handler and the
-    // renderer so a row hit always matches the row that was drawn.
-    constexpr int SchedulePanelX = 16;
-    constexpr int SchedulePanelY = 16;
-    constexpr int SchedulePanelWidth = 380;
-    constexpr int ScheduleHeaderHeight = 30;
-    constexpr int ScheduleRowHeight = 20;
-    const auto scheduleRowCapacity = []()
+    constexpr int NotificationIconX = 16;
+    constexpr int NotificationIconY = 16;
+    constexpr int NotificationIconSize = 48;
+    constexpr int NotificationIconGap = 8;
+    const auto buildActiveNotificationOrder = [&flights]()
     {
-        return std::max(1, (GetScreenHeight() - SchedulePanelY - 12 -
-            ScheduleHeaderHeight) / ScheduleRowHeight);
-    };
-    // Upcoming and active flights sort first; completed flights fall to the end.
-    const auto buildScheduleOrder = [&flights]()
-    {
-        std::vector<std::size_t> order(flights.size());
-        for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
-        const auto nextScheduleTime = [](const FlightPlan& plan)
+        std::vector<std::size_t> order;
+        order.reserve(flights.size());
+        for (std::size_t i = 0; i < flights.size(); ++i)
         {
-            if (plan.airplane.state == AirplaneState::Departed)
-                return std::numeric_limits<float>::infinity();
-            if (!plan.spawned)
-                return plan.hasArrivalSchedule ? plan.arrivalScheduledSeconds :
-                    plan.departureScheduledSeconds;
-            // Keep an inbound aircraft at the top of the list until it parks;
-            // after that its departure slot is the next event to watch.
-            if (plan.arrivalFlight)
-                return plan.arrivalScheduledSeconds;
-            return plan.departureFlight ? plan.departureScheduledSeconds :
-                std::numeric_limits<float>::infinity();
+            const FlightPlan& plan = flights[i];
+            if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
+                order.push_back(i);
+        }
+        const auto eventTime = [&flights](std::size_t index)
+        {
+            const FlightPlan& plan = flights[index];
+            return plan.arrivalFlight ? plan.arrivalScheduledSeconds :
+                plan.departureScheduledSeconds;
         };
         std::stable_sort(order.begin(), order.end(),
-            [&flights, &nextScheduleTime](std::size_t left, std::size_t right)
+            [&eventTime](std::size_t left, std::size_t right)
             {
-                return nextScheduleTime(flights[left]) < nextScheduleTime(flights[right]);
+                return eventTime(left) < eventTime(right);
             });
         return order;
     };
-    // Leading rows that fit; one row is reserved for an overflow summary.
-    const auto visibleScheduleRows = [&flights, &scheduleRowCapacity]()
+    const auto notificationIconBounds = [](int slot)
     {
-        const int capacity = scheduleRowCapacity();
-        int rows = std::min(static_cast<int>(flights.size()), capacity);
-        if (rows < static_cast<int>(flights.size()) && rows > 0) --rows;
-        return rows;
+        return Rectangle{
+            static_cast<float>(NotificationIconX),
+            static_cast<float>(NotificationIconY +
+                slot * (NotificationIconSize + NotificationIconGap)),
+            static_cast<float>(NotificationIconSize),
+            static_cast<float>(NotificationIconSize)};
+    };
+    const auto notificationDetailsBounds = [&notificationIconBounds](int slot)
+    {
+        const Rectangle icon = notificationIconBounds(slot);
+        return Rectangle{icon.x + icon.width, icon.y - 16.0f,
+            282.0f, 80.0f};
+    };
+    const auto notificationCommandBounds = [&notificationDetailsBounds](int slot)
+    {
+        const Rectangle details = notificationDetailsBounds(slot);
+        return Rectangle{details.x + 8.0f, details.y + 58.0f,
+            details.width - 16.0f, 17.0f};
     };
 
     std::deque<std::size_t> arrivalQueue;
@@ -3788,25 +3829,31 @@ bool RunGame(bool startImmediately)
             }
             else
             {
-                const int scheduleFlightRows = visibleScheduleRows();
-                const bool scheduleOverflow =
-                    static_cast<int>(flights.size()) > scheduleFlightRows;
-                const int schedulePanelRows =
-                    scheduleFlightRows + (scheduleOverflow ? 1 : 0);
-                const Rectangle schedulePanelBounds{
-                    static_cast<float>(SchedulePanelX),
-                    static_cast<float>(SchedulePanelY),
-                    static_cast<float>(SchedulePanelWidth),
-                    static_cast<float>(ScheduleHeaderHeight +
-                        schedulePanelRows * ScheduleRowHeight)};
-                const bool clickedSchedulePanel =
-                    CheckCollisionPointRec(mouse, schedulePanelBounds);
-                const int rightPanelLeft = GetScreenWidth() - 326;
-                const bool clickedInfoPanel = selectedFlightIndex >= 0 &&
-                    mouse.x >= rightPanelLeft && mouse.y >= 70.0f && mouse.y <= 398.0f;
-                if (clickedInfoPanel)
+                const std::vector<std::size_t> notificationOrder =
+                    buildActiveNotificationOrder();
+                int clickedNotificationFlight = -1;
+                int selectedNotificationSlot = -1;
+                for (std::size_t slot = 0; slot < notificationOrder.size(); ++slot)
                 {
-                    const Rectangle taxiButton{static_cast<float>(rightPanelLeft + 14), 324.0f, 284.0f, 24.0f};
+                    if (selectedFlightIndex >= 0 &&
+                        notificationOrder[slot] ==
+                        static_cast<std::size_t>(selectedFlightIndex))
+                        selectedNotificationSlot = static_cast<int>(slot);
+                    if (CheckCollisionPointRec(mouse,
+                        notificationIconBounds(static_cast<int>(slot))))
+                    {
+                        clickedNotificationFlight = static_cast<int>(
+                            notificationOrder[slot]);
+                        break;
+                    }
+                }
+                const bool clickedDetailsPanel = selectedNotificationSlot >= 0 &&
+                    CheckCollisionPointRec(mouse,
+                        notificationDetailsBounds(selectedNotificationSlot));
+                if (clickedDetailsPanel)
+                {
+                    const Rectangle taxiButton =
+                        notificationCommandBounds(selectedNotificationSlot);
                     FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
                     if (CheckCollisionPointRec(mouse, taxiButton))
                     {
@@ -3876,23 +3923,10 @@ bool RunGame(bool startImmediately)
                         }
                     }
                 }
-                else if (clickedSchedulePanel)
+                else if (clickedNotificationFlight >= 0)
                 {
-                    // Clicking a flight row is the fastest way to select an
-                    // aircraft when several are on the ground at once.
-                    const int row = static_cast<int>((mouse.y -
-                        static_cast<float>(SchedulePanelY + ScheduleHeaderHeight)) /
-                        static_cast<float>(ScheduleRowHeight));
-                    if (row >= 0 && row < scheduleFlightRows)
-                    {
-                        const std::vector<std::size_t> order = buildScheduleOrder();
-                        if (row < static_cast<int>(order.size()))
-                        {
-                            selectedGateId.clear();
-                            selectedFlightIndex =
-                                static_cast<int>(order[static_cast<std::size_t>(row)]);
-                        }
-                    }
+                    selectedGateId.clear();
+                    selectedFlightIndex = clickedNotificationFlight;
                 }
                 else
                 {
@@ -4143,6 +4177,8 @@ bool RunGame(bool startImmediately)
             }
             if (plan.departureFlight && airplane.state == AirplaneState::Departed)
             {
+                if (selectedFlightIndex == static_cast<int>(flightIndex))
+                    selectedFlightIndex = -1;
                 if (!plan.scoreRecorded)
                 {
                     const float departureLateness = std::max(0.0f,
@@ -5037,121 +5073,11 @@ bool RunGame(bool startImmediately)
         DrawText(scenarioStatus.c_str(), objectiveX + 12, objectiveY + 44, 9,
             scenarioStage == 2 ? Color{245, 199, 104, 255} : Color{116, 226, 202, 255});
 
-        const std::vector<std::size_t> scheduleOrder = buildScheduleOrder();
-        const int scheduleFlightRows = visibleScheduleRows();
-        const int hiddenScheduleRows =
-            static_cast<int>(scheduleOrder.size()) - scheduleFlightRows;
-        const int schedulePanelRows =
-            scheduleFlightRows + (hiddenScheduleRows > 0 ? 1 : 0);
-        DrawRectangle(SchedulePanelX, SchedulePanelY, SchedulePanelWidth,
-            ScheduleHeaderHeight + schedulePanelRows * ScheduleRowHeight,
-            Fade(Color{13, 26, 34, 255}, 0.88f));
-        DrawRectangle(SchedulePanelX, SchedulePanelY, SchedulePanelWidth,
-            ScheduleHeaderHeight, Color{33, 66, 82, 255});
-        DrawText("FLIGHT SCHEDULE", SchedulePanelX + 10, SchedulePanelY + 8,
-            13, RAYWHITE);
-        DrawText(TextFormat("%d FLIGHTS", static_cast<int>(scheduleOrder.size())),
-            SchedulePanelX + 141, SchedulePanelY + 11, 9,
-            Color{147, 194, 203, 255});
-        DrawText("NEXT EVENT", SchedulePanelX + 250, SchedulePanelY + 10, 10,
-            Color{147, 194, 203, 255});
-
-        for (int row = 0; row < scheduleFlightRows; ++row)
+        const std::vector<std::size_t> notificationOrder =
+            buildActiveNotificationOrder();
+        const Vector2 notificationMouse = GetMousePosition();
+        const auto flightCommandText = [&](const FlightPlan& selected)
         {
-            const FlightPlan& plan =
-                flights[scheduleOrder[static_cast<std::size_t>(row)]];
-            const int rowY = SchedulePanelY + ScheduleHeaderHeight +
-                row * ScheduleRowHeight + 3;
-            if (selectedFlightIndex == static_cast<int>(scheduleOrder[row]))
-            {
-                DrawRectangle(SchedulePanelX + 2, rowY - 2,
-                    SchedulePanelWidth - 4, ScheduleRowHeight - 2,
-                    Color{36, 82, 92, 220});
-                DrawRectangle(SchedulePanelX + 2, rowY - 2, 2,
-                    ScheduleRowHeight - 2, Color{76, 224, 211, 255});
-            }
-            const Color rowColor = plan.airplane.isPriority ? Color{248, 210, 132, 255} :
-                (plan.spawned && plan.airplane.state != AirplaneState::Departed ?
-                    Color{235, 242, 245, 255} : Color{166, 184, 191, 255});
-            std::string event;
-            if (plan.airplane.state == AirplaneState::Departed)
-                event = "COMPLETE";
-            else if (plan.arrivalFlight)
-                event = "ARR " + FormatShiftTime(plan.arrivalScheduledSeconds);
-            else if (plan.spawned && plan.departureFlight)
-                event = !plan.departureScheduleReached ?
-                    "DEP " + FormatShiftTime(plan.departureScheduledSeconds) :
-                    (plan.airplane.state == AirplaneState::Parked ? "DEP READY" : "DEP DUE");
-            else if (plan.hasArrivalSchedule)
-                event = "ARR " + FormatShiftTime(plan.arrivalScheduledSeconds);
-            else
-                event = "DEP " + FormatShiftTime(plan.departureScheduledSeconds);
-
-            if (plan.airplane.isPriority)
-            {
-                DrawRectangle(SchedulePanelX + 5, rowY, 13, 14, Color{164, 111, 36, 255});
-                DrawText("P", SchedulePanelX + 8, rowY + 2, 9, RAYWHITE);
-            }
-            DrawText(plan.airplane.flightId.c_str(),
-                SchedulePanelX + (plan.airplane.isPriority ? 23 : 10),
-                rowY, 12, rowColor);
-            DrawText(plan.destination.c_str(), SchedulePanelX + 82, rowY, 11, rowColor);
-            DrawText(event.c_str(), SchedulePanelX + 250, rowY, 11,
-                plan.departureScheduleReached && plan.airplane.state != AirplaneState::Departed ?
-                    Color{112, 225, 196, 255} : rowColor);
-            const Vector2 indicator{static_cast<float>(SchedulePanelX + 363),
-                static_cast<float>(rowY + 6)};
-            if (plan.spawned && plan.airplane.state != AirplaneState::Departed)
-                DrawStateIndicator(plan.airplane.state, indicator, 12.0f);
-            else
-            {
-                DrawCircleLines(static_cast<int>(indicator.x), static_cast<int>(indicator.y),
-                    5.0f, plan.airplane.state == AirplaneState::Departed ?
-                        Color{91, 119, 127, 255} : Color{150, 169, 177, 255});
-                if (plan.airplane.state != AirplaneState::Departed)
-                {
-                    DrawLineEx({indicator.x, indicator.y - 3.0f}, indicator, 1.5f,
-                        Color{150, 169, 177, 255});
-                    DrawLineEx(indicator, {indicator.x + 2.5f, indicator.y + 1.5f}, 1.5f,
-                        Color{150, 169, 177, 255});
-                }
-            }
-        }
-        if (hiddenScheduleRows > 0)
-        {
-            const int rowY = SchedulePanelY + ScheduleHeaderHeight +
-                scheduleFlightRows * ScheduleRowHeight + 3;
-            DrawText(TextFormat("+ %d MORE FLIGHTS", hiddenScheduleRows),
-                SchedulePanelX + 10, rowY, 11, Color{147, 194, 203, 255});
-        }
-
-        // Show the details panel only when an aircraft is selected.
-        if (selectedFlightIndex >= 0 && selectedFlightIndex < static_cast<int>(flights.size()))
-        {
-            const int infoX = GetScreenWidth() - 326;
-            const int infoY = 74;
-            const FlightPlan& selected = flights[static_cast<std::size_t>(selectedFlightIndex)];
-            DrawRectangle(infoX, infoY, 312, 324, Fade(Color{13, 26, 34, 255}, 0.93f));
-            DrawRectangle(infoX, infoY, 312, 28, Color{33, 66, 82, 255});
-            DrawText("FLIGHT DETAILS", infoX + 12, infoY + 7, 15, RAYWHITE);
-            DrawAirplanePreview3D(selected.airplane,
-                {static_cast<float>(infoX + 14), static_cast<float>(infoY + 40), 128.0f, 112.0f},
-                airplanePreviewCamera, airplanePreviewTarget);
-            DrawText(TextFormat("ID: %s", selected.airplane.flightId.c_str()), infoX + 154, infoY + 40, 15, RAYWHITE);
-            DrawText(TextFormat("Name: %s", selected.flightName.c_str()), infoX + 154, infoY + 64, 13, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Type: %s", selected.airplane.aircraftType.c_str()), infoX + 154, infoY + 85, 12, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Airline: %s", selected.airline.c_str()), infoX + 14, infoY + 133, 14, Color{203, 219, 224, 255});
-            DrawText(TextFormat("State: %s", selected.spawned ?
-                FlightStateLabel(selected.airplane.state) : "SCHEDULED"),
-                infoX + 14, infoY + 157, 14, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Schedule ARR %s  DEP %s",
-                selected.hasArrivalSchedule ? FormatShiftTime(selected.arrivalScheduledSeconds).c_str() : "--:--",
-                selected.departureFlight ? FormatShiftTime(selected.departureScheduledSeconds).c_str() : "--:--"),
-                infoX + 14, infoY + 181, 12, Color{203, 219, 224, 255});
-            DrawText(TextFormat("Route: %s  >  %s", selected.origin.c_str(), selected.destination.c_str()),
-                infoX + 14, infoY + 205, 12, Color{116, 226, 202, 255});
-            DrawText(TextFormat("Assigned stand: %s", selected.standAssigned ? selected.parkingStandId.c_str() : "Pending assignment"),
-                infoX + 14, infoY + 228, 12, Color{203, 219, 224, 255});
             const char* command = !selected.spawned ?
                 "SCHEDULED - NOT YET ON THE GROUND" :
                 selected.airplane.state == AirplaneState::Holding ?
@@ -5176,19 +5102,58 @@ bool RunGame(bool startImmediately)
             std::string commandText = command;
             if (selected.airplane.isPriority && !selected.activeTaskKey.empty())
             {
-                const int secondsLeft = std::max(0, static_cast<int>(std::ceil(PriorityTaskResponseSeconds -
+                const int secondsLeft = std::max(0, static_cast<int>(std::ceil(
+                    PriorityTaskResponseSeconds -
                     (shiftClockSeconds - selected.taskAvailableAtSeconds))));
-                commandText = "URGENT: " + selected.activeTaskKey + TextFormat("  %02d:%02d",
-                    secondsLeft / 60, secondsLeft % 60);
+                commandText = "URGENT: " + selected.activeTaskKey +
+                    TextFormat("  %02d:%02d", secondsLeft / 60, secondsLeft % 60);
             }
-            DrawRectangle(infoX + 14, infoY + 250, 284, 24,
-                selected.airplane.isPriority && !selected.activeTaskKey.empty() ?
-                    Color{135, 83, 31, 255} : Color{28, 92, 98, 255});
-            DrawText(commandText.c_str(), infoX + 22, infoY + 256, 10, RAYWHITE);
-            DrawRectangle(infoX + 14, infoY + 278, 284, 28,
-                selected.airplane.isPriority ? Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
-            DrawText(selected.airplane.isPriority ? "PRIORITY FLIGHT" : "STANDARD FLIGHT",
-                infoX + 22, infoY + 285, 13, RAYWHITE);
+            return commandText;
+        };
+        for (std::size_t slot = 0; slot < notificationOrder.size(); ++slot)
+        {
+            const std::size_t flightIndex = notificationOrder[slot];
+            const FlightPlan& plan = flights[flightIndex];
+            const Rectangle icon = notificationIconBounds(static_cast<int>(slot));
+            const bool selected = selectedFlightIndex == static_cast<int>(flightIndex);
+            const bool hovered = CheckCollisionPointRec(notificationMouse, icon);
+            const Color accent = plan.airplane.isPriority ?
+                Color{247, 195, 104, 255} : Color{89, 211, 224, 255};
+            if (selected)
+            {
+                const Rectangle details = notificationDetailsBounds(static_cast<int>(slot));
+                const Rectangle commandButton =
+                    notificationCommandBounds(static_cast<int>(slot));
+                DrawRectangleRounded(details, 0.12f, 4,
+                    Fade(Color{13, 26, 34, 255}, 0.96f));
+                DrawRectangleRoundedLinesEx(details, 0.12f, 4, 1.0f,
+                    Color{89, 223, 210, 255});
+                DrawText(TextFormat("ID: %s", plan.airplane.flightId.c_str()),
+                    static_cast<int>(details.x + 10.0f),
+                    static_cast<int>(details.y + 5.0f), 13, RAYWHITE);
+                DrawText(TextFormat("ARRIVAL: %s",
+                    plan.hasArrivalSchedule ?
+                        FormatShiftTime(plan.arrivalScheduledSeconds).c_str() : "--:--"),
+                    static_cast<int>(details.x + 10.0f),
+                    static_cast<int>(details.y + 23.0f), 10,
+                    Color{203, 219, 224, 255});
+                DrawText(TextFormat("DEPARTURE: %s",
+                    plan.departureFlight ?
+                        FormatShiftTime(plan.departureScheduledSeconds).c_str() : "--:--"),
+                    static_cast<int>(details.x + 10.0f),
+                    static_cast<int>(details.y + 38.0f), 10,
+                    Color{203, 219, 224, 255});
+                DrawRectangleRounded(commandButton, 0.18f, 4,
+                    plan.airplane.isPriority && !plan.activeTaskKey.empty() ?
+                        Color{135, 83, 31, 255} : Color{28, 92, 98, 255});
+                DrawText(flightCommandText(plan).c_str(),
+                    static_cast<int>(commandButton.x + 7.0f),
+                    static_cast<int>(commandButton.y + 4.0f), 8, RAYWHITE);
+            }
+            DrawNotificationAircraftIcon(icon, accent);
+            if (selected || hovered)
+                DrawRectangleRoundedLinesEx(icon, 0.2f, 4, selected ? 2.0f : 1.0f,
+                    selected ? Color{89, 223, 210, 255} : Color{117, 173, 191, 255});
         }
 
         if (!selectedGateId.empty())
