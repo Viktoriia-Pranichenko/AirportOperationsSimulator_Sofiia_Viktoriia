@@ -1832,6 +1832,8 @@ bool RunGame(bool startImmediately)
     float pushbackTugNoseHeading = 0.0f;
     Vector2 pushbackTugCrewPosition{};
     float pushbackTugCrewHeading = 0.0f;
+    Vector2 pushbackTugReturnPosition{};
+    float pushbackTugReturnHeading = 0.0f;
     float pushbackTugReturnDelayRemaining = 0.0f;
     std::string boardingStairsGateId;
     Vector2 boardingStairsCrewPositions[2]{};
@@ -2763,6 +2765,11 @@ bool RunGame(bool startImmediately)
             return;
         }
 
+        // Capture the tug's actual staged pose before pointing it at the aircraft.
+        // This avoids relying on a separately calculated heading when restoring it.
+        pushbackTugReturnPosition = pushbackTugs.front().GetPosition();
+        pushbackTugReturnHeading = pushbackTugs.front().GetHeadingDegrees();
+
         const float radians = aircraft.headingDegrees * DEG2RAD;
         const float cosine = std::cos(radians);
         const float sine = std::sin(radians);
@@ -2809,10 +2816,10 @@ bool RunGame(bool startImmediately)
             (plan->airplane.position.y - plan->pushbackTargetPosition.y) *
                 (plan->airplane.position.y - plan->pushbackTargetPosition.y) > 0.75f * 0.75f)
         {
-            pushbackTugReturnDelayRemaining = 3.0f;
+            pushbackTugReturnDelayRemaining = 5.0f;
             pushbackTugMotion = PushbackTugMotion::DepartureReturnDelay;
-            refuellingMessage = "Aircraft taxiing. Pushback tug will return in 3 seconds.";
-            refuellingMessageTime = 3.0f;
+            refuellingMessage = "Aircraft taxiing. Pushback tug will return in 5 seconds.";
+            refuellingMessageTime = 5.0f;
         }
         else if (pushbackTugMotion == PushbackTugMotion::DepartureReturnDelay)
         {
@@ -2824,8 +2831,8 @@ bool RunGame(bool startImmediately)
                 // crossing the aircraft's taxi path. Return to the assigned
                 // crew bay only after taxi movement and the full delay.
                 pushbackTugs.front().SetPosition(
-                    pushbackTugCrewPosition.x, pushbackTugCrewPosition.y);
-                pushbackTugs.front().SetHeadingDegrees(pushbackTugCrewHeading);
+                    pushbackTugReturnPosition.x, pushbackTugReturnPosition.y);
+                pushbackTugs.front().SetHeadingDegrees(pushbackTugReturnHeading);
                 pushbackTugMotion = PushbackTugMotion::Parked;
                 plan->departureAuthorizationRequested = false;
                 pushbackTugPositioningGate.clear();

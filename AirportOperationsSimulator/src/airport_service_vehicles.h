@@ -11,6 +11,7 @@ public:
     void SetPosition(float positionX, float positionZ);
     void SetHeadingDegrees(float headingDegrees);
     Vector2 GetPosition() const;
+    float GetHeadingDegrees() const;
     bool MoveTowardsGate(int gateNumber, const AirportTerminal& terminal,
         float deltaTime);
 
