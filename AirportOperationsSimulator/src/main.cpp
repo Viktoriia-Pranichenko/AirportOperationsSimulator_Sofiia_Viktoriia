@@ -1350,13 +1350,14 @@ int main()
         float arrivalMinute; float departureMinute; bool priority; int scenarioStage; };
     const ArrivalScheduleEntry arrivals[] = {
         // Morning wave: five arrivals inside the first hour while AO440 spawns
-        // parked and waits for its taxi-out window.
+        // parked and waits for its taxi-out window. AO202 introduces one
+        // priority task without making the otherwise quiet opening too dense.
         {"AO100", "Aurora", "Northstar Air", "Reykjavik (KEF)", "Dublin (DUB)",
             {38, 145, 189, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
             "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 0.0f, 75.0f, false, 0},
         {"AO202", "Meridian 202", "Meridian Air", "Copenhagen (CPH)", "Oslo (OSL)",
             {219, 124, 58, 255}, "Regional jet", "APPROACH_B_E", AircraftSize::Small,
-            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 7.0f, 92.0f, false, 0},
+            "RUNWAY_B", "RUNWAY_B_END_E", "GATE_2", -642.0f, 7.0f, 92.0f, true, 0},
         {"AO214", "Harbour 214", "Northstar Air", "Aberdeen (ABZ)", "Dublin (DUB)",
             {52, 164, 198, 255}, "Regional jet", "APPROACH_C_E", AircraftSize::Small,
             "RUNWAY_C", "RUNWAY_C_END_E", "GATE_3", -777.0f, 14.0f, 104.0f, false, 0},
@@ -1383,10 +1384,11 @@ int main()
             "RUNWAY_A", "RUNWAY_END_E", "WEST_2", -507.0f, 146.0f, 226.0f, false, 1},
 
         // Midday peak: the arrival and departure bank straddles the Taxiway A
-        // west closure, so several flights queue for stands and the open route.
+        // west closure. AO531 and AO605 add spaced priority tasks to the busiest
+        // period, including traffic during the closure.
         {"AO531", "Cargo 531", "CargoLink", "Leipzig (LEJ)", "Prague (PRG)",
             {196, 172, 82, 255}, "Cargo jet", "APPROACH_B_E", AircraftSize::Large,
-            "RUNWAY_B", "RUNWAY_B_END_E", "EAST_2", -642.0f, 215.0f, 330.0f, false, 1},
+            "RUNWAY_B", "RUNWAY_B_END_E", "EAST_2", -642.0f, 215.0f, 330.0f, true, 1},
         {"AO548", "Metro 548", "Skyline Airways", "Leeds (LBA)", "Amsterdam (AMS)",
             {102, 174, 142, 255}, "Regional jet", "APPROACH_A_E", AircraftSize::Small,
             "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 228.0f, 342.0f, false, 1},
@@ -1398,7 +1400,7 @@ int main()
             "RUNWAY_B", "RUNWAY_B_END_E", "GATE_4", -642.0f, 254.0f, 368.0f, false, 1},
         {"AO605", "Meridian 605", "Meridian Air", "Glasgow (GLA)", "Oslo (OSL)",
             {150, 120, 90, 255}, "Passenger jet", "APPROACH_A_E", AircraftSize::Large,
-            "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 267.0f, 380.0f, false, 1},
+            "RUNWAY_A", "RUNWAY_END_E", "WEST_1", -507.0f, 267.0f, 380.0f, true, 1},
 
         // Afternoon wave: keeps the apron active between the midday departure
         // bank and the evening priority arrival.
@@ -1415,8 +1417,8 @@ int main()
             {82, 150, 118, 255}, "Regional jet", "APPROACH_A_E", AircraftSize::Small,
             "RUNWAY_A", "RUNWAY_END_E", "GATE_4", -507.0f, 460.0f, 578.0f, false, 1},
 
-        // Evening wave: the priority flight lands while three other aircraft
-        // are turning around for the last departure bank.
+        // Evening wave: two priority arrivals are spaced around AO900's
+        // on-time departure target, with two standard flights between them.
         {"AO860", "Evening 860", "Skyline Airways", "Vienna (VIE)", "Amsterdam (AMS)",
             {90, 164, 196, 255}, "Passenger jet", "APPROACH_C_E", AircraftSize::Large,
             "RUNWAY_C", "RUNWAY_C_END_E", "EAST_2", -777.0f, 600.0f, 700.0f, false, 2},
@@ -1428,7 +1430,7 @@ int main()
             "RUNWAY_A", "RUNWAY_END_E", "GATE_2", -507.0f, 705.0f, 795.0f, false, 2},
         {"AO940", "Nightfall 940", "Northstar Air", "Lisbon (LIS)", "Dublin (DUB)",
             {188, 104, 84, 255}, "Passenger jet", "APPROACH_C_E", AircraftSize::Large,
-            "RUNWAY_C", "RUNWAY_C_END_E", "WEST_1", -777.0f, 720.0f, 810.0f, false, 2}
+            "RUNWAY_C", "RUNWAY_C_END_E", "WEST_1", -777.0f, 720.0f, 810.0f, true, 2}
     };
     for (const ArrivalScheduleEntry& setup : arrivals)
     {

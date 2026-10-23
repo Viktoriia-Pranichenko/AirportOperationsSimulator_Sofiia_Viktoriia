@@ -525,35 +525,71 @@ AirportGround::AirportGround(const AirportTerminal& terminal)
             Connect(entryId, stand.id, 1.0f, false);
         }
     }
+
+    for (const TaxiwayNode& node : nodes)
+    {
+        int pavementNeighborCount = 0;
+        Vector3 firstNeighbor{};
+        Vector3 secondNeighbor{};
+        float widestLane = 0.0f;
+        for (const std::size_t edgeIndex : node.connectedEdgeIndices)
+        {
+            const TaxiwayEdge& edge = edges[edgeIndex];
+            if (!edge.drawSurface) continue;
+            const Vector3 neighborPosition = edge.fromNodeId == node.id ?
+                edge.toPosition : edge.fromPosition;
+            if (pavementNeighborCount == 0) firstNeighbor = neighborPosition;
+            else if (pavementNeighborCount == 1) secondNeighbor = neighborPosition;
+            ++pavementNeighborCount;
+            widestLane = std::max(widestLane, edge.width);
+        }
+        if (pavementNeighborCount < 2 || widestLane <= 0.0f) continue;
+
+        bool needsJoinPad = pavementNeighborCount >= 3;
+        if (pavementNeighborCount == 2)
+        {
+            const float ax = firstNeighbor.x - node.position.x;
+            const float az = firstNeighbor.z - node.position.z;
+            const float bx = secondNeighbor.x - node.position.x;
+            const float bz = secondNeighbor.z - node.position.z;
+            const float aLength = std::sqrt(ax * ax + az * az);
+            const float bLength = std::sqrt(bx * bx + bz * bz);
+            if (aLength > 0.01f && bLength > 0.01f)
+                needsJoinPad = (ax * bx + az * bz) / (aLength * bLength) > -0.85f;
+        }
+        if (needsJoinPad) taxiwayJunctions.push_back({node.position, widestLane});
+    }
 }
 
 void AirportGround::AddNode(const std::string& id, Vector3 position)
 {
-    nodes.push_back({id, position, {}});
+    const std::size_t index = nodes.size();
+    nodes.push_back({id, position, {}, {}, false});
+    nodeIndexById[id] = index;
 }
 
 void AirportGround::Connect(const std::string& from, const std::string& to, float width,
     bool drawSurface, bool stopAtHoldLine, float holdLineZ)
 {
-    TaxiwayNode* fromNode = nullptr;
-    TaxiwayNode* toNode = nullptr;
-    for (TaxiwayNode& node : nodes)
-    {
-        if (node.id == from) fromNode = &node;
-        if (node.id == to) toNode = &node;
-    }
-    if (fromNode == nullptr || toNode == nullptr) return;
+    const auto fromIndex = nodeIndexById.find(from);
+    const auto toIndex = nodeIndexById.find(to);
+    if (fromIndex == nodeIndexById.end() || toIndex == nodeIndexById.end()) return;
 
-    fromNode->connectedNodeIds.push_back(to);
-    toNode->connectedNodeIds.push_back(from);
-    edges.push_back({from, to, width, drawSurface, stopAtHoldLine, holdLineZ});
+    TaxiwayNode& fromNode = nodes[fromIndex->second];
+    TaxiwayNode& toNode = nodes[toIndex->second];
+    const std::size_t edgeIndex = edges.size();
+    edges.push_back({from, to, width, drawSurface, stopAtHoldLine,
+        holdLineZ, true, fromNode.position, toNode.position});
+    fromNode.connectedNodeIds.push_back(to);
+    fromNode.connectedEdgeIndices.push_back(edgeIndex);
+    toNode.connectedNodeIds.push_back(from);
+    toNode.connectedEdgeIndices.push_back(edgeIndex);
 }
 
 const TaxiwayNode* AirportGround::FindNode(const std::string& id) const
 {
-    const auto found = std::find_if(nodes.begin(), nodes.end(),
-        [&id](const TaxiwayNode& node) { return node.id == id; });
-    return found == nodes.end() ? nullptr : &*found;
+    const auto found = nodeIndexById.find(id);
+    return found == nodeIndexById.end() ? nullptr : &nodes[found->second];
 }
 
 bool AirportGround::SetTaxiwaySectionOpen(const std::string& fromNodeId,
@@ -636,8 +672,10 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
         if (currentId == destinationNodeId) break;
         const TaxiwayNode* current = FindNode(currentId);
         if (current == nullptr) continue;
-        for (const std::string& neighborId : current->connectedNodeIds)
+        for (std::size_t neighborIndex = 0;
+            neighborIndex < current->connectedNodeIds.size(); ++neighborIndex)
         {
+            const std::string& neighborId = current->connectedNodeIds[neighborIndex];
             const TaxiwayNode* neighbor = FindNode(neighborId);
             if (neighbor == nullptr || neighbor->blockedByObstacle) continue;
             // Shared detours stay on taxiways; runway nodes may only be route endpoints.
@@ -648,14 +686,8 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
                     (IsRunwayOrApproachNode(currentId) &&
                         IsRunwayOrApproachNode(neighborId))))
                 continue;
-            const bool sectionOpen = std::any_of(edges.begin(), edges.end(),
-                [&currentId, &neighborId](const TaxiwayEdge& edge)
-                {
-                    return edge.open &&
-                        ((edge.fromNodeId == currentId && edge.toNodeId == neighborId) ||
-                         (edge.fromNodeId == neighborId && edge.toNodeId == currentId));
-                });
-            if (!sectionOpen) continue;
+            const std::size_t edgeIndex = current->connectedEdgeIndices[neighborIndex];
+            if (!edges[edgeIndex].open) continue;
             const float dx = neighbor->position.x - current->position.x;
             const float dz = neighbor->position.z - current->position.z;
             float edgeCost = std::sqrt(dx * dx + dz * dz);
@@ -714,56 +746,18 @@ void AirportGround::Draw(Color grassColor) const
     for (const TaxiwayEdge& edge : edges)
     {
         if (!edge.drawSurface) continue;
-        const TaxiwayNode* from = FindNode(edge.fromNodeId);
-        const TaxiwayNode* to = FindNode(edge.toNodeId);
-        if (from == nullptr || to == nullptr) continue;
-
-        DrawTaxiwaySurface(from->position, to->position, edge.width);
+        DrawTaxiwaySurface(edge.fromPosition, edge.toPosition, edge.width);
     }
 
-    // Round pavement at three-way and four-way intersections. The pads share
-    // the lanes' elevations and colors, so the surfaces join without a curb.
-    for (const TaxiwayNode& node : nodes)
+    for (const TaxiwayJunction& junction : taxiwayJunctions)
     {
-        std::vector<const TaxiwayNode*> pavementNeighbors;
-        float widestLane = 0.0f;
-        for (const TaxiwayEdge& edge : edges)
-        {
-            if (!edge.drawSurface) continue;
-            if (edge.fromNodeId == node.id)
-            {
-                pavementNeighbors.push_back(FindNode(edge.toNodeId));
-                widestLane = std::max(widestLane, edge.width);
-            }
-            else if (edge.toNodeId == node.id)
-            {
-                pavementNeighbors.push_back(FindNode(edge.fromNodeId));
-                widestLane = std::max(widestLane, edge.width);
-            }
-        }
-        if (pavementNeighbors.size() < 2 || widestLane <= 0.0f) continue;
-
-        bool needsJoinPad = pavementNeighbors.size() >= 3;
-        if (pavementNeighbors.size() == 2 && pavementNeighbors[0] && pavementNeighbors[1])
-        {
-            const float ax = pavementNeighbors[0]->position.x - node.position.x;
-            const float az = pavementNeighbors[0]->position.z - node.position.z;
-            const float bx = pavementNeighbors[1]->position.x - node.position.x;
-            const float bz = pavementNeighbors[1]->position.z - node.position.z;
-            const float aLength = std::sqrt(ax * ax + az * az);
-            const float bLength = std::sqrt(bx * bx + bz * bz);
-            if (aLength > 0.01f && bLength > 0.01f)
-                // Neighbour vectors point away from the node. Opposite vectors
-                // mean a straight lane; only actual bends need a join pad.
-                needsJoinPad = (ax * bx + az * bz) / (aLength * bLength) > -0.85f;
-        }
-        if (!needsJoinPad) continue;
-
-        DrawCylinder({node.position.x, -0.015f, node.position.z},
-            (widestLane + 4.0f) * 0.5f, (widestLane + 4.0f) * 0.5f,
+        DrawCylinder({junction.position.x, -0.015f, junction.position.z},
+            (junction.widestLane + 4.0f) * 0.5f,
+            (junction.widestLane + 4.0f) * 0.5f,
             0.051f, 20, TaxiwayShoulder);
-        DrawCylinder({node.position.x, -0.02f, node.position.z},
-            widestLane * 0.5f, widestLane * 0.5f, 0.073f, 20, TaxiwaySurface);
+        DrawCylinder({junction.position.x, -0.02f, junction.position.z},
+            junction.widestLane * 0.5f, junction.widestLane * 0.5f,
+            0.073f, 20, TaxiwaySurface);
     }
 
     // Paint continuous centerlines after the intersection pads so they remain
@@ -771,10 +765,7 @@ void AirportGround::Draw(Color grassColor) const
     for (const TaxiwayEdge& edge : edges)
     {
         if (!edge.drawSurface) continue;
-        const TaxiwayNode* from = FindNode(edge.fromNodeId);
-        const TaxiwayNode* to = FindNode(edge.toNodeId);
-        if (from == nullptr || to == nullptr) continue;
-        DrawTaxiwayCenterline(from->position, to->position,
+        DrawTaxiwayCenterline(edge.fromPosition, edge.toPosition,
             edge.stopAtHoldLine, edge.holdLineZ);
     }
 
@@ -783,11 +774,8 @@ void AirportGround::Draw(Color grassColor) const
     for (const TaxiwayEdge& edge : edges)
     {
         if (edge.open) continue;
-        const TaxiwayNode* from = FindNode(edge.fromNodeId);
-        const TaxiwayNode* to = FindNode(edge.toNodeId);
-        if (from == nullptr || to == nullptr) continue;
-        const float dx = to->position.x - from->position.x;
-        const float dz = to->position.z - from->position.z;
+        const float dx = edge.toPosition.x - edge.fromPosition.x;
+        const float dz = edge.toPosition.z - edge.fromPosition.z;
         const float length = std::sqrt(dx * dx + dz * dz);
         if (length <= 0.01f) continue;
         const float ux = dx / length;
@@ -795,8 +783,8 @@ void AirportGround::Draw(Color grassColor) const
         const float px = -uz * edge.width * 0.5f;
         const float pz = ux * edge.width * 0.5f;
         const float barHalfLength = 1.25f;
-        const Vector3 center{(from->position.x + to->position.x) * 0.5f,
-            0.19f, (from->position.z + to->position.z) * 0.5f};
+        const Vector3 center{(edge.fromPosition.x + edge.toPosition.x) * 0.5f,
+            0.19f, (edge.fromPosition.z + edge.toPosition.z) * 0.5f};
         DrawQuad({center.x - px - ux * barHalfLength, center.y, center.z - pz - uz * barHalfLength},
             {center.x + px - ux * barHalfLength, center.y, center.z + pz - uz * barHalfLength},
             {center.x + px + ux * barHalfLength, center.y, center.z + pz + uz * barHalfLength},
