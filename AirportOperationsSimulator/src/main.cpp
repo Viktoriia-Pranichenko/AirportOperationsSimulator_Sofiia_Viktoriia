@@ -413,6 +413,9 @@ namespace
         bool arrivalFlight{false};
         bool routeStarted{false};
         bool departureQueued{false};
+        bool routeContinuationPending{false};
+        bool routeContinuationQueued{false};
+        std::string routeContinuationNodeId;
         enum class PushbackState { NotStarted, MovingAircraft, Complete };
         PushbackState pushbackState{PushbackState::NotStarted};
         Vector2 pushbackStartPosition{};
@@ -433,6 +436,7 @@ namespace
         float taskAvailableAtSeconds{-1.0f};
         std::uint64_t requestOrder{0};
         std::vector<std::string> activeRouteNodeIds;
+        int activeRouteWaypointOffset{0};
         std::string arrivalStartNode;
         std::string landingExitNodeId;
         std::string parkingStandId;
@@ -1723,6 +1727,13 @@ RunGameResult RunGame(bool startImmediately)
     std::deque<std::size_t> arrivalQueue;
     std::deque<std::size_t> taxiToStandQueue;
     std::deque<std::size_t> departureQueue;
+    std::deque<std::size_t> routeContinuationQueue;
+    struct RecentDepartureRoute
+    {
+        float startedAtSeconds;
+        std::vector<std::string> routeNodeIds;
+    };
+    std::deque<RecentDepartureRoute> recentDepartureRoutes;
     std::unordered_map<std::string, std::string> occupiedNodes;
     std::unordered_map<std::string, std::string> occupiedSections;
     std::unordered_map<std::string, std::string> occupiedStands;
@@ -1930,6 +1941,26 @@ RunGameResult RunGame(bool startImmediately)
         }
         return true;
     };
+    const auto reservableRoutePrefix = [&](const std::vector<std::string>& route,
+        const std::string& flightId)
+    {
+        if (route.empty()) return std::vector<std::string>{};
+        const auto startOwner = occupiedNodes.find(route.front());
+        if (startOwner != occupiedNodes.end() && startOwner->second != flightId)
+            return std::vector<std::string>{};
+        std::size_t prefixSize = 1;
+        for (std::size_t index = 1; index < route.size(); ++index)
+        {
+            const auto nodeOwner = occupiedNodes.find(route[index]);
+            if (nodeOwner != occupiedNodes.end() && nodeOwner->second != flightId) break;
+            const auto sectionOwner = occupiedSections.find(
+                sectionKey(route[index - 1], route[index]));
+            if (sectionOwner != occupiedSections.end() && sectionOwner->second != flightId) break;
+            ++prefixSize;
+        }
+        return std::vector<std::string>(route.begin(),
+            route.begin() + prefixSize);
+    };
     const auto reserveRoute = [&](const std::vector<std::string>& route,
         const std::string& flightId)
     {
@@ -1954,11 +1985,44 @@ RunGameResult RunGame(bool startImmediately)
                 occupiedSections.erase(owner);
         }
     };
+    const auto releasePassedRouteReservations = [&](FlightPlan& plan)
+    {
+        if (!plan.routeStarted || plan.activeRouteNodeIds.size() < 2) return;
+        const std::size_t waypointOffset = static_cast<std::size_t>(
+            std::max(0, plan.activeRouteWaypointOffset));
+        const std::size_t nextWaypoint = plan.airplane.GetNextWaypointIndex();
+        const std::size_t passedNodeCount = nextWaypoint > waypointOffset + 1 ?
+            std::min(nextWaypoint - waypointOffset - 1,
+                plan.activeRouteNodeIds.size() - 1) : 0;
+        for (std::size_t index = 0; index < passedNodeCount; ++index)
+        {
+            const auto nodeOwner = occupiedNodes.find(plan.activeRouteNodeIds[index]);
+            if (nodeOwner != occupiedNodes.end() &&
+                nodeOwner->second == plan.airplane.flightId)
+                occupiedNodes.erase(nodeOwner);
+            const std::string key = sectionKey(plan.activeRouteNodeIds[index],
+                plan.activeRouteNodeIds[index + 1]);
+            const auto sectionOwner = occupiedSections.find(key);
+            if (sectionOwner != occupiedSections.end() &&
+                sectionOwner->second == plan.airplane.flightId)
+                occupiedSections.erase(sectionOwner);
+        }
+    };
+    const auto routesShareNode = [](const std::vector<std::string>& first,
+        const std::vector<std::string>& second)
+    {
+        return std::any_of(first.begin(), first.end(),
+            [&second](const std::string& nodeId)
+            {
+                return std::find(second.begin(), second.end(), nodeId) != second.end();
+            });
+    };
     // All event times are elapsed from the displayed 06:00 shift start.
     constexpr float MorningStageEndSeconds = 3.0f * 60.0f * 60.0f; // 09:00
     constexpr float BusyStageEndSeconds = 11.0f * 60.0f * 60.0f; // 17:00
     constexpr float TaxiwayClosureStartSeconds = 4.0f * 60.0f * 60.0f; // 10:00
     constexpr float TaxiwayClosureDurationSeconds = 2.0f * 60.0f * 60.0f; // to 12:00
+    constexpr float DepartureMovementIntervalSeconds = 20.0f;
     const std::string closureFromNode = "A_EXIT_W";
     const std::string closureToNode = "A_CENTER";
     bool taxiwayClosureActive = false;
@@ -2043,18 +2107,18 @@ RunGameResult RunGame(bool startImmediately)
             startNodeId, destinationNodeId,
             routePurposeForTraffic(plan.airplane.state == AirplaneState::TaxiingToStand ?
                 TaxiRoutePurpose::Arrival : TaxiRoutePurpose::Departure));
-        releaseRoute(oldRoute, plan.airplane.flightId);
         if (newRoute.empty() || !routeCanBeReserved(newRoute, plan.airplane.flightId))
         {
-            reserveRoute(oldRoute, plan.airplane.flightId);
             plan.closureReroutePending = true;
             plan.airplane.SetWaypointRoute({plan.airplane.position}, 0.0f,
                 plan.airplane.state);
             return false;
         }
 
+        releaseRoute(oldRoute, plan.airplane.flightId);
         reserveRoute(newRoute, plan.airplane.flightId);
         plan.activeRouteNodeIds = newRoute;
+        plan.activeRouteWaypointOffset = 1;
         plan.closureReroutePending = false;
         plan.closureRerouteStartNodeId.clear();
         std::vector<Vector2> route{plan.airplane.position};
@@ -4043,6 +4107,7 @@ RunGameResult RunGame(bool startImmediately)
                                     {
                                         reserveRoute(route, selected.airplane.flightId);
                                         selected.activeRouteNodeIds = route;
+                                        selected.activeRouteWaypointOffset = 0;
                                         selected.routeStarted = true;
                                         selected.runwayReserved = true;
                                         selected.takeoffRollStarted = true;
@@ -4208,6 +4273,24 @@ RunGameResult RunGame(bool startImmediately)
             }
             if (!plan.spawned) continue;
             airplane.Update(deltaTime);
+            releasePassedRouteReservations(plan);
+            if (plan.routeStarted && plan.routeContinuationPending &&
+                !airplane.hasTarget && !plan.activeRouteNodeIds.empty())
+            {
+                const std::string continuationNodeId = plan.activeRouteNodeIds.back();
+                releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
+                plan.activeRouteNodeIds.clear();
+                plan.activeRouteWaypointOffset = 0;
+                plan.routeStarted = false;
+                plan.routeContinuationNodeId = continuationNodeId;
+                occupiedNodes[continuationNodeId] = airplane.flightId;
+                if (!plan.routeContinuationQueued)
+                {
+                    plan.routeContinuationQueued = true;
+                    plan.requestOrder = nextRequestOrder++;
+                    routeContinuationQueue.push_back(flightIndex);
+                }
+            }
             if (airplane.state == AirplaneState::Incident &&
                 !plan.safetyViolationRecorded)
             {
@@ -4293,6 +4376,7 @@ RunGameResult RunGame(bool startImmediately)
                 }
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
+                plan.activeRouteWaypointOffset = 0;
                 plan.routeStarted = false;
                 if (!plan.landingExitNodeId.empty())
                     occupiedNodes[plan.landingExitNodeId] = airplane.flightId;
@@ -4302,6 +4386,7 @@ RunGameResult RunGame(bool startImmediately)
                 plan.landingRouteActive = false;
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
+                plan.activeRouteWaypointOffset = 0;
                 plan.routeStarted = false;
                 plan.arrivalFlight = false;
                 occupiedNodes[plan.parkingStandId] = airplane.flightId;
@@ -4311,6 +4396,7 @@ RunGameResult RunGame(bool startImmediately)
             {
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
+                plan.activeRouteWaypointOffset = 0;
                 plan.routeStarted = false;
                 occupiedNodes[plan.departureHoldNodeId] = airplane.flightId;
             }
@@ -4352,6 +4438,7 @@ RunGameResult RunGame(bool startImmediately)
                 }
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
+                plan.activeRouteWaypointOffset = 0;
                 plan.routeStarted = false;
                 const auto runwayOwner = runwayOwners.find(plan.runwayId);
                 if (plan.runwayReserved && runwayOwner != runwayOwners.end() &&
@@ -4386,13 +4473,17 @@ RunGameResult RunGame(bool startImmediately)
             }
         }
 
-        // Serve the oldest ready requests. Each runway has its own lease, so
-        // independent runways can operate concurrently. Exclusive
-        // reservations on route nodes and edges prevents runway and taxiway
-        // conflicts. Blocked routes remain queued until a safe path is free.
-        while (!arrivalQueue.empty() || !taxiToStandQueue.empty() || !departureQueue.empty())
+        // Serve the oldest ready requests. Active routes retain reservations
+        // ahead of the aircraft and release sections as they are cleared.
+        while (!arrivalQueue.empty() || !taxiToStandQueue.empty() ||
+            !departureQueue.empty() || !routeContinuationQueue.empty())
         {
-            enum class RequestType { Landing, TaxiToStand, Departure };
+            while (!recentDepartureRoutes.empty() &&
+                shiftClockSeconds - recentDepartureRoutes.front().startedAtSeconds >=
+                    DepartureMovementIntervalSeconds)
+                recentDepartureRoutes.pop_front();
+
+            enum class RequestType { Landing, TaxiToStand, Departure, Continuation };
             struct Request
             {
                 bool priority;
@@ -4401,7 +4492,8 @@ RunGameResult RunGame(bool startImmediately)
                 std::size_t flightIndex;
             };
             std::vector<Request> requests;
-            requests.reserve(arrivalQueue.size() + taxiToStandQueue.size() + departureQueue.size());
+            requests.reserve(arrivalQueue.size() + taxiToStandQueue.size() +
+                departureQueue.size() + routeContinuationQueue.size());
             for (const std::size_t index : arrivalQueue)
                 requests.push_back({flights[index].airplane.isPriority,
                     flights[index].requestOrder, RequestType::Landing, index});
@@ -4411,6 +4503,9 @@ RunGameResult RunGame(bool startImmediately)
             for (const std::size_t index : departureQueue)
                 requests.push_back({flights[index].airplane.isPriority,
                     flights[index].requestOrder, RequestType::Departure, index});
+            for (const std::size_t index : routeContinuationQueue)
+                requests.push_back({flights[index].airplane.isPriority,
+                    flights[index].requestOrder, RequestType::Continuation, index});
             std::stable_sort(requests.begin(), requests.end(),
                 [](const Request& left, const Request& right)
                 {
@@ -4421,15 +4516,25 @@ RunGameResult RunGame(bool startImmediately)
             bool foundSafeRequest = false;
             bool serveArrival = false;
             bool serveTaxiToStand = false;
+            bool serveContinuation = false;
+            bool selectedRouteNeedsContinuation = false;
             std::size_t flightIndex = 0;
             std::vector<std::string> routeNodeIds;
             for (const Request& request : requests)
             {
                 FlightPlan& candidate = flights[request.flightIndex];
                 const bool landingRequest = request.type == RequestType::Landing;
-                const bool taxiRequest = request.type == RequestType::TaxiToStand;
+                const bool continuationRequest = request.type == RequestType::Continuation;
+                const bool taxiRequest = request.type == RequestType::TaxiToStand ||
+                    (continuationRequest &&
+                        candidate.airplane.state == AirplaneState::TaxiingToStand);
+                const bool departureRequest = request.type == RequestType::Departure ||
+                    (continuationRequest &&
+                        candidate.airplane.state == AirplaneState::TaxiingToRunway);
+                if (continuationRequest && !taxiRequest && !departureRequest) continue;
                 const std::string& start = landingRequest ? candidate.arrivalStartNode :
-                    (taxiRequest ? candidate.landingExitNodeId : candidate.parkingStandId);
+                    (continuationRequest ? candidate.routeContinuationNodeId :
+                        (taxiRequest ? candidate.landingExitNodeId : candidate.parkingStandId));
                 const auto selectedRunway = std::find_if(airportGround.GetRunways().begin(),
                     airportGround.GetRunways().end(),
                     [&candidate](const AirportRunway& runway)
@@ -4438,6 +4543,7 @@ RunGameResult RunGame(bool startImmediately)
                     !selectedRunway->available)) continue;
                 if (landingRequest && runwayOwners.find(candidate.runwayId) != runwayOwners.end()) continue;
                 std::vector<std::string> candidateRoute;
+                bool candidateNeedsContinuation = false;
                 std::string assignedStandId = candidate.parkingStandId;
                 std::string assignedExitNodeId;
                 float assignedStandHeading = candidate.parkingHeadingDegrees;
@@ -4505,24 +4611,42 @@ RunGameResult RunGame(bool startImmediately)
                 }
                 else if (taxiRequest)
                 {
-                    if (candidate.landingExitNodeId.empty() || !candidate.standAssigned) continue;
+                    if ((!continuationRequest && candidate.landingExitNodeId.empty()) ||
+                        !candidate.standAssigned) continue;
                     candidateRoute = airportGround.FindRouteNodeIds(start,
                         candidate.parkingStandId,
                         routePurposeForTraffic(TaxiRoutePurpose::Arrival));
-                    if (candidateRoute.empty() ||
-                        !routeCanBeReserved(candidateRoute, candidate.airplane.flightId)) continue;
+                    const std::vector<std::string> reservablePrefix =
+                        reservableRoutePrefix(candidateRoute, candidate.airplane.flightId);
+                    if (reservablePrefix.size() < 2) continue;
+                    candidateNeedsContinuation = reservablePrefix.size() < candidateRoute.size();
+                    candidateRoute = reservablePrefix;
                 }
-                else
+                else if (departureRequest)
                 {
                     candidateRoute = airportGround.FindRouteNodeIds(
                         start, candidate.departureHoldNodeId,
                         routePurposeForTraffic(TaxiRoutePurpose::Departure));
-                    if (candidateRoute.empty() ||
-                        !routeCanBeReserved(candidateRoute, candidate.airplane.flightId)) continue;
+                    const bool intervalActive = !continuationRequest && std::any_of(
+                        recentDepartureRoutes.begin(), recentDepartureRoutes.end(),
+                        [&](const RecentDepartureRoute& recent)
+                        {
+                            return shiftClockSeconds - recent.startedAtSeconds <
+                                DepartureMovementIntervalSeconds &&
+                                routesShareNode(candidateRoute, recent.routeNodeIds);
+                        });
+                    if (intervalActive) continue;
+                    const std::vector<std::string> reservablePrefix =
+                        reservableRoutePrefix(candidateRoute, candidate.airplane.flightId);
+                    if (reservablePrefix.size() < 2) continue;
+                    candidateNeedsContinuation = reservablePrefix.size() < candidateRoute.size();
+                    candidateRoute = reservablePrefix;
                 }
                 foundSafeRequest = true;
                 serveArrival = landingRequest;
                 serveTaxiToStand = taxiRequest;
+                serveContinuation = continuationRequest;
+                selectedRouteNeedsContinuation = candidateNeedsContinuation;
                 flightIndex = request.flightIndex;
                 routeNodeIds = std::move(candidateRoute);
                 if (landingRequest)
@@ -4537,15 +4661,24 @@ RunGameResult RunGame(bool startImmediately)
             if (!foundSafeRequest) break;
 
             FlightPlan& plan = flights[flightIndex];
-            auto& requestQueue = serveArrival ? arrivalQueue :
-                (serveTaxiToStand ? taxiToStandQueue : departureQueue);
+            auto& requestQueue = serveContinuation ? routeContinuationQueue :
+                (serveArrival ? arrivalQueue :
+                    (serveTaxiToStand ? taxiToStandQueue : departureQueue));
             const auto queuedRequest = std::find(requestQueue.begin(), requestQueue.end(), flightIndex);
             if (queuedRequest == requestQueue.end()) break;
             requestQueue.erase(queuedRequest);
+            if (serveContinuation) plan.routeContinuationQueued = false;
 
             reserveRoute(routeNodeIds, plan.airplane.flightId);
+            if (!serveArrival && !serveTaxiToStand && !serveContinuation)
+                recentDepartureRoutes.push_back(
+                    {shiftClockSeconds, routeNodeIds});
             if (serveArrival) occupiedStands[plan.parkingStandId] = plan.airplane.flightId;
             plan.activeRouteNodeIds = routeNodeIds;
+            plan.activeRouteWaypointOffset = serveArrival ? 4 : 0;
+            plan.routeContinuationPending = selectedRouteNeedsContinuation;
+            plan.routeContinuationNodeId = selectedRouteNeedsContinuation ?
+                routeNodeIds.back() : "";
             plan.routeStarted = true;
             if (serveArrival)
             {
@@ -4588,20 +4721,25 @@ RunGameResult RunGame(bool startImmediately)
             else if (serveTaxiToStand)
             {
                 plan.taxiToStandQueued = false;
-                if (plan.airplane.TransitionTo(AirplaneState::TaxiingToStand))
+                if (plan.airplane.state == AirplaneState::TaxiingToStand ||
+                    plan.airplane.TransitionTo(AirplaneState::TaxiingToStand))
                 {
                     const std::vector<Vector2> route = MakeWorldRoute(airportGround, routeNodeIds);
-                    plan.airplane.SetWaypointRoute(route, 9.0f, AirplaneState::Parked);
+                    plan.airplane.SetWaypointRoute(route, 9.0f,
+                        plan.routeContinuationPending ? AirplaneState::TaxiingToStand :
+                            AirplaneState::Parked);
                 }
             }
             else
             {
                 plan.departureQueued = false;
-                if (plan.airplane.TransitionTo(AirplaneState::TaxiingToRunway))
+                if (plan.airplane.state == AirplaneState::TaxiingToRunway ||
+                    plan.airplane.TransitionTo(AirplaneState::TaxiingToRunway))
                 {
                     const std::vector<Vector2> route = MakeWorldRoute(airportGround, routeNodeIds);
                     plan.airplane.SetWaypointRoute(route, 11.0f,
-                        AirplaneState::AwaitingTakeoffAuthorization);
+                        plan.routeContinuationPending ? AirplaneState::TaxiingToRunway :
+                            AirplaneState::AwaitingTakeoffAuthorization);
                 }
             }
         }

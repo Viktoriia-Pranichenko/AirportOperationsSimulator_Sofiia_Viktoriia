@@ -17,6 +17,7 @@ namespace
     constexpr Color TaxiwayCenterline{241, 195, 70, 255};
     constexpr Color RunwayMarking{235, 236, 226, 255};
     constexpr float SharedTaxiwayLanePenalty = 10000.0f;
+    constexpr float DirectionalTaxiwayLanePenalty = 10000.0f;
 
     void DrawQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
     {
@@ -713,8 +714,10 @@ std::vector<std::string> AirportGround::FindRouteNodeIds(
                 edgeCost += SharedTaxiwayLanePenalty;
             else
             {
-                if (purpose == TaxiRoutePurpose::Arrival && usesEastLane) edgeCost += 280.0f;
-                if (purpose == TaxiRoutePurpose::Departure && usesWestLane) edgeCost += 280.0f;
+                if (purpose == TaxiRoutePurpose::Arrival && usesEastLane)
+                    edgeCost += DirectionalTaxiwayLanePenalty;
+                if (purpose == TaxiRoutePurpose::Departure && usesWestLane)
+                    edgeCost += DirectionalTaxiwayLanePenalty;
             }
 
             const float nextDistance = currentDistance + edgeCost;
