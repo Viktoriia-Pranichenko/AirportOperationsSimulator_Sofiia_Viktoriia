@@ -315,7 +315,6 @@ namespace
         Rectangle autoService;
         Rectangle departure;
         Rectangle followMeEscort;
-        Rectangle noFollowMeEscort;
         Rectangle disembarkPassengers;
         Rectangle maintenanceInspection;
         Rectangle refuelAircraft;
@@ -359,7 +358,7 @@ namespace
     }
 
     GateNavigationButtons GetGateNavigationButtons(bool departureVisible,
-        bool autoServiceVisible, bool followMeChoiceVisible)
+        bool autoServiceVisible, bool followMeButtonVisible)
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
@@ -377,15 +376,13 @@ namespace
         Rectangle autoService{0.0f, 0.0f, 0.0f, 0.0f};
         Rectangle departure{0.0f, 0.0f, 0.0f, 0.0f};
         Rectangle followMeEscort{0.0f, 0.0f, 0.0f, 0.0f};
-        Rectangle noFollowMeEscort{0.0f, 0.0f, 0.0f, 0.0f};
         constexpr float DepartureButtonWidth = 254.0f;
-        constexpr float ChoiceButtonWidth = 122.0f;
-        constexpr float ChoiceButtonGap = 8.0f;
+        constexpr float FollowMeButtonWidth = 154.0f;
         constexpr float ButtonGap = 10.0f;
         float groupWidth = ServiceCrewButtonWidth;
         if (departureVisible) groupWidth += ButtonGap + DepartureButtonWidth;
-        if (followMeChoiceVisible)
-            groupWidth += ButtonGap + ChoiceButtonWidth * 2.0f + ChoiceButtonGap;
+        if (followMeButtonVisible)
+            groupWidth += ButtonGap + FollowMeButtonWidth;
         float cursorX = (static_cast<float>(GetScreenWidth()) - groupWidth) * 0.5f;
         bringServiceCrew.x = cursorX;
         cursorX += ServiceCrewButtonWidth;
@@ -396,14 +393,11 @@ namespace
                 GateNavigationButtonHeight};
             cursorX += DepartureButtonWidth;
         }
-        if (followMeChoiceVisible)
+        if (followMeButtonVisible)
         {
             cursorX += ButtonGap;
             followMeEscort = {cursorX, buttonY - 96.0f,
-                ChoiceButtonWidth, GateNavigationButtonHeight};
-            noFollowMeEscort = {followMeEscort.x + ChoiceButtonWidth +
-                ChoiceButtonGap, buttonY - 96.0f, ChoiceButtonWidth,
-                GateNavigationButtonHeight};
+                FollowMeButtonWidth, GateNavigationButtonHeight};
         }
         if (autoServiceVisible)
         {
@@ -425,7 +419,6 @@ namespace
             autoService,
             departure,
             followMeEscort,
-            noFollowMeEscort,
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f,
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
@@ -456,6 +449,63 @@ namespace
         const int textY = static_cast<int>(
             bounds.y + (bounds.height - FontSize) * 0.5f);
         DrawText(label, textX, textY, FontSize, RAYWHITE);
+    }
+
+    void DrawFollowMeEscortButton(Rectangle bounds, const char* label,
+        bool cancel, bool available)
+    {
+        const bool enabled = cancel || available;
+        const bool hovered = enabled &&
+            CheckCollisionPointRec(GetMousePosition(), bounds);
+        const Color accent = cancel ? Color{255, 139, 137, 255} :
+            available ? Color{153, 255, 190, 255} :
+                Color{170, 182, 187, 255};
+        const Color fill = cancel ?
+            (hovered ? Color{150, 48, 53, 255} : Color{112, 35, 42, 255}) :
+            available ?
+                (hovered ? Color{42, 128, 77, 255} : Color{29, 94, 60, 255}) :
+                Color{58, 68, 73, 255};
+
+        DrawRectangleRounded({bounds.x + 2.0f, bounds.y + 3.0f,
+            bounds.width, bounds.height}, 0.24f, 8, Color{5, 14, 20, 190});
+        DrawRectangleRounded(bounds, 0.24f, 8, fill);
+        DrawRectangleRoundedLinesEx(bounds, 0.24f, 8,
+            hovered ? 2.2f : 1.5f, hovered ? RAYWHITE : accent);
+
+        const Vector2 iconCenter{bounds.x + 17.0f,
+            bounds.y + bounds.height * 0.5f};
+        DrawCircleV(iconCenter, 8.0f, Fade(accent, 0.18f));
+        DrawCircleLines(static_cast<int>(iconCenter.x),
+            static_cast<int>(iconCenter.y), 7.0f, accent);
+        if (cancel)
+        {
+            DrawLineEx({iconCenter.x - 3.0f, iconCenter.y - 3.0f},
+                {iconCenter.x + 3.0f, iconCenter.y + 3.0f}, 2.0f, accent);
+            DrawLineEx({iconCenter.x + 3.0f, iconCenter.y - 3.0f},
+                {iconCenter.x - 3.0f, iconCenter.y + 3.0f}, 2.0f, accent);
+        }
+        else if (available)
+        {
+            DrawLineEx({iconCenter.x - 4.0f, iconCenter.y},
+                {iconCenter.x - 1.0f, iconCenter.y + 3.0f}, 2.0f, accent);
+            DrawLineEx({iconCenter.x - 1.0f, iconCenter.y + 3.0f},
+                {iconCenter.x + 4.0f, iconCenter.y - 4.0f}, 2.0f, accent);
+        }
+        else
+        {
+            DrawCircleV(iconCenter, 2.5f, accent);
+        }
+
+        constexpr int FontSize = 12;
+        const int textWidth = MeasureText(label, FontSize);
+        const float textAreaStart = bounds.x + 31.0f;
+        const float textAreaWidth = bounds.width - 36.0f;
+        DrawText(label,
+            static_cast<int>(textAreaStart +
+                (textAreaWidth - textWidth) * 0.5f),
+            static_cast<int>(bounds.y +
+                (bounds.height - FontSize) * 0.5f),
+            FontSize, enabled ? RAYWHITE : Fade(RAYWHITE, 0.7f));
     }
 
     void DrawDepartureButton(Rectangle bounds)
@@ -4815,8 +4865,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                      (departureAvailable &&
                         CheckCollisionPointRec(mouse, buttons.departure)) ||
                      (followMeChoiceAvailable &&
-                        (CheckCollisionPointRec(mouse, buttons.followMeEscort) ||
-                            CheckCollisionPointRec(mouse, buttons.noFollowMeEscort))));
+                        CheckCollisionPointRec(mouse, buttons.followMeEscort)));
                 if (clickedGateNavigation)
                 {
                     if (CheckCollisionPointRec(mouse, buttons.previous))
@@ -4888,25 +4937,6 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                             followMeDebugTargetGap = 0.0f;
                             followMeDebugAircraftState =
                                 FlightStateLabel(plan->airplane.state);
-                        }
-                    }
-                    else if (followMeChoiceAvailable &&
-                        CheckCollisionPointRec(mouse, buttons.noFollowMeEscort))
-                    {
-                        if (FlightPlan* plan = findParkedFlightAtGate(selectedGateId))
-                        {
-                            const int flightIndex =
-                                static_cast<int>(plan - flights.data());
-                            plan->followMeEscortDecisionMade = true;
-                            plan->followMeEscortRequested = false;
-                            if (followMeAssignedFlightIndex == flightIndex &&
-                                (followMeStatus == FollowMeStatus::MovingToAircraft ||
-                                    followMeStatus == FollowMeStatus::Escorting))
-                            {
-                                followMeStatus = FollowMeStatus::Available;
-                                followMeAssignedFlightIndex = -1;
-                                followMeCars[0].ClearTaxiRoute();
-                            }
                         }
                     }
                 }
@@ -6208,11 +6238,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 gateLabel = "GATE " + selectedGateId.substr(5);
             const bool departureAvailable =
                 pushbackAvailableAtGate(selectedGateId);
-            const bool followMeChoiceAvailable =
+            const bool followMeButtonAvailable =
                 followMeChoiceAvailableAtGate(selectedGateId);
             const GateNavigationButtons buttons =
                 GetGateNavigationButtons(departureAvailable,
-                    automaticServiceUpgrade, followMeChoiceAvailable);
+                    automaticServiceUpgrade, followMeButtonAvailable);
             DrawGateNavigationButton(buttons.previous, "PREV GATE");
             DrawGateNavigationButton(buttons.next, "NEXT GATE");
             DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
@@ -6223,7 +6253,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 DrawAutomaticServiceButton(buttons.autoService,
                     automaticServiceGates.count(selectedGateId) != 0,
                     serviceCrewIndexAtGate(selectedGateId) >= 0);
-            if (followMeChoiceAvailable)
+            if (followMeButtonAvailable)
             {
                 FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
                 const bool escortAssignedToGateFlight = plan != nullptr &&
@@ -6231,11 +6261,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         static_cast<int>(plan - flights.data()) &&
                     (followMeStatus == FollowMeStatus::MovingToAircraft ||
                         followMeStatus == FollowMeStatus::Escorting);
-                DrawGateNavigationButton(buttons.followMeEscort,
+                const bool vehicleAvailable =
+                    followMeStatus == FollowMeStatus::Available;
+                DrawFollowMeEscortButton(buttons.followMeEscort,
                     escortAssignedToGateFlight ? "CANCEL ESCORT" :
-                        followMeStatus == FollowMeStatus::Available ?
-                            "ESCORT" : "VEHICLE BUSY");
-                DrawGateNavigationButton(buttons.noFollowMeEscort, "NO ESCORT");
+                        vehicleAvailable ? "ESCORT" : "VEHICLE BUSY",
+                    escortAssignedToGateFlight, vehicleAvailable);
             }
             if (!automaticServiceUpgrade &&
                 findParkedFlightAtGate(selectedGateId) != nullptr)
