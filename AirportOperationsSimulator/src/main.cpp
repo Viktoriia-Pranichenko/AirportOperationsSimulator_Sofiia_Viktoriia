@@ -571,6 +571,10 @@ namespace
         bool takeoffRollStarted{false};
         bool landingRouteActive{false};
         bool weatherDelayedArrival{false};
+        bool weatherRecoveryArrival{false};
+        bool weatherDelayedDeparture{false};
+        float weatherDelayStartedAtSeconds{-1.0f};
+        float weatherDelaySeconds{0.0f};
         bool scoreRecorded{false};
         bool arrivalResultRecorded{false};
         bool safetyViolationRecorded{false};
@@ -604,6 +608,28 @@ namespace
             route.push_back({node->position.x, node->position.z});
         }
         return route;
+    }
+
+    float GetWeatherDelaySeconds(const FlightPlan& plan, float shiftSeconds)
+    {
+        const float activeDelay = plan.weatherDelayStartedAtSeconds >= 0.0f ?
+            std::max(0.0f, shiftSeconds - plan.weatherDelayStartedAtSeconds) : 0.0f;
+        return plan.weatherDelaySeconds + activeDelay;
+    }
+
+    bool HasWeatherDelay(const FlightPlan& plan)
+    {
+        return plan.weatherDelayedArrival || plan.weatherRecoveryArrival ||
+            plan.weatherDelayedDeparture || plan.weatherDelaySeconds > 0.0f;
+    }
+
+    std::string FormatDelayDuration(float seconds)
+    {
+        const int totalSeconds = std::max(0, static_cast<int>(seconds));
+        char buffer[24]{};
+        std::snprintf(buffer, sizeof(buffer), "%02d:%02d",
+            totalSeconds / 60, totalSeconds % 60);
+        return buffer;
     }
 
     std::vector<Vector2> MakeTakeoffRoute(const AirportGround& ground,
@@ -1906,21 +1932,20 @@ RunGameResult RunGame(bool startImmediately)
     weatherSchedule.reserve(3);
     constexpr float WeatherEpisodeMinMinutes = 35.0f;
     constexpr float WeatherEpisodeMaxMinutes = 55.0f;
-    constexpr float HeavyRainMinMinutes = 45.0f;
-    constexpr float HeavyRainMaxMinutes = 65.0f;
+    constexpr float HeavyRainDurationSeconds = 30.0f * 60.0f;
     constexpr float ClearBufferMinutes = 15.0f;
     const float weatherThirdDuration = plannedShiftDurationSeconds / 3.0f;
     for (std::size_t index = 0; index < weatherOrder.size(); ++index)
     {
         const WeatherState state = weatherOrder[index];
         const bool heavyRain = state == WeatherState::HeavyRain;
-        const float minDurationMinutes = heavyRain ? HeavyRainMinMinutes :
-            WeatherEpisodeMinMinutes;
-        const float maxDurationMinutes = heavyRain ? HeavyRainMaxMinutes :
-            WeatherEpisodeMaxMinutes;
-        std::uniform_real_distribution<float> durationDistribution(
-            minDurationMinutes, maxDurationMinutes);
-        const float durationSeconds = durationDistribution(weatherRandom) * 60.0f;
+        float durationSeconds = HeavyRainDurationSeconds;
+        if (!heavyRain)
+        {
+            std::uniform_real_distribution<float> durationDistribution(
+                WeatherEpisodeMinMinutes, WeatherEpisodeMaxMinutes);
+            durationSeconds = durationDistribution(weatherRandom) * 60.0f;
+        }
 
         const float segmentStart = static_cast<float>(index) * weatherThirdDuration;
         const float earliestStart = segmentStart + ClearBufferMinutes * 60.0f;
@@ -4281,6 +4306,15 @@ RunGameResult RunGame(bool startImmediately)
                             refuellingMessage = "Departure authorised. The tug will return after the aircraft moves.";
                             refuellingMessageTime = 3.0f;
                         }
+                        else if ((selected.airplane.state == AirplaneState::Holding ||
+                            selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization) &&
+                            GetWeatherState(shiftClockSeconds, weatherSchedule) ==
+                                WeatherState::HeavyRain)
+                        {
+                            refuellingMessage =
+                                "Landings and takeoffs are temporarily suspended due to heavy rain.";
+                            refuellingMessageTime = 4.0f;
+                        }
                         else if (selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization)
                         {
                             const auto runway = std::find_if(airportGround.GetRunways().begin(),
@@ -4472,6 +4506,25 @@ RunGameResult RunGame(bool startImmediately)
             }
             if (!plan.spawned) continue;
             airplane.Update(deltaTime);
+            const bool heavyRainActive = GetWeatherState(shiftClockSeconds,
+                weatherSchedule) == WeatherState::HeavyRain;
+            if (airplane.state == AirplaneState::AwaitingTakeoffAuthorization &&
+                heavyRainActive)
+            {
+                if (!plan.weatherDelayedDeparture)
+                {
+                    plan.weatherDelayedDeparture = true;
+                    if (plan.weatherDelayStartedAtSeconds < 0.0f)
+                        plan.weatherDelayStartedAtSeconds = shiftClockSeconds;
+                }
+            }
+            else if (plan.weatherDelayedDeparture)
+            {
+                plan.weatherDelaySeconds = GetWeatherDelaySeconds(plan,
+                    shiftClockSeconds);
+                plan.weatherDelayedDeparture = false;
+                plan.weatherDelayStartedAtSeconds = -1.0f;
+            }
             releasePassedRouteReservations(plan);
             if (plan.routeStarted && plan.routeContinuationPending &&
                 !airplane.hasTarget && !plan.activeRouteNodeIds.empty())
@@ -4700,8 +4753,22 @@ RunGameResult RunGame(bool startImmediately)
                 FlightPlan& arrival = flights[index];
                 if (heavyRainActive)
                 {
-                    arrival.weatherDelayedArrival = true;
+                    if (!arrival.weatherDelayedArrival)
+                    {
+                        arrival.weatherDelayedArrival = true;
+                        if (arrival.weatherDelayStartedAtSeconds < 0.0f)
+                            arrival.weatherDelayStartedAtSeconds = shiftClockSeconds;
+                    }
+                    arrival.weatherRecoveryArrival = false;
                     continue;
+                }
+                if (arrival.weatherDelayedArrival)
+                {
+                    arrival.weatherDelaySeconds = GetWeatherDelaySeconds(arrival,
+                        shiftClockSeconds);
+                    arrival.weatherDelayedArrival = false;
+                    arrival.weatherRecoveryArrival = true;
+                    arrival.weatherDelayStartedAtSeconds = -1.0f;
                 }
                 requests.push_back({arrival.airplane.isPriority,
                     arrival.requestOrder, RequestType::Landing, index});
@@ -4741,7 +4808,7 @@ RunGameResult RunGame(bool startImmediately)
                     (continuationRequest &&
                         candidate.airplane.state == AirplaneState::TaxiingToRunway);
                 if (continuationRequest && !taxiRequest && !departureRequest) continue;
-                if (landingRequest && candidate.weatherDelayedArrival &&
+                if (landingRequest && candidate.weatherRecoveryArrival &&
                     nextWeatherRecoveryLandingSeconds >= 0.0f &&
                     shiftClockSeconds < nextWeatherRecoveryLandingSeconds)
                     continue;
@@ -4895,9 +4962,9 @@ RunGameResult RunGame(bool startImmediately)
             plan.routeStarted = true;
             if (serveArrival)
             {
-                if (plan.weatherDelayedArrival)
+                if (plan.weatherRecoveryArrival)
                 {
-                    plan.weatherDelayedArrival = false;
+                    plan.weatherRecoveryArrival = false;
                     // Release rain-delayed arrivals one at a time, while the
                     // existing runway and stand reservations still govern safety.
                     constexpr float WeatherRecoveryLandingIntervalSeconds = 45.0f;
@@ -5629,7 +5696,22 @@ RunGameResult RunGame(bool startImmediately)
                  selected.airplane.state == AirplaneState::AwaitingTakeoffAuthorization ?
                     "AUTHORIZE TAKEOFF" : "No taxi command available in this state.");
             std::string commandText = command;
-            if (selected.airplane.isPriority && !selected.activeTaskKey.empty())
+            if (selected.weatherDelayedArrival)
+                commandText = "HEAVY RAIN - LAND " + FormatDelayDuration(
+                    GetWeatherDelaySeconds(selected, shiftClockSeconds));
+            else if (selected.weatherRecoveryArrival)
+                commandText = "WEATHER RECOVERY - LAND " + FormatDelayDuration(
+                    GetWeatherDelaySeconds(selected, shiftClockSeconds));
+            else if (selected.weatherDelayedDeparture)
+                commandText = "HEAVY RAIN - TAKEOFF " + FormatDelayDuration(
+                    GetWeatherDelaySeconds(selected, shiftClockSeconds));
+            else if (selected.weatherDelaySeconds > 0.0f)
+                commandText = selected.airplane.state ==
+                    AirplaneState::AwaitingTakeoffAuthorization ?
+                    "AUTHORIZE TAKEOFF - WX " + FormatDelayDuration(
+                        selected.weatherDelaySeconds) :
+                    "WEATHER DELAY " + FormatDelayDuration(selected.weatherDelaySeconds);
+            else if (selected.airplane.isPriority && !selected.activeTaskKey.empty())
             {
                 const int secondsLeft = std::max(0, static_cast<int>(std::ceil(
                     PriorityTaskResponseSeconds -
@@ -5683,13 +5765,27 @@ RunGameResult RunGame(bool startImmediately)
                     static_cast<int>(details.y + 37.0f), 9,
                     Color{203, 219, 224, 255});
                 DrawRectangleRounded(commandButton, 0.18f, 4,
-                    plan.airplane.isPriority && !plan.activeTaskKey.empty() ?
-                        Color{135, 83, 31, 255} : Color{28, 92, 98, 255});
+                    HasWeatherDelay(plan) ? Color{101, 62, 29, 255} :
+                    (plan.airplane.isPriority && !plan.activeTaskKey.empty() ?
+                        Color{135, 83, 31, 255} : Color{28, 92, 98, 255}));
                 DrawText(flightCommandText(plan).c_str(),
                     static_cast<int>(commandButton.x + 7.0f),
                     static_cast<int>(commandButton.y + 4.0f), 8, RAYWHITE);
             }
             DrawNotificationAircraftIcon(icon, accent);
+            if (HasWeatherDelay(plan))
+            {
+                const Rectangle weatherBadge{icon.x + 25.0f, icon.y + 2.0f,
+                    21.0f, 13.0f};
+                const bool activeWeatherHold = plan.weatherDelayedArrival ||
+                    plan.weatherRecoveryArrival || plan.weatherDelayedDeparture;
+                DrawRectangleRounded(weatherBadge, 0.24f, 4,
+                    activeWeatherHold ? Color{128, 72, 33, 250} :
+                        Color{45, 79, 86, 245});
+                DrawText("WX", static_cast<int>(weatherBadge.x + 4.0f),
+                    static_cast<int>(weatherBadge.y + 2.0f), 8,
+                    Color{255, 215, 151, 255});
+            }
             if (selected || hovered)
                 DrawRectangleRoundedLinesEx(icon, 0.2f, 4, selected ? 2.0f : 1.0f,
                     selected ? Color{89, 223, 210, 255} : Color{117, 173, 191, 255});
@@ -5734,17 +5830,31 @@ RunGameResult RunGame(bool startImmediately)
                 selected.standAssigned ? selected.parkingStandId.c_str() :
                     "Pending assignment"),
                 infoX + 14, infoY + 228, 12, Color{203, 219, 224, 255});
-            DrawRectangle(infoX + 14, infoY + 250, 284, 24,
-                selected.airplane.isPriority && !selected.activeTaskKey.empty() ?
-                    Color{135, 83, 31, 255} : Color{28, 92, 98, 255});
+            if (HasWeatherDelay(selected))
+            {
+                const char* weatherPhase = selected.weatherDelayedArrival ? "LANDING" :
+                    (selected.weatherRecoveryArrival ? "RECOVERY" :
+                        (selected.weatherDelayedDeparture ? "TAKEOFF" : "RECORDED"));
+                const char* weatherPrefix = selected.weatherDelayedArrival ||
+                    selected.weatherDelayedDeparture ? "HEAVY RAIN" : "WEATHER DELAY";
+                DrawText(TextFormat("%s - %s  %s", weatherPrefix, weatherPhase,
+                    FormatDelayDuration(GetWeatherDelaySeconds(selected,
+                        shiftClockSeconds)).c_str()),
+                    infoX + 14, infoY + 246, 10,
+                    Color{255, 195, 105, 255});
+            }
+            DrawRectangle(infoX + 14, infoY + 263, 284, 22,
+                HasWeatherDelay(selected) ? Color{101, 62, 29, 255} :
+                    (selected.airplane.isPriority && !selected.activeTaskKey.empty() ?
+                        Color{135, 83, 31, 255} : Color{28, 92, 98, 255}));
             DrawText(flightCommandText(selected).c_str(),
-                infoX + 22, infoY + 256, 10, RAYWHITE);
-            DrawRectangle(infoX + 14, infoY + 278, 284, 28,
+                infoX + 22, infoY + 268, 10, RAYWHITE);
+            DrawRectangle(infoX + 14, infoY + 290, 284, 28,
                 selected.airplane.isPriority ?
                     Color{126, 91, 36, 255} : Color{48, 74, 88, 255});
             DrawText(selected.airplane.isPriority ?
                 "PRIORITY FLIGHT" : "STANDARD FLIGHT",
-                infoX + 22, infoY + 285, 13, RAYWHITE);
+                infoX + 22, infoY + 297, 13, RAYWHITE);
         }
 
         if (!selectedGateId.empty())
@@ -5890,6 +6000,14 @@ RunGameResult RunGame(bool startImmediately)
 
         if (shiftComplete)
         {
+            int weatherDelayedFlights = 0;
+            float totalWeatherDelaySeconds = 0.0f;
+            for (const FlightPlan& plan : flights)
+            {
+                if (HasWeatherDelay(plan)) ++weatherDelayedFlights;
+                totalWeatherDelaySeconds += GetWeatherDelaySeconds(plan,
+                    shiftClockSeconds);
+            }
             const int scheduledArrivals = static_cast<int>(std::count_if(flights.begin(),
                 flights.end(), [](const FlightPlan& plan) { return plan.hasArrivalSchedule; }));
             const int scheduledDepartures = static_cast<int>(std::count_if(flights.begin(),
@@ -5952,15 +6070,16 @@ RunGameResult RunGame(bool startImmediately)
 
             const float tileGap = 14.0f;
             const float tileWidth = (panel.width - 48.0f - tileGap) * 0.5f;
-            const float tileHeight = 66.0f;
+            const float tileHeight = 56.0f;
             const float tileStartX = panel.x + 24.0f;
             const float tileStartY = panel.y + 194.0f;
             const char* tileLabels[] = {
                 "COMPLETED ARRIVALS", "COMPLETED DEPARTURES",
                 "TOTAL DELAY", "AVG WAITING TIME (AUTH)",
-                "PRIORITY FLIGHTS COMPLETED", "SAFETY VIOLATIONS"
+                "PRIORITY FLIGHTS COMPLETED", "SAFETY VIOLATIONS",
+                "WEATHER-AFFECTED FLIGHTS", "WEATHER DELAY TOTAL"
             };
-            char tileValueBuffers[6][32]{};
+            char tileValueBuffers[8][32]{};
             std::snprintf(tileValueBuffers[0], sizeof(tileValueBuffers[0]), "%d / %d",
                 completedArrivals, scheduledArrivals);
             std::snprintf(tileValueBuffers[1], sizeof(tileValueBuffers[1]), "%d / %d",
@@ -5974,7 +6093,11 @@ RunGameResult RunGame(bool startImmediately)
                 priorityFlightsCompleted);
             std::snprintf(tileValueBuffers[5], sizeof(tileValueBuffers[5]), "%d",
                 safetyViolations);
-            for (int i = 0; i < 6; ++i)
+            std::snprintf(tileValueBuffers[6], sizeof(tileValueBuffers[6]), "%d",
+                weatherDelayedFlights);
+            std::snprintf(tileValueBuffers[7], sizeof(tileValueBuffers[7]), "%.1f min",
+                totalWeatherDelaySeconds / 60.0f);
+            for (int i = 0; i < 8; ++i)
             {
                 const int column = i % 2;
                 const int row = i / 2;
@@ -5984,10 +6107,10 @@ RunGameResult RunGame(bool startImmediately)
                     tileWidth, tileHeight};
                 DrawRectangleRounded(tile, 0.08f, 8, Color{21, 43, 53, 255});
                 DrawText(tileLabels[i], static_cast<int>(tile.x + 14.0f),
-                    static_cast<int>(tile.y + 10.0f), 10,
+                    static_cast<int>(tile.y + 8.0f), 9,
                     Color{144, 190, 197, 255});
                 DrawText(tileValueBuffers[i], static_cast<int>(tile.x + 14.0f),
-                    static_cast<int>(tile.y + 31.0f), 20, RAYWHITE);
+                    static_cast<int>(tile.y + 27.0f), 18, RAYWHITE);
             }
             const int onTimeY = static_cast<int>(panel.y + panel.height - 102.0f);
             DrawText("ON-TIME OPERATIONS (8 min standard / 5 min priority)",
