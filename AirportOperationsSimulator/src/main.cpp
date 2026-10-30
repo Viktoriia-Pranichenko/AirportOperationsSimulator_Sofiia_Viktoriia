@@ -2191,7 +2191,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         std::array<float, 7> vehicleHeadings{};
         std::array<Vector2, 2> stairPositions{};
         std::array<float, 2> stairHeadings{};
+        int assignmentOrder{0};
     };
+    int nextCrewAssignmentOrder = 0;
     std::vector<ServiceCrewAssignment> serviceCrews;
     const auto serviceCrewIndexAtGate = [&](const std::string& gateId)
     {
@@ -2374,17 +2376,49 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             !runtime.maintenanceGate.empty() ||
             !runtime.passengerGate.empty();
     };
+    // A crew becomes committed only once servicing of its aircraft has actually
+    // started, and stays committed until pushback is complete. Each crew is
+    // evaluated independently.
+    const auto crewIsAvailableForReassignment = [&](int crewIndex)
+    {
+        if (crewIsBusy(crewIndex)) return false;
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(serviceCrews.size()))
+            return true;
+        const std::string& gateId =
+            serviceCrews[static_cast<std::size_t>(crewIndex)].gateId;
+        if (gateId.empty()) return true;
+        const FlightPlan* plan = findParkedFlightAtGate(gateId);
+        if (plan == nullptr || !plan->departureFlight ||
+            plan->pushbackState == FlightPlan::PushbackState::Complete)
+            return true;
+        const auto progress = serviceProgressByFlight.find(plan->airplane.flightId);
+        if (progress == serviceProgressByFlight.end()) return true;
+        const AircraftServiceProgress& state = progress->second;
+        const bool servicingStarted = state.refuellingStarted ||
+            state.disembarking != DisembarkingState::Idle ||
+            state.maintenance != MaintenanceInspectionState::Idle ||
+            state.cateringWater != CateringWaterState::Idle ||
+            state.baggage != BaggageLoadingState::Idle ||
+            state.boarding != BoardingState::Idle ||
+            plan->pushbackState != FlightPlan::PushbackState::NotStarted;
+        return !servicingStarted;
+    };
+    // Prefer the crew that was assigned earliest among those still available.
     const auto findIdleServiceCrewIndex = [&]()
     {
         const std::size_t availableCrewCount = std::min(
             serviceCrews.size(),
             static_cast<std::size_t>(maximumServiceCrews()));
+        int best = -1;
         for (std::size_t index = 0; index < availableCrewCount; ++index)
         {
-            if (!crewIsBusy(static_cast<int>(index)))
-                return static_cast<int>(index);
+            if (!crewIsAvailableForReassignment(static_cast<int>(index)))
+                continue;
+            if (best < 0 || serviceCrews[index].assignmentOrder <
+                serviceCrews[static_cast<std::size_t>(best)].assignmentOrder)
+                best = static_cast<int>(index);
         }
-        return -1;
+        return best;
     };
     PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
     std::string pushbackTugPositioningGate;
@@ -2909,6 +2943,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             crew.stairHeadings[stairIndex] = vehicleHeadingDegrees;
         }
         crew.gateId = selectedGateId;
+        crew.assignmentOrder = nextCrewAssignmentOrder++;
     };
     const auto getRefuellingApproachWaypoints = [&](const Airplane& aircraft,
         const AircraftRefuellingTanker& tanker)
