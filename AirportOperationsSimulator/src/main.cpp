@@ -314,6 +314,8 @@ namespace
         Rectangle bringServiceCrew;
         Rectangle autoService;
         Rectangle departure;
+        Rectangle followMeEscort;
+        Rectangle noFollowMeEscort;
         Rectangle disembarkPassengers;
         Rectangle maintenanceInspection;
         Rectangle refuelAircraft;
@@ -357,7 +359,7 @@ namespace
     }
 
     GateNavigationButtons GetGateNavigationButtons(bool departureVisible,
-        bool autoServiceVisible)
+        bool autoServiceVisible, bool followMeChoiceVisible)
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
@@ -374,17 +376,33 @@ namespace
             buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight};
         Rectangle autoService{0.0f, 0.0f, 0.0f, 0.0f};
         Rectangle departure{0.0f, 0.0f, 0.0f, 0.0f};
+        Rectangle followMeEscort{0.0f, 0.0f, 0.0f, 0.0f};
+        Rectangle noFollowMeEscort{0.0f, 0.0f, 0.0f, 0.0f};
         constexpr float DepartureButtonWidth = 254.0f;
+        constexpr float ChoiceButtonWidth = 122.0f;
+        constexpr float ChoiceButtonGap = 8.0f;
         constexpr float ButtonGap = 10.0f;
         float groupWidth = ServiceCrewButtonWidth;
         if (departureVisible) groupWidth += ButtonGap + DepartureButtonWidth;
+        if (followMeChoiceVisible)
+            groupWidth += ButtonGap + ChoiceButtonWidth * 2.0f + ChoiceButtonGap;
+        float cursorX = (static_cast<float>(GetScreenWidth()) - groupWidth) * 0.5f;
+        bringServiceCrew.x = cursorX;
+        cursorX += ServiceCrewButtonWidth;
         if (departureVisible)
         {
-            float cursorX = (static_cast<float>(GetScreenWidth()) - groupWidth) * 0.5f;
-            bringServiceCrew.x = cursorX;
-            cursorX += ServiceCrewButtonWidth;
             cursorX += ButtonGap;
             departure = {cursorX, buttonY - 96.0f, DepartureButtonWidth,
+                GateNavigationButtonHeight};
+            cursorX += DepartureButtonWidth;
+        }
+        if (followMeChoiceVisible)
+        {
+            cursorX += ButtonGap;
+            followMeEscort = {cursorX, buttonY - 96.0f,
+                ChoiceButtonWidth, GateNavigationButtonHeight};
+            noFollowMeEscort = {followMeEscort.x + ChoiceButtonWidth +
+                ChoiceButtonGap, buttonY - 96.0f, ChoiceButtonWidth,
                 GateNavigationButtonHeight};
         }
         if (autoServiceVisible)
@@ -406,6 +424,8 @@ namespace
             bringServiceCrew,
             autoService,
             departure,
+            followMeEscort,
+            noFollowMeEscort,
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f,
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f +
@@ -663,6 +683,8 @@ namespace
         bool routeContinuationPending{false};
         bool routeContinuationQueued{false};
         std::string routeContinuationNodeId;
+        bool followMeEscortDecisionMade{false};
+        bool followMeEscortRequested{false};
         enum class PushbackState { NotStarted, MovingAircraft, Complete };
         PushbackState pushbackState{PushbackState::NotStarted};
         Vector2 pushbackStartPosition{};
@@ -1553,7 +1575,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {190.05f, -112.25f},
         {195.15f, -112.25f}
     };
-    constexpr Vector2 FollowMeCarParkingPosition{190.05f, -39.75f};
+    enum class FollowMeStatus { Available, MovingToAircraft, Escorting };
     constexpr Vector2 PushbackTugParkingPositions[] = {
         {200.25f, -39.75f}, {205.35f, -39.75f}, {210.45f, -39.75f}
     };
@@ -1579,7 +1601,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     // These temporary gate-side crews are populated only when requested from the UI.
     std::vector<BaggageTug> baggageTugs;
     std::vector<AircraftRefuellingTanker> refuellingTankers;
-    FollowMeCar followMeCars[] = {{FollowMeCarParkingPosition.x, FollowMeCarParkingPosition.y}};
+    FollowMeCar followMeCars[] = {{0.0f, 0.0f}};
+    FollowMeStatus followMeStatus = FollowMeStatus::Available;
+    int followMeAssignedFlightIndex = -1;
+    const char* followMeDebugReason = "idle";
+    Vector2 followMeDebugTarget{};
+    Vector2 followMeDebugAircraftPosition{};
+    float followMeDebugMovement = 0.0f;
+    float followMeDebugTargetGap = 0.0f;
+    const char* followMeDebugAircraftState = "none";
     std::vector<AircraftPushbackTug> pushbackTugs;
     std::vector<BaggageBeltLoader> baggageBeltLoaders;
     std::vector<CateringTruck> cateringTrucks;
@@ -2348,6 +2378,19 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             progress->baggage == BaggageLoadingState::Complete &&
             progress->boarding == BoardingState::Complete;
     };
+    const auto canRequestFollowMeEscort = [&](const FlightPlan& plan)
+    {
+        const bool taxiingWithRoute = plan.routeStarted &&
+            plan.activeRouteNodeIds.size() >= 2 &&
+            (plan.airplane.state == AirplaneState::TaxiingToStand ||
+                plan.airplane.state == AirplaneState::TaxiingToRunway);
+        const bool readyToDepart = plan.departureFlight &&
+            (plan.airplane.state == AirplaneState::Parked ||
+                plan.airplane.state == AirplaneState::PreparingForDeparture);
+        return plan.spawned && (taxiingWithRoute || readyToDepart) &&
+            serviceCrewIndexAtGate(plan.parkingStandId) >= 0 &&
+            aircraftServicesComplete(plan.parkingStandId);
+    };
     const auto pushbackAvailableAtGate = [&](const std::string& gateId)
     {
         FlightPlan* plan = findParkedFlightAtGate(gateId);
@@ -2362,6 +2405,21 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             crewIndex >= 0 &&
             crewPushbackParked &&
             crewIndex < static_cast<int>(pushbackTugs.size());
+    };
+    const auto followMeChoiceAvailableAtGate = [&](const std::string& gateId)
+    {
+        FlightPlan* plan = findParkedFlightAtGate(gateId);
+        const bool sameFlightAssigned = plan != nullptr &&
+            followMeAssignedFlightIndex ==
+                static_cast<int>(plan - flights.data()) &&
+            (followMeStatus == FollowMeStatus::MovingToAircraft ||
+                followMeStatus == FollowMeStatus::Escorting);
+        return plan != nullptr && plan->departureFlight &&
+            plan->pushbackState == FlightPlan::PushbackState::Complete &&
+            serviceCrewIndexAtGate(gateId) >= 0 &&
+            aircraftServicesComplete(gateId) &&
+            !plan->routeStarted &&
+            (!plan->followMeEscortDecisionMade || sameFlightAssigned);
     };
     Vector2 cateringTruckCrewPosition{};
     Vector2 waterTruckCrewPosition{};
@@ -4668,9 +4726,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             {
                 const bool departureAvailable =
                     pushbackAvailableAtGate(selectedGateId);
+                const bool followMeChoiceAvailable =
+                    followMeChoiceAvailableAtGate(selectedGateId);
                 const GateNavigationButtons buttons =
                     GetGateNavigationButtons(departureAvailable,
-                        automaticServiceUpgrade);
+                        automaticServiceUpgrade, followMeChoiceAvailable);
                 const bool gateViewActive = cameraController.IsGateViewActive();
                 const bool clickedGateNavigation = gateViewActive &&
                     (CheckCollisionPointRec(mouse, buttons.previous) ||
@@ -4679,7 +4739,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                      (automaticServiceUpgrade &&
                         CheckCollisionPointRec(mouse, buttons.autoService)) ||
                      (departureAvailable &&
-                        CheckCollisionPointRec(mouse, buttons.departure)));
+                        CheckCollisionPointRec(mouse, buttons.departure)) ||
+                     (followMeChoiceAvailable &&
+                        (CheckCollisionPointRec(mouse, buttons.followMeEscort) ||
+                            CheckCollisionPointRec(mouse, buttons.noFollowMeEscort))));
                 if (clickedGateNavigation)
                 {
                     if (CheckCollisionPointRec(mouse, buttons.previous))
@@ -4704,6 +4767,79 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         {
                             refuellingMessage = "No departing aircraft is parked at this gate.";
                             refuellingMessageTime = 2.5f;
+                        }
+                    }
+                    else if (followMeChoiceAvailable &&
+                        CheckCollisionPointRec(mouse, buttons.followMeEscort))
+                    {
+                        FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
+                        if (plan != nullptr &&
+                            followMeAssignedFlightIndex ==
+                                static_cast<int>(plan - flights.data()) &&
+                            (followMeStatus == FollowMeStatus::MovingToAircraft ||
+                                followMeStatus == FollowMeStatus::Escorting))
+                        {
+                            plan->followMeEscortDecisionMade = true;
+                            plan->followMeEscortRequested = false;
+                            followMeStatus = FollowMeStatus::Available;
+                            followMeAssignedFlightIndex = -1;
+                        }
+                        else if (followMeStatus != FollowMeStatus::Available)
+                        {
+                            refuellingMessage =
+                                "Follow-me vehicle is assigned to another flight.";
+                            refuellingMessageTime = 3.0f;
+                        }
+                        else if (plan != nullptr &&
+                            canRequestFollowMeEscort(*plan))
+                        {
+                            const int assignedFlightIndex =
+                                static_cast<int>(plan - flights.data());
+                            const float aircraftHeading =
+                                plan->airplane.headingDegrees * DEG2RAD;
+                            const Vector2 forward{
+                                std::sin(aircraftHeading),
+                                -std::cos(aircraftHeading)};
+                            constexpr float EscortLeadDistance = 18.0f;
+                            const Vector2 carPosition{
+                                plan->airplane.position.x +
+                                    forward.x * EscortLeadDistance,
+                                plan->airplane.position.y +
+                                    forward.y * EscortLeadDistance};
+                            followMeCars[0].SetPosition(carPosition.x,
+                                carPosition.y);
+                            followMeCars[0].SetHeadingDegrees(std::atan2(
+                                forward.x, forward.y) / DEG2RAD);
+                            plan->followMeEscortDecisionMade = true;
+                            plan->followMeEscortRequested = true;
+                            followMeAssignedFlightIndex = assignedFlightIndex;
+                            followMeStatus = FollowMeStatus::MovingToAircraft;
+                            followMeDebugReason = "waiting for taxi";
+                            followMeDebugTarget = carPosition;
+                            followMeDebugAircraftPosition =
+                                plan->airplane.position;
+                            followMeDebugMovement = 0.0f;
+                            followMeDebugTargetGap = 0.0f;
+                            followMeDebugAircraftState =
+                                FlightStateLabel(plan->airplane.state);
+                        }
+                    }
+                    else if (followMeChoiceAvailable &&
+                        CheckCollisionPointRec(mouse, buttons.noFollowMeEscort))
+                    {
+                        if (FlightPlan* plan = findParkedFlightAtGate(selectedGateId))
+                        {
+                            const int flightIndex =
+                                static_cast<int>(plan - flights.data());
+                            plan->followMeEscortDecisionMade = true;
+                            plan->followMeEscortRequested = false;
+                            if (followMeAssignedFlightIndex == flightIndex &&
+                                (followMeStatus == FollowMeStatus::MovingToAircraft ||
+                                    followMeStatus == FollowMeStatus::Escorting))
+                            {
+                                followMeStatus = FollowMeStatus::Available;
+                                followMeAssignedFlightIndex = -1;
+                            }
                         }
                     }
                 }
@@ -5045,7 +5181,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 }
             }
             if (!plan.spawned) continue;
-            airplane.Update(deltaTime);
+            if (followMeAssignedFlightIndex != static_cast<int>(flightIndex) ||
+                followMeStatus != FollowMeStatus::MovingToAircraft)
+                airplane.Update(deltaTime);
             const bool heavyRainActive = GetWeatherState(shiftClockSeconds,
                 weatherSchedule) == WeatherState::HeavyRain;
             if (airplane.state == AirplaneState::AwaitingTakeoffAuthorization &&
@@ -5573,6 +5711,177 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             }
         }
 
+        const auto finishFollowMeEscort = [&](FlightPlan& plan)
+        {
+            plan.followMeEscortRequested = false;
+            followMeStatus = FollowMeStatus::Available;
+            followMeAssignedFlightIndex = -1;
+            followMeDebugReason = "escort ended";
+        };
+        if (followMeStatus == FollowMeStatus::MovingToAircraft ||
+            followMeStatus == FollowMeStatus::Escorting)
+        {
+            const bool validFlight = followMeAssignedFlightIndex >= 0 &&
+                followMeAssignedFlightIndex < static_cast<int>(flights.size());
+            if (!validFlight)
+            {
+                followMeStatus = FollowMeStatus::Available;
+                followMeAssignedFlightIndex = -1;
+                followMeDebugReason = "assigned flight not found";
+            }
+            else
+            {
+                FlightPlan& escorted =
+                    flights[static_cast<std::size_t>(followMeAssignedFlightIndex)];
+                followMeDebugAircraftState =
+                    FlightStateLabel(escorted.airplane.state);
+                followMeDebugAircraftPosition = escorted.airplane.position;
+                followMeDebugMovement = 0.0f;
+                followMeDebugTarget = followMeCars[0].GetPosition();
+                const bool aircraftTaxiing =
+                    escorted.airplane.state == AirplaneState::TaxiingToStand ||
+                    escorted.airplane.state == AirplaneState::TaxiingToRunway;
+                const bool taxiing = escorted.spawned &&
+                    escorted.departureFlight && aircraftTaxiing;
+                const bool awaitingTakeoffAuthorization =
+                    escorted.departureFlight &&
+                    escorted.airplane.state ==
+                        AirplaneState::AwaitingTakeoffAuthorization;
+                const bool takingOff =
+                    escorted.airplane.state == AirplaneState::TakingOff ||
+                    escorted.airplane.state == AirplaneState::Departed;
+                const bool waitingAtGate = escorted.spawned &&
+                    escorted.departureFlight &&
+                    (escorted.airplane.state == AirplaneState::Parked ||
+                        escorted.airplane.state == AirplaneState::PreparingForDeparture) &&
+                    serviceCrewIndexAtGate(escorted.parkingStandId) >= 0 &&
+                    aircraftServicesComplete(escorted.parkingStandId);
+                if (waitingAtGate)
+                {
+                    followMeStatus = FollowMeStatus::MovingToAircraft;
+                    followMeDebugReason = "waiting for taxi";
+                }
+                else if (takingOff)
+                {
+                    finishFollowMeEscort(escorted);
+                    followMeDebugReason = "takeoff started";
+                }
+                else if (awaitingTakeoffAuthorization)
+                {
+                    followMeStatus = FollowMeStatus::Escorting;
+                    followMeDebugReason = "waiting for takeoff authorization";
+                }
+                else if (!taxiing)
+                {
+                    followMeStatus = FollowMeStatus::MovingToAircraft;
+                    followMeDebugReason = "aircraft not taxiing";
+                }
+                else
+                {
+                    const float headingRadians =
+                        escorted.airplane.headingDegrees * DEG2RAD;
+                    constexpr float EscortLeadDistance = 24.0f;
+                    const Vector2 aircraftForward{
+                        std::sin(headingRadians), -std::cos(headingRadians)};
+                    const Vector2 escortTarget{
+                        escorted.airplane.position.x +
+                            aircraftForward.x * EscortLeadDistance,
+                        escorted.airplane.position.y +
+                            aircraftForward.y * EscortLeadDistance};
+                        followMeDebugTarget = escortTarget;
+
+                        const Vector2 previousPosition = followMeCars[0].GetPosition();
+                        followMeCars[0].MoveTowardsPosition(escortTarget, deltaTime);
+                        const Vector2 currentPosition = followMeCars[0].GetPosition();
+                        const float movementX = currentPosition.x - previousPosition.x;
+                        const float movementZ = currentPosition.y - previousPosition.y;
+                        const float movementLengthSquared =
+                            movementX * movementX + movementZ * movementZ;
+                        bool safeToMove = true;
+                        for (const FlightPlan& other : flights)
+                        {
+                            if (!other.spawned ||
+                                other.airplane.state == AirplaneState::Departed ||
+                                other.airplane.flightId == escorted.airplane.flightId)
+                                continue;
+                            const float projection = movementLengthSquared > 0.001f ?
+                                std::clamp(((other.airplane.position.x - previousPosition.x) *
+                                    movementX + (other.airplane.position.y - previousPosition.y) *
+                                    movementZ) / movementLengthSquared, 0.0f, 1.0f) : 0.0f;
+                            const float closestX = previousPosition.x + movementX * projection;
+                            const float closestZ = previousPosition.y + movementZ * projection;
+                            const float dx = closestX - other.airplane.position.x;
+                            const float dz = closestZ - other.airplane.position.y;
+                            const float relativeX = previousPosition.x -
+                                other.airplane.position.x;
+                            const float relativeZ = previousPosition.y -
+                                other.airplane.position.y;
+                            const bool movingTowardAircraft =
+                                movementX * relativeX + movementZ * relativeZ < 0.0f;
+                            if (movingTowardAircraft &&
+                                dx * dx + dz * dz < 10.0f * 10.0f)
+                            {
+                                safeToMove = false;
+                                break;
+                        }
+                        }
+                        const float assignedProjection = movementLengthSquared > 0.001f ?
+                            std::clamp(((escorted.airplane.position.x - previousPosition.x) *
+                                movementX + (escorted.airplane.position.y - previousPosition.y) *
+                                movementZ) / movementLengthSquared, 0.0f, 1.0f) : 0.0f;
+                        const float assignedClosestX = previousPosition.x +
+                            movementX * assignedProjection;
+                        const float assignedClosestZ = previousPosition.y +
+                            movementZ * assignedProjection;
+                        const float assignedDx = assignedClosestX -
+                            escorted.airplane.position.x;
+                        const float assignedDz = assignedClosestZ -
+                            escorted.airplane.position.y;
+                        const float assignedRelativeX = previousPosition.x -
+                            escorted.airplane.position.x;
+                        const float assignedRelativeZ = previousPosition.y -
+                            escorted.airplane.position.y;
+                        const bool movingTowardAssignedAircraft =
+                            movementX * assignedRelativeX +
+                                movementZ * assignedRelativeZ < 0.0f;
+                        if (movingTowardAssignedAircraft &&
+                            assignedDx * assignedDx + assignedDz * assignedDz <
+                                12.0f * 12.0f)
+                            safeToMove = false;
+                        if (!safeToMove)
+                            followMeCars[0].SetPosition(previousPosition.x,
+                                previousPosition.y);
+                        const Vector2 actualPosition = followMeCars[0].GetPosition();
+                        const float actualMovementX =
+                            actualPosition.x - previousPosition.x;
+                        const float actualMovementZ =
+                            actualPosition.y - previousPosition.y;
+                        followMeDebugMovement = std::sqrt(
+                            actualMovementX * actualMovementX +
+                                actualMovementZ * actualMovementZ);
+                        const float targetDx = escortTarget.x - actualPosition.x;
+                        const float targetDz = escortTarget.y - actualPosition.y;
+                        followMeDebugTargetGap = std::sqrt(
+                            targetDx * targetDx + targetDz * targetDz);
+                        const float relativeX = actualPosition.x -
+                            escorted.airplane.position.x;
+                        const float relativeZ = actualPosition.y -
+                            escorted.airplane.position.y;
+                        const float leadDistance = relativeX * aircraftForward.x +
+                            relativeZ * aircraftForward.y;
+                        const float lateralDistance = std::abs(
+                            relativeX * aircraftForward.y -
+                                relativeZ * aircraftForward.x);
+                        const bool vehicleIsLeading = leadDistance >= 12.0f &&
+                            lateralDistance <= 8.0f;
+                        followMeStatus = vehicleIsLeading ?
+                            FollowMeStatus::Escorting :
+                            FollowMeStatus::MovingToAircraft;
+                        followMeDebugReason = !safeToMove ? "blocked by traffic" :
+                            followMeDebugMovement > 0.01f ? "moving" : "at target";
+                    }
+                }
+            }
         }
 
         const WeatherState currentWeather = GetWeatherState(
@@ -5619,8 +5928,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             baggageTug.Draw();
         for (const AircraftRefuellingTanker& refuellingTanker : refuellingTankers)
             refuellingTanker.Draw();
-        for (const FollowMeCar& followMeCar : followMeCars)
-            followMeCar.Draw();
+        if (followMeStatus != FollowMeStatus::Available)
+            for (const FollowMeCar& followMeCar : followMeCars)
+                followMeCar.Draw();
         for (const BaggageBeltLoader& baggageBeltLoader : baggageBeltLoaders)
             baggageBeltLoader.Draw();
         for (const CateringTruck& cateringTruck : cateringTrucks)
@@ -5812,9 +6122,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 gateLabel = "GATE " + selectedGateId.substr(5);
             const bool departureAvailable =
                 pushbackAvailableAtGate(selectedGateId);
+            const bool followMeChoiceAvailable =
+                followMeChoiceAvailableAtGate(selectedGateId);
             const GateNavigationButtons buttons =
                 GetGateNavigationButtons(departureAvailable,
-                    automaticServiceUpgrade);
+                    automaticServiceUpgrade, followMeChoiceAvailable);
             DrawGateNavigationButton(buttons.previous, "PREV GATE");
             DrawGateNavigationButton(buttons.next, "NEXT GATE");
             DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
@@ -5824,7 +6136,22 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (automaticServiceUpgrade)
                 DrawAutomaticServiceButton(buttons.autoService,
                     automaticServiceGates.count(selectedGateId) != 0);
-            else if (findParkedFlightAtGate(selectedGateId) != nullptr)
+            if (followMeChoiceAvailable)
+            {
+                FlightPlan* plan = findParkedFlightAtGate(selectedGateId);
+                const bool escortAssignedToGateFlight = plan != nullptr &&
+                    followMeAssignedFlightIndex ==
+                        static_cast<int>(plan - flights.data()) &&
+                    (followMeStatus == FollowMeStatus::MovingToAircraft ||
+                        followMeStatus == FollowMeStatus::Escorting);
+                DrawGateNavigationButton(buttons.followMeEscort,
+                    escortAssignedToGateFlight ? "CANCEL ESCORT" :
+                        followMeStatus == FollowMeStatus::Available ?
+                            "ESCORT" : "VEHICLE BUSY");
+                DrawGateNavigationButton(buttons.noFollowMeEscort, "NO ESCORT");
+            }
+            if (!automaticServiceUpgrade &&
+                findParkedFlightAtGate(selectedGateId) != nullptr)
             {
                 const AircraftServiceProgress& progress =
                     serviceProgressByFlight[findParkedFlightAtGate(
@@ -6416,6 +6743,36 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawText(selected.airplane.isPriority ?
                 "PRIORITY FLIGHT" : "STANDARD FLIGHT",
                 infoX + 22, infoY + 297, 13, RAYWHITE);
+        }
+
+        const char* followMeStatusText = followMeStatus == FollowMeStatus::Available ?
+            "AVAILABLE" :
+            followMeStatus == FollowMeStatus::MovingToAircraft ?
+                "MOVING TO AIRCRAFT" :
+                "ESCORTING";
+        const std::string followMeFlightId = followMeAssignedFlightIndex >= 0 ?
+            flights[static_cast<std::size_t>(
+                followMeAssignedFlightIndex)].airplane.flightId : "--";
+        DrawRectangle(16, GetScreenHeight() - 80, 720, 64,
+            Fade(Color{13, 26, 34, 255}, 0.93f));
+        DrawRectangle(16, GetScreenHeight() - 80, 4, 64,
+            followMeStatus == FollowMeStatus::Available ?
+                Color{116, 226, 202, 255} : Color{245, 190, 94, 255});
+        DrawText(TextFormat("FOLLOW-ME  %s", followMeStatusText),
+            28, GetScreenHeight() - 72, 11, RAYWHITE);
+        DrawText(TextFormat("ASSIGNED FLIGHT  %s", followMeFlightId.c_str()),
+            28, GetScreenHeight() - 53, 9, Color{203, 219, 224, 255});
+        if (followMeStatus != FollowMeStatus::Available)
+        {
+            const Vector2 carPosition = followMeCars[0].GetPosition();
+            DrawText(TextFormat("DEBUG %s | %s | CAR %.1f,%.1f | AIRCRAFT %.1f,%.1f | TARGET %.1f,%.1f | STEP %.2f | GAP %.1f",
+                followMeDebugReason, followMeDebugAircraftState,
+                carPosition.x, carPosition.y,
+                followMeDebugAircraftPosition.x,
+                followMeDebugAircraftPosition.y, followMeDebugTarget.x,
+                followMeDebugTarget.y, followMeDebugMovement,
+                followMeDebugTargetGap),
+                28, GetScreenHeight() - 37, 8, Color{180, 201, 207, 255});
         }
 
         if (!selectedGateId.empty())

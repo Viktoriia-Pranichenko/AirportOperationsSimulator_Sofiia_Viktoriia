@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <utility>
 
 namespace
 {
@@ -42,16 +43,30 @@ bool FollowMeCar::MoveTowardsGate(
         if (!route.BuildToEastWingGate(gateNumber, terminal,
             {positionX, positionZ}, headingDegrees))
             return false;
-        nextRoutePoint = 1;
+        SetWaypoints(route.GetWaypoints(), route.GetReverseWaypointCount());
     }
 
+    return AdvanceRoute(deltaTime);
+}
+
+void FollowMeCar::SetWaypoints(std::vector<Vector2> waypoints,
+    std::size_t reverseWaypointCount)
+{
+    activeWaypoints = std::move(waypoints);
+    this->reverseWaypointCount = std::min(reverseWaypointCount,
+        activeWaypoints.empty() ? 0 : activeWaypoints.size() - 1);
+    nextRoutePoint = activeWaypoints.empty() ? 0 : 1;
+}
+
+bool FollowMeCar::AdvanceRoute(float deltaTime)
+{
+    if (deltaTime <= 0.0f || activeWaypoints.empty()) return false;
     constexpr float MovementSpeed = 12.0f;
     constexpr float MaximumSteeringRate = 75.0f * DegreesToRadians;
-    const std::vector<Vector2>& waypoints = route.GetWaypoints();
     float remainingTime = deltaTime;
-    while (nextRoutePoint < waypoints.size() && remainingTime > 0.0f)
+    while (nextRoutePoint < activeWaypoints.size() && remainingTime > 0.0f)
     {
-        const Vector2 waypoint = waypoints[nextRoutePoint];
+        const Vector2 waypoint = activeWaypoints[nextRoutePoint];
         const float dx = waypoint.x - positionX;
         const float dz = waypoint.y - positionZ;
         const float distance = std::sqrt(dx * dx + dz * dz);
@@ -63,14 +78,14 @@ bool FollowMeCar::MoveTowardsGate(
 
         const float pathHeading = std::atan2(dx, dz) / DegreesToRadians;
         const bool reversing =
-            nextRoutePoint <= route.GetReverseWaypointCount();
+            nextRoutePoint <= reverseWaypointCount;
         headingDegrees = std::remainder(
             pathHeading + (reversing ? 180.0f : 0.0f), 360.0f);
 
         float segmentSpeed = MovementSpeed;
-        if (nextRoutePoint + 1 < waypoints.size())
+        if (nextRoutePoint + 1 < activeWaypoints.size())
         {
-            const Vector2 nextWaypoint = waypoints[nextRoutePoint + 1];
+            const Vector2 nextWaypoint = activeWaypoints[nextRoutePoint + 1];
             const float nextHeading = std::atan2(
                 nextWaypoint.x - waypoint.x, nextWaypoint.y - waypoint.y);
             const float segmentHeading = std::atan2(dx, dz);
@@ -78,7 +93,7 @@ bool FollowMeCar::MoveTowardsGate(
                 nextHeading - segmentHeading, 2.0f * PI));
             if (turnAngle > 0.001f)
             {
-                const Vector2 previousWaypoint = waypoints[nextRoutePoint - 1];
+                const Vector2 previousWaypoint = activeWaypoints[nextRoutePoint - 1];
                 const float segmentDx = waypoint.x - previousWaypoint.x;
                 const float segmentDz = waypoint.y - previousWaypoint.y;
                 const float segmentLength = std::sqrt(
@@ -98,7 +113,21 @@ bool FollowMeCar::MoveTowardsGate(
         ++nextRoutePoint;
     }
 
-    return nextRoutePoint >= waypoints.size();
+    return nextRoutePoint >= activeWaypoints.size();
+}
+
+void FollowMeCar::MoveTowardsPosition(Vector2 target, float deltaTime)
+{
+    if (deltaTime <= 0.0f) return;
+    constexpr float MovementSpeed = 12.0f;
+    const float dx = target.x - positionX;
+    const float dz = target.y - positionZ;
+    const float distance = std::sqrt(dx * dx + dz * dz);
+    if (distance <= 0.001f) return;
+    headingDegrees = std::atan2(dx, dz) / DegreesToRadians;
+    const float travelled = std::min(distance, MovementSpeed * deltaTime);
+    positionX += dx / distance * travelled;
+    positionZ += dz / distance * travelled;
 }
 
 const ServiceVehicleRoute& FollowMeCar::GetRoute() const
