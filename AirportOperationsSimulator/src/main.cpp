@@ -1685,6 +1685,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     const char* landingSoundPath = DirectoryExists("music") ?
         "music/aircraft-landing.mp3" :
         "resources/music/aircraft-landing.mp3";
+    Music backgroundMusic{};
+    const char* backgroundMusicPath = DirectoryExists("music") ?
+        "music/background-music.mp3" :
+        "resources/music/background-music.mp3";
+    bool backgroundMusicStarted = false;
+    bool backgroundMusicPaused = false;
     if (!audioDeviceReady)
         TraceLog(LOG_WARNING, "Audio device is unavailable; aircraft sounds are disabled.");
     else
@@ -1699,6 +1705,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 landingSoundPath);
         else
             SetSoundPitch(landingSound, 1.25f);
+        backgroundMusic = LoadMusicStream(backgroundMusicPath);
+        if (backgroundMusic.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load background music: %s",
+                backgroundMusicPath);
+        else
+        {
+            backgroundMusic.looping = true;
+            SetMusicVolume(backgroundMusic, 0.18f);
+        }
     }
     rlSetClipPlanes(10.0, 4000.0);
 
@@ -4156,6 +4171,37 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         const float deltaTime = (shiftComplete || isPaused || showUpgradeMenu) ? 0.0f :
             speedScaledRealDeltaTime * BaseSimulationSpeed;
         if (exitRequested) break;
+        const bool musicShouldPlay = !showMainMenu && !shiftComplete &&
+            !returnToMainMenuRequested && backgroundMusic.frameCount > 0;
+        if (musicShouldPlay)
+        {
+            if (!backgroundMusicStarted)
+            {
+                PlayMusicStream(backgroundMusic);
+                backgroundMusicStarted = true;
+            }
+
+            const bool musicShouldPause = isPaused || showUpgradeMenu;
+            if (musicShouldPause)
+            {
+                if (!backgroundMusicPaused)
+                    PauseMusicStream(backgroundMusic);
+                backgroundMusicPaused = true;
+            }
+            else
+            {
+                if (backgroundMusicPaused)
+                    ResumeMusicStream(backgroundMusic);
+                backgroundMusicPaused = false;
+                UpdateMusicStream(backgroundMusic);
+            }
+        }
+        else if (backgroundMusicStarted)
+        {
+            StopMusicStream(backgroundMusic);
+            backgroundMusicStarted = false;
+            backgroundMusicPaused = false;
+        }
         if (showMainMenu)
             menuAnimationTime += realDeltaTime;
         else if (!isPaused)
@@ -8080,6 +8126,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     UnloadRenderTexture(airplanePreviewTarget);
     if (audioDeviceReady)
     {
+        if (backgroundMusic.frameCount > 0)
+        {
+            if (backgroundMusicStarted)
+                StopMusicStream(backgroundMusic);
+            UnloadMusicStream(backgroundMusic);
+        }
         if (takeoffSound.frameCount > 0) UnloadSound(takeoffSound);
         if (landingSound.frameCount > 0) UnloadSound(landingSound);
         CloseAudioDevice();
