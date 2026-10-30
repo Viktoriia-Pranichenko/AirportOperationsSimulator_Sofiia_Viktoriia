@@ -2230,7 +2230,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             const float cameraDepth = cameraToAircraft.x * viewDirection.x +
                 cameraToAircraft.y * viewDirection.y +
                 cameraToAircraft.z * viewDirection.z;
-            if (cameraDepth <= 0.0f) continue;
+            if (cameraDepth <= 0.0f)
+            {
+                order.push_back(index);
+                continue;
+            }
 
             const Vector2 screen = GetWorldToScreen(aircraftPosition, camera);
             if (screen.y >= static_cast<float>(GetScreenHeight()))
