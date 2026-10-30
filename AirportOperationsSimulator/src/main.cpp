@@ -10,6 +10,7 @@
 #include "baggage_tug.h"
 #include "camera_controller.h"
 #include "car_parking_lot.h"
+#include "resource_dir.h"
 #include "passenger_shuttle.h"
 #include "service_building.h"
 
@@ -750,6 +751,7 @@ namespace
         bool taxiToStandQueued{false};
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
+        bool takeoffSoundTriggered{false};
         bool landingRouteActive{false};
         bool weatherDelayedArrival{false};
         bool weatherRecoveryArrival{false};
@@ -1663,6 +1665,24 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     // Escape is handled by the main menu and pause menu, not by Raylib's
     // default immediate window-close behavior.
     SetExitKey(KEY_NULL);
+    if (!DirectoryExists("music") && !SearchAndSetResourceDir("resources") &&
+        !DirectoryExists("resources/music"))
+        TraceLog(LOG_WARNING, "Could not locate the resources directory for audio.");
+    InitAudioDevice();
+    const bool audioDeviceReady = IsAudioDeviceReady();
+    Sound takeoffSound{};
+    const char* takeoffSoundPath = DirectoryExists("music") ?
+        "music/aircraft-take-off.mp3" :
+        "resources/music/aircraft-take-off.mp3";
+    if (!audioDeviceReady)
+        TraceLog(LOG_WARNING, "Audio device is unavailable; takeoff sound is disabled.");
+    else
+    {
+        takeoffSound = LoadSound(takeoffSoundPath);
+        if (takeoffSound.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load takeoff sound: %s",
+                takeoffSoundPath);
+    }
     rlSetClipPlanes(10.0, 4000.0);
 
     CameraController cameraController;
@@ -5507,9 +5527,19 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 }
             }
             if (!plan.spawned) continue;
+            const AirplaneState stateBeforeUpdate = airplane.state;
             if (followMeAssignedFlightIndex != static_cast<int>(flightIndex) ||
                 followMeStatus != FollowMeStatus::MovingToAircraft)
                 airplane.Update(deltaTime);
+            if (stateBeforeUpdate != AirplaneState::TakingOff &&
+                airplane.state == AirplaneState::TakingOff &&
+                !plan.takeoffSoundTriggered)
+            {
+                plan.takeoffSoundTriggered = true;
+                if (audioDeviceReady && takeoffSound.frameCount > 0 &&
+                    !IsSoundPlaying(takeoffSound))
+                    PlaySound(takeoffSound);
+            }
             const bool heavyRainActive = GetWeatherState(shiftClockSeconds,
                 weatherSchedule) == WeatherState::HeavyRain;
             if (airplane.state == AirplaneState::AwaitingTakeoffAuthorization &&
@@ -8023,6 +8053,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     }
 
     UnloadRenderTexture(airplanePreviewTarget);
+    if (audioDeviceReady)
+    {
+        if (takeoffSound.frameCount > 0) UnloadSound(takeoffSound);
+        CloseAudioDevice();
+    }
     CloseWindow();
     if (restartRequested) return RunGameResult::RestartShift;
     if (returnToMainMenuRequested) return RunGameResult::ReturnToMainMenu;
