@@ -1046,8 +1046,7 @@ namespace
             {center.x, center.y - 2.0f}, 1.2f, Color{220, 248, 255, 255});
     }
 
-    void DrawOffscreenAttentionIndicator(Rectangle bounds, bool hovered,
-        float animationTime)
+    void DrawOffscreenAttentionIndicator(Rectangle bounds, bool hovered)
     {
         constexpr float TailHeight = 8.0f;
         const float bubbleHeight = bounds.height - TailHeight;
@@ -1056,27 +1055,36 @@ namespace
         const float radius = std::min(bounds.width, bubbleHeight) * 0.5f;
         const float tailBaseY = centerY + radius - 6.0f;
         const float tailTipY = bounds.y + bounds.height - 1.0f;
-        const float pulse = 0.5f + 0.5f * std::sin(animationTime * 2.2f);
+        const float animationTime = static_cast<float>(GetTime());
+        const float pulse = 0.5f + 0.5f * std::sin(animationTime * 2.0f);
+        const float markPulse = 0.5f + 0.5f *
+            std::sin(animationTime * 3.1f + 0.6f);
+        const float scale = 1.0f + 0.045f * std::sin(animationTime * 2.0f);
         const Color glow{255, 181, 32, 255};
-        const float glowStrength = hovered ? 1.25f : 0.72f + pulse * 0.28f;
+        const float glowStrength = hovered ? 1.3f : 0.65f + pulse * 0.55f;
         const Color bubbleEdge = hovered ? Color{255, 197, 50, 255} :
             Color{246, 174, 28, 255};
         const Color tailFill = bubbleEdge;
 
+        rlPushMatrix();
+        rlTranslatef(centerX, centerY, 0.0f);
+        rlScalef(scale, scale, 1.0f);
+        rlTranslatef(-centerX, -centerY, 0.0f);
+
         DrawCircleV({centerX, centerY}, radius + 10.0f,
-            Fade(glow, 0.035f * glowStrength));
+            Fade(glow, 0.055f * glowStrength));
         DrawTriangle({centerX - 10.0f, tailBaseY},
             {centerX, tailTipY + 3.0f},
             {centerX + 10.0f, tailBaseY},
-            Fade(glow, 0.035f * glowStrength));
-        DrawCircleV({centerX, centerY}, radius + 6.0f,
             Fade(glow, 0.055f * glowStrength));
+        DrawCircleV({centerX, centerY}, radius + 6.0f,
+            Fade(glow, 0.09f * glowStrength));
         DrawTriangle({centerX - 9.0f, tailBaseY},
             {centerX, tailTipY + 1.0f},
             {centerX + 9.0f, tailBaseY},
-            Fade(glow, 0.055f * glowStrength));
+            Fade(glow, 0.09f * glowStrength));
         DrawCircleV({centerX, centerY}, radius + 3.0f,
-            Fade(glow, 0.075f * glowStrength));
+            Fade(glow, 0.135f * glowStrength));
 
         DrawCircleV({centerX + 1.5f, centerY + 3.0f},
             radius + 1.0f, Fade(Color{67, 43, 9, 255}, 0.42f));
@@ -1100,11 +1108,14 @@ namespace
 
         const float glyphCenterY = centerY;
         const unsigned char glyphAlpha = static_cast<unsigned char>(
-            225.0f + 30.0f * pulse);
+            205.0f + 50.0f * markPulse);
         const Color glyph{255, 255, 255, glyphAlpha};
+        DrawCircleV({centerX, glyphCenterY - 2.0f}, 8.0f,
+            Fade(Color{255, 251, 220, 255}, 0.12f + 0.12f * markPulse));
         DrawRectangleRounded({centerX - 2.0f, glyphCenterY - 10.0f,
             4.0f, 14.0f}, 0.45f, 4, glyph);
         DrawCircleV({centerX, glyphCenterY + 8.0f}, 2.3f, glyph);
+        rlPopMatrix();
     }
 
     void DrawAirplanePreview3D(const Airplane& airplane, Rectangle bounds,
@@ -7076,8 +7087,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 static_cast<int>(bottomAttentionOrder.size()));
             const bool hovered = CheckCollisionPointRec(notificationMouse,
                 indicator);
-            DrawOffscreenAttentionIndicator(indicator, hovered,
-                gameplayAnimationTime);
+            DrawOffscreenAttentionIndicator(indicator, hovered);
         }
 
         if (selectedFlightIndex >= 0 &&
