@@ -1822,6 +1822,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {75.0f, 31.8f, 8.0f}
     };
     int terminalFireIndex = -1;
+    float terminalFireAge = 0.0f;
+    constexpr float TerminalFireCountdownSeconds = 180.0f;
+    bool terminalFireExtinguished = false;
+    bool terminalFireGameOver = false;
     constexpr Vector2 RefuellingTankerParkingPositions[] = {
         {190.05f, -112.25f},
         {195.15f, -112.25f}
@@ -4279,6 +4283,17 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         else if (!isPaused)
         {
             gameplayAnimationTime += speedScaledRealDeltaTime;
+            if (terminalFireIndex >= 0 && !terminalFireExtinguished &&
+                !terminalFireGameOver && !shiftComplete && !showUpgradeMenu)
+            {
+                terminalFireAge = std::min(terminalFireAge + speedScaledRealDeltaTime,
+                    TerminalFireCountdownSeconds);
+                if (terminalFireAge >= TerminalFireCountdownSeconds)
+                {
+                    terminalFireGameOver = true;
+                    shiftEndedEarly = true;
+                }
+            }
             if (!shiftComplete)
                 weatherAnimationTime += realDeltaTime;
             if (!shiftComplete)
@@ -6572,32 +6587,40 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             const Vector3 base = TerminalFirePositions[terminalFireIndex];
             const float t = gameplayAnimationTime;
-            for (int flame = 0; flame < 9; ++flame)
+            // Fire grows slowly across the whole 3-minute countdown.
+            const float growth = terminalFireAge / TerminalFireCountdownSeconds;
+            const float fireScale = 0.45f + 1.35f * growth;
+            const int flameCount = 6 + static_cast<int>(growth * 12.0f);
+            for (int flame = 0; flame < flameCount; ++flame)
             {
                 const float phase = static_cast<float>(flame) * 1.7f;
                 const float flicker = 0.7f + 0.3f * std::sin(t * 9.0f + phase);
                 const float angle = static_cast<float>(flame) * 0.785f;
-                const float radius = 0.9f * static_cast<float>(flame % 3);
+                const float radius = (0.9f * static_cast<float>(flame % 3) +
+                    0.35f * static_cast<float>(flame / 3)) * fireScale;
                 const float height = (3.0f + static_cast<float>(flame % 3) * 1.6f) *
-                    flicker;
+                    flicker * fireScale;
+                const float width = (2.0f - static_cast<float>(flame % 3) * 0.4f) *
+                    fireScale;
                 const unsigned char green = static_cast<unsigned char>(
                     70 + (flame % 3) * 60);
                 DrawCubeV({base.x + std::cos(angle) * radius,
                         base.y + height * 0.5f,
                         base.z + std::sin(angle) * radius},
-                    {2.0f - static_cast<float>(flame % 3) * 0.4f, height,
-                        2.0f - static_cast<float>(flame % 3) * 0.4f},
+                    {width, height, width},
                     Color{255, green, 20, 210});
             }
-            DrawSphere({base.x, base.y + 1.5f, base.z},
-                3.2f + 0.3f * std::sin(t * 7.0f), Fade(Color{255, 150, 30, 255}, 0.35f));
+            DrawSphere({base.x, base.y + 1.5f * fireScale, base.z},
+                (3.2f + 0.3f * std::sin(t * 7.0f)) * fireScale,
+                Fade(Color{255, 150, 30, 255}, 0.35f));
             for (int puff = 0; puff < 6; ++puff)
             {
                 const float rise = std::fmod(t * 3.5f + static_cast<float>(puff) * 3.0f,
                     18.0f);
-                DrawSphere({base.x + std::sin(rise * 0.7f + puff) * 1.5f,
-                        base.y + 6.0f + rise, base.z + std::cos(rise * 0.5f + puff)},
-                    1.6f + rise * 0.18f,
+                DrawSphere({base.x + std::sin(rise * 0.7f + puff) * 1.5f * fireScale,
+                        base.y + (6.0f + rise) * fireScale,
+                        base.z + std::cos(rise * 0.5f + puff) * fireScale},
+                    (1.6f + rise * 0.18f) * fireScale,
                     Fade(Color{70, 70, 74, 255}, 0.4f * (1.0f - rise / 18.0f)));
             }
         }
@@ -7783,6 +7806,23 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 Color{135, 165, 175, 255});
         }
 
+        if (!showMainMenu && terminalFireIndex >= 0 && !terminalFireExtinguished &&
+            !terminalFireGameOver)
+        {
+            const int remaining = static_cast<int>(std::ceil(
+                TerminalFireCountdownSeconds - terminalFireAge));
+            const char* fireText = TextFormat("TERMINAL FIRE  %d:%02d",
+                remaining / 60, remaining % 60);
+            const bool urgent = remaining <= 30;
+            const int fireWidth = MeasureText(fireText, 20) + 32;
+            const int fireX = (GetScreenWidth() - fireWidth) / 2;
+            DrawRectangle(fireX, 146, fireWidth, 36, Fade(Color{70, 12, 10, 255}, 0.94f));
+            DrawRectangleLines(fireX, 146, fireWidth, 36,
+                urgent ? Color{255, 90, 70, 255} : Color{255, 160, 60, 255});
+            DrawText(fireText, fireX + 16, 154, 20,
+                urgent ? Color{255, 110, 90, 255} : Color{255, 214, 120, 255});
+        }
+
         if (priorityNotificationTime > 0.0f)
         {
             const int notificationWidth = MeasureText(priorityNotification.c_str(), 13) + 28;
@@ -7861,7 +7901,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawRectangleRounded(panel, 0.035f, 12, Color{13, 29, 39, 255});
             DrawRectangleRoundedLinesEx(panel, 0.035f, 12, 2.0f,
                 Color{76, 224, 211, 255});
-            DrawText(shiftEndedEarly ? "SHIFT ENDED EARLY" : "SHIFT RESULTS",
+            DrawText(terminalFireGameOver ? "GAME OVER - TERMINAL FIRE" :
+                shiftEndedEarly ? "SHIFT ENDED EARLY" : "SHIFT RESULTS",
                 static_cast<int>(panel.x + 28.0f),
                 static_cast<int>(panel.y + 22.0f), 24, RAYWHITE);
             DrawText(TextFormat("%s  |  SHIFT TIME %s",
