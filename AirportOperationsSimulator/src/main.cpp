@@ -570,6 +570,7 @@ namespace
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
         bool landingRouteActive{false};
+        bool weatherDelayedArrival{false};
         bool scoreRecorded{false};
         bool arrivalResultRecorded{false};
         bool safetyViolationRecorded{false};
@@ -1883,6 +1884,7 @@ RunGameResult RunGame(bool startImmediately)
     std::unordered_map<std::string, std::string> occupiedStands;
     std::unordered_map<std::string, std::string> runwayOwners;
     std::uint64_t nextRequestOrder = 0;
+    float nextWeatherRecoveryLandingSeconds = -1.0f;
     float shiftClockSeconds = 0.0f;
     float plannedShiftDurationSeconds = 0.0f;
     for (const FlightPlan& plan : flights)
@@ -4691,9 +4693,19 @@ RunGameResult RunGame(bool startImmediately)
             std::vector<Request> requests;
             requests.reserve(arrivalQueue.size() + taxiToStandQueue.size() +
                 departureQueue.size() + routeContinuationQueue.size());
+            const bool heavyRainActive = GetWeatherState(shiftClockSeconds,
+                weatherSchedule) == WeatherState::HeavyRain;
             for (const std::size_t index : arrivalQueue)
-                requests.push_back({flights[index].airplane.isPriority,
-                    flights[index].requestOrder, RequestType::Landing, index});
+            {
+                FlightPlan& arrival = flights[index];
+                if (heavyRainActive)
+                {
+                    arrival.weatherDelayedArrival = true;
+                    continue;
+                }
+                requests.push_back({arrival.airplane.isPriority,
+                    arrival.requestOrder, RequestType::Landing, index});
+            }
             for (const std::size_t index : taxiToStandQueue)
                 requests.push_back({flights[index].airplane.isPriority,
                     flights[index].requestOrder, RequestType::TaxiToStand, index});
@@ -4729,6 +4741,10 @@ RunGameResult RunGame(bool startImmediately)
                     (continuationRequest &&
                         candidate.airplane.state == AirplaneState::TaxiingToRunway);
                 if (continuationRequest && !taxiRequest && !departureRequest) continue;
+                if (landingRequest && candidate.weatherDelayedArrival &&
+                    nextWeatherRecoveryLandingSeconds >= 0.0f &&
+                    shiftClockSeconds < nextWeatherRecoveryLandingSeconds)
+                    continue;
                 const std::string& start = landingRequest ? candidate.arrivalStartNode :
                     (continuationRequest ? candidate.routeContinuationNodeId :
                         (taxiRequest ? candidate.landingExitNodeId : candidate.parkingStandId));
@@ -4879,6 +4895,15 @@ RunGameResult RunGame(bool startImmediately)
             plan.routeStarted = true;
             if (serveArrival)
             {
+                if (plan.weatherDelayedArrival)
+                {
+                    plan.weatherDelayedArrival = false;
+                    // Release rain-delayed arrivals one at a time, while the
+                    // existing runway and stand reservations still govern safety.
+                    constexpr float WeatherRecoveryLandingIntervalSeconds = 45.0f;
+                    nextWeatherRecoveryLandingSeconds = shiftClockSeconds +
+                        WeatherRecoveryLandingIntervalSeconds;
+                }
                 plan.runwayReserved = true;
                 runwayOwners[plan.runwayId] = plan.airplane.flightId;
                 plan.landingRouteActive = true;
