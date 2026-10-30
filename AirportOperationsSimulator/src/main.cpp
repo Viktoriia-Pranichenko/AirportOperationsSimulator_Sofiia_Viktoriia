@@ -1581,7 +1581,7 @@ enum class GameDifficulty
 };
 
 RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
-    bool& automaticServiceUpgrade, bool& additionalServiceCrewsUpgrade)
+    bool& automaticServiceUpgrade, int& additionalServiceCrewsUpgrade)
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
@@ -2252,15 +2252,20 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 return static_cast<int>(index);
         return -1;
     };
+    const auto maximumAdditionalCrewPurchases = [&]()
+    {
+        return savedDifficulty == GameDifficulty::Hard ? 2 :
+            (savedDifficulty == GameDifficulty::Medium ? 1 : 0);
+    };
     const auto maximumServiceCrews = [&]()
     {
-        if (!additionalServiceCrewsUpgrade || savedDifficulty == GameDifficulty::Easy)
-            return 1;
-        return savedDifficulty == GameDifficulty::Hard ? 3 : 2;
+        return 1 + std::min(additionalServiceCrewsUpgrade,
+            maximumAdditionalCrewPurchases());
     };
     const auto addThirdServiceCrewFleet = [&]()
     {
-        if (thirdServiceCrewFleetAdded || savedDifficulty != GameDifficulty::Hard)
+        if (thirdServiceCrewFleetAdded || savedDifficulty != GameDifficulty::Hard ||
+            additionalServiceCrewsUpgrade < 2)
             return;
         parkedRefuellingTankers.push_back({200.25f, -112.25f});
         parkedCateringTrucks.push_back({159.45f, -70.25f});
@@ -2268,8 +2273,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         parkedMaintenancePickupTrucks.push_back({236.0f, -70.25f});
         thirdServiceCrewFleetAdded = true;
     };
-    if (additionalServiceCrewsUpgrade)
-        addThirdServiceCrewFleet();
+    addThirdServiceCrewFleet();
     std::string refuellingMessage;
     float refuellingMessageTime = 0.0f;
     bool gate1RefuellingStarted = false;
@@ -4658,8 +4662,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 automaticServiceUpgrade = true;
             else if (CheckCollisionPointRec(mouse, layout.additionalCard))
             {
-                additionalServiceCrewsUpgrade = true;
-                addThirdServiceCrewFleet();
+                if (additionalServiceCrewsUpgrade <
+                    maximumAdditionalCrewPurchases())
+                {
+                    ++additionalServiceCrewsUpgrade;
+                    addThirdServiceCrewFleet();
+                }
             }
             else if (CheckCollisionPointRec(mouse, layout.backButton))
                 showUpgradeMenu = false;
@@ -7511,7 +7519,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
             const auto drawUpgradeCard = [&](Rectangle card, const char* title,
                 const char* descriptionLineOne, const char* descriptionLineTwo,
-                const char* status, bool enabled)
+                const char* status, bool enabled,
+                const char* badgeText = nullptr, const char* hintText = nullptr)
             {
                 const bool hovered = CheckCollisionPointRec(mouse, card);
                 const Color border = hovered ? Color{102, 228, 216, 255} :
@@ -7523,7 +7532,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     hovered ? 2.0f : 1.0f, border);
                 DrawText(title, static_cast<int>(card.x + 18.0f),
                     static_cast<int>(card.y + 18.0f), 17, RAYWHITE);
-                DrawText(enabled ? "UNLOCKED" : "FREE UPGRADE",
+                DrawText(badgeText != nullptr ? badgeText :
+                    (enabled ? "UNLOCKED" : "FREE UPGRADE"),
                     static_cast<int>(card.x + 18.0f),
                     static_cast<int>(card.y + 52.0f), 10,
                     enabled ? Color{117, 235, 183, 255} :
@@ -7537,7 +7547,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 DrawText(status, static_cast<int>(card.x + 18.0f),
                     static_cast<int>(card.y + card.height - 30.0f), 10,
                     Color{118, 211, 207, 255});
-                DrawText(enabled ? "ALREADY UNLOCKED" : "CLICK TO UNLOCK",
+                DrawText(hintText != nullptr ? hintText :
+                    (enabled ? "ALREADY UNLOCKED" : "CLICK TO UNLOCK"),
                     static_cast<int>(card.x + 18.0f),
                     static_cast<int>(card.y + card.height - 15.0f), 8,
                     Color{137, 166, 173, 255});
@@ -7547,11 +7558,21 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 "disembarking through inspection, fuel, and boarding.",
                 "Crew dispatch and departure clearance remain manual.",
                 automaticServiceUpgrade);
-            drawUpgradeCard(layout.additionalCard, "ADDITIONAL CREWS",
-                "Unlocks another complete crew, if the shift",
+            const int crewPurchaseLimit = maximumAdditionalCrewPurchases();
+            const bool crewUpgradeExhausted =
+                additionalServiceCrewsUpgrade >= crewPurchaseLimit;
+            const std::string crewBadge = crewPurchaseLimit == 0 ?
+                "NOT AVAILABLE" : (additionalServiceCrewsUpgrade == 0 ?
+                    "FREE UPGRADE" : TextFormat("CREWS: %d / %d",
+                        1 + additionalServiceCrewsUpgrade, 1 + crewPurchaseLimit));
+            const char* crewHint = crewPurchaseLimit == 0 ?
+                "EASY HAS ONE CREW" : (crewUpgradeExhausted ?
+                    "MAXIMUM CREWS REACHED" : "CLICK TO ADD ONE CREW");
+            drawUpgradeCard(layout.additionalCard, "ADDITIONAL CREW",
+                "Each purchase adds one complete crew, if the",
                 "difficulty permits: Easy 1, Medium 2, Hard 3.",
                 "Crews must still be sent to a gate by the player.",
-                additionalServiceCrewsUpgrade);
+                crewUpgradeExhausted, crewBadge.c_str(), crewHint);
 
             const bool backHovered = CheckCollisionPointRec(mouse,
                 layout.backButton);
@@ -7584,12 +7605,12 @@ int main()
     bool startImmediately = false;
     GameDifficulty savedDifficulty = GameDifficulty::Medium;
     bool automaticServiceUpgrade = false;
-    bool additionalServiceCrewsUpgrade = false;
+    int additionalServiceCrewsUpgrade = 0;
     while (true)
     {
         // Upgrades are session-specific: every new shift starts locked.
         automaticServiceUpgrade = false;
-        additionalServiceCrewsUpgrade = false;
+        additionalServiceCrewsUpgrade = 0;
         const RunGameResult result = RunGame(startImmediately, savedDifficulty,
             automaticServiceUpgrade, additionalServiceCrewsUpgrade);
         if (result == RunGameResult::Exit) break;
