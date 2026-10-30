@@ -59,6 +59,7 @@ public:
         AirplaneState intermediateState = AirplaneState::TaxiingToStand,
         int touchdownWaypoint = -1);
     void Update(float deltaTime);
+    bool ConsumeLandingSoundCue();
 
     // Draw at the airplane's current position and heading.
     void Draw(float scale = 1.0f) const;
@@ -80,4 +81,6 @@ private:
     AirplaneState routeIntermediateState{AirplaneState::TaxiingToStand};
     int transitionWaypointIndex{-1};
     bool intermediateTransitionDone{false};
+    bool landingSoundCuePending{false};
+    bool landingSoundCueTriggered{false};
 };

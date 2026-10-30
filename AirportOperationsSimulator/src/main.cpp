@@ -105,6 +105,7 @@ namespace
         const float upZ = rightX * forwardY - rightY * forwardX;
         const Color rainColor = heavyRain ? Color{183, 208, 224, 128} :
             Color{183, 208, 224, 78};
+        rlBegin(RL_LINES);
         for (int i = 0; i < particleCount; ++i)
         {
             const std::uint32_t particleIndex = static_cast<std::uint32_t>(i);
@@ -162,9 +163,14 @@ namespace
             const Vector3 to{from.x + rightX * worldStreakLength * windAngle,
                 from.y - worldStreakLength,
                 from.z + rightZ * worldStreakLength * windAngle};
-            DrawLine3D(from, to, Fade(rainColor,
-                0.68f + brightnessVariation * 0.32f));
+            const Color particleColor = Fade(rainColor,
+                0.68f + brightnessVariation * 0.32f);
+            rlColor4ub(particleColor.r, particleColor.g, particleColor.b,
+                particleColor.a);
+            rlVertex3f(from.x, from.y, from.z);
+            rlVertex3f(to.x, to.y, to.z);
         }
+        rlEnd();
     }
 
     void DrawWeatherOverlay(WeatherState weather)
@@ -752,6 +758,7 @@ namespace
         bool runwayReserved{false};
         bool takeoffRollStarted{false};
         bool takeoffSoundTriggered{false};
+        bool landingSoundTriggered{false};
         bool landingRouteActive{false};
         bool weatherDelayedArrival{false};
         bool weatherRecoveryArrival{false};
@@ -1674,14 +1681,24 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     const char* takeoffSoundPath = DirectoryExists("music") ?
         "music/aircraft-take-off.mp3" :
         "resources/music/aircraft-take-off.mp3";
+    Sound landingSound{};
+    const char* landingSoundPath = DirectoryExists("music") ?
+        "music/aircraft-landing.mp3" :
+        "resources/music/aircraft-landing.mp3";
     if (!audioDeviceReady)
-        TraceLog(LOG_WARNING, "Audio device is unavailable; takeoff sound is disabled.");
+        TraceLog(LOG_WARNING, "Audio device is unavailable; aircraft sounds are disabled.");
     else
     {
         takeoffSound = LoadSound(takeoffSoundPath);
         if (takeoffSound.frameCount == 0)
             TraceLog(LOG_WARNING, "Could not load takeoff sound: %s",
                 takeoffSoundPath);
+        landingSound = LoadSound(landingSoundPath);
+        if (landingSound.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load landing sound: %s",
+                landingSoundPath);
+        else
+            SetSoundPitch(landingSound, 1.25f);
     }
     rlSetClipPlanes(10.0, 4000.0);
 
@@ -5531,6 +5548,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (followMeAssignedFlightIndex != static_cast<int>(flightIndex) ||
                 followMeStatus != FollowMeStatus::MovingToAircraft)
                 airplane.Update(deltaTime);
+            if (airplane.ConsumeLandingSoundCue() &&
+                !plan.landingSoundTriggered)
+            {
+                plan.landingSoundTriggered = true;
+                if (audioDeviceReady && landingSound.frameCount > 0 &&
+                    !IsSoundPlaying(landingSound))
+                    PlaySound(landingSound);
+            }
             if (stateBeforeUpdate != AirplaneState::TakingOff &&
                 airplane.state == AirplaneState::TakingOff &&
                 !plan.takeoffSoundTriggered)
@@ -8056,6 +8081,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     if (audioDeviceReady)
     {
         if (takeoffSound.frameCount > 0) UnloadSound(takeoffSound);
+        if (landingSound.frameCount > 0) UnloadSound(landingSound);
         CloseAudioDevice();
     }
     CloseWindow();

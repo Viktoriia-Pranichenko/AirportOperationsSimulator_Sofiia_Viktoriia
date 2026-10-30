@@ -131,6 +131,8 @@ void Airplane::SetWaypointRoute(std::vector<Vector2> newRoute, float newRouteSpe
     transitionWaypointIndex = transitionIndex;
     routeIntermediateState = intermediateState;
     intermediateTransitionDone = false;
+    landingSoundCuePending = false;
+    landingSoundCueTriggered = false;
     speed = 0.0f;
     hasTarget = !route.empty();
     if (hasTarget) targetPosition = route.back();
@@ -154,6 +156,13 @@ void Airplane::SetWaypointRoute(std::vector<Vector2> newRoute, float newRouteSpe
         landingApproachLength = 0.0f;
         landingTouchdownWaypoint = 0;
     }
+}
+
+bool Airplane::ConsumeLandingSoundCue()
+{
+    const bool landingSoundCue = landingSoundCuePending;
+    landingSoundCuePending = false;
+    return landingSoundCue;
 }
 
 void Airplane::Update(float deltaTime)
@@ -223,17 +232,26 @@ void Airplane::Update(float deltaTime)
         if (remainingStep <= 0.0f) break;
     }
 
-    if (state == AirplaneState::Landing && landingApproachLength > 0.0f &&
-        nextWaypoint <= landingTouchdownWaypoint)
+    if (state == AirplaneState::Landing && landingApproachLength > 0.0f)
     {
+        constexpr float LandingSoundLeadDistance = 120.0f;
         float remainingApproach = 0.0f;
         Vector2 cursor = position;
-        for (std::size_t i = nextWaypoint; i <= landingTouchdownWaypoint; ++i)
+        if (nextWaypoint <= landingTouchdownWaypoint)
         {
-            const float dx = route[i].x - cursor.x;
-            const float dz = route[i].y - cursor.y;
-            remainingApproach += std::sqrt(dx * dx + dz * dz);
-            cursor = route[i];
+            for (std::size_t i = nextWaypoint; i <= landingTouchdownWaypoint; ++i)
+            {
+                const float dx = route[i].x - cursor.x;
+                const float dz = route[i].y - cursor.y;
+                remainingApproach += std::sqrt(dx * dx + dz * dz);
+                cursor = route[i];
+            }
+        }
+        if (!landingSoundCueTriggered &&
+            remainingApproach <= LandingSoundLeadDistance)
+        {
+            landingSoundCuePending = true;
+            landingSoundCueTriggered = true;
         }
         altitude = std::clamp(remainingApproach / landingApproachLength, 0.0f, 1.0f) * 32.0f;
         pitchDegrees = -5.0f * std::clamp(altitude / 32.0f, 0.0f, 1.0f);
