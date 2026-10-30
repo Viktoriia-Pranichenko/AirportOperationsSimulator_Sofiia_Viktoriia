@@ -3259,6 +3259,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     };
     PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
     std::string pushbackTugPositioningGate;
+    FlightPlan* pushbackFlightPlan = nullptr;
     int activePushbackCrewIndex = -1;
     float pushbackTugNoseHeading = 0.0f;
     Vector2 pushbackTugCrewPosition{};
@@ -4378,6 +4379,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         pushbackTugs[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(
             pushbackTugNoseHeading);
         pushbackTugPositioningGate = gateId;
+        pushbackFlightPlan = &plan;
         activePushbackCrewIndex = crewIndex;
         pushbackTugMotion = PushbackTugMotion::PushingAircraft;
         crewRuntime[static_cast<std::size_t>(crewIndex)].pushbackMotion =
@@ -4390,16 +4392,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     const auto updatePushbackMotion = [&](float deltaTime)
     {
         if (pushbackTugMotion == PushbackTugMotion::Parked) return;
-        FlightPlan* plan = nullptr;
-        for (FlightPlan& candidate : flights)
-        {
-            if (candidate.spawned && candidate.standAssigned &&
-                candidate.parkingStandId == pushbackTugPositioningGate)
-            {
-                plan = &candidate;
-                break;
-            }
-        }
+        // Track the exact flight being pushed back; matching by stand id alone
+        // could pick another flight that shares the stand and drag the tug to it.
+        FlightPlan* plan = pushbackFlightPlan;
         if (plan == nullptr || activePushbackCrewIndex < 0 ||
             activePushbackCrewIndex >= static_cast<int>(pushbackTugs.size())) return;
         AircraftPushbackTug& activeTug = pushbackTugs[
@@ -6083,9 +6078,36 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                                 // Take-off clearance must enter the runway even
                                 // while a taxiway closure diverts surface traffic.
                                 TaxiRoutePurpose::Departure);
+                            // Aircraft still holding in the air only claim approach
+                            // nodes; they must not block a take-off clearance, which
+                            // otherwise stays refused for as long as rain backed up.
+                            const auto ownedByHoldingArrival = [&](const std::string& ownerId)
+                            {
+                                for (const FlightPlan& other : flights)
+                                    if (other.airplane.flightId == ownerId)
+                                        return other.spawned &&
+                                            other.airplane.state == AirplaneState::Holding;
+                                return false;
+                            };
+                            bool takeoffRouteFree = !route.empty();
+                            for (std::size_t i = 0; takeoffRouteFree && i < route.size(); ++i)
+                            {
+                                const auto nodeOwner = occupiedNodes.find(route[i]);
+                                if (nodeOwner != occupiedNodes.end() &&
+                                    nodeOwner->second != selected.airplane.flightId &&
+                                    !ownedByHoldingArrival(nodeOwner->second))
+                                    takeoffRouteFree = false;
+                                if (i == 0) continue;
+                                const auto sectionOwner = occupiedSections.find(
+                                    sectionKey(route[i - 1], route[i]));
+                                if (sectionOwner != occupiedSections.end() &&
+                                    sectionOwner->second != selected.airplane.flightId &&
+                                    !ownedByHoldingArrival(sectionOwner->second))
+                                    takeoffRouteFree = false;
+                            }
                             if (runway != airportGround.GetRunways().end() && runway->available &&
                                 runwayOwners.find(selected.runwayId) == runwayOwners.end() &&
-                                routeCanBeReserved(route, selected.airplane.flightId))
+                                takeoffRouteFree)
                             {
                                 std::vector<Vector2> takeoffRoute = MakeWorldRoute(airportGround, route);
                                 if (!takeoffRoute.empty())
@@ -6109,6 +6131,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                                             AirplaneState::TakingOff);
                                     }
                                 }
+                            }
+                            else
+                            {
+                                refuellingMessage = "Runway is busy. Take-off clearance is available once it is clear.";
+                                refuellingMessageTime = 3.0f;
                             }
                         }
                     }
