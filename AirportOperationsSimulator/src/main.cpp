@@ -738,6 +738,9 @@ namespace
         std::string routeContinuationNodeId;
         bool followMeEscortDecisionMade{false};
         bool followMeEscortRequested{false};
+        bool followMeEscortWasActive{false};
+        bool followMeEscortCompleted{false};
+        bool followMeBonusRecorded{false};
         enum class PushbackState { NotStarted, MovingAircraft, Complete };
         PushbackState pushbackState{PushbackState::NotStarted};
         Vector2 pushbackStartPosition{};
@@ -2216,6 +2219,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         });
     float weatherAnimationTime = 0.0f;
     int shiftScore = 0;
+    int followMeBonusPoints = 0;
     int completedFlights = 0;
     int completedArrivals = 0;
     int punctualOperations = 0;
@@ -4917,6 +4921,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         {
                             plan->followMeEscortDecisionMade = true;
                             plan->followMeEscortRequested = false;
+                            plan->followMeEscortWasActive = false;
                             followMeStatus = FollowMeStatus::Available;
                             followMeAssignedFlightIndex = -1;
                             followMeCars[0].ClearTaxiRoute();
@@ -4935,6 +4940,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                             followMeCars[0].ClearTaxiRoute();
                             plan->followMeEscortDecisionMade = true;
                             plan->followMeEscortRequested = true;
+                            plan->followMeEscortWasActive = false;
+                            plan->followMeEscortCompleted = false;
                             followMeAssignedFlightIndex = assignedFlightIndex;
                             followMeStatus = FollowMeStatus::MovingToAircraft;
                             followMeDebugReason = "waiting for taxi";
@@ -5469,6 +5476,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     }
                     else shiftScore += departureLateness <= StandardFlightOnTimeSeconds ?
                         100 : 50;
+                    if (plan.followMeEscortCompleted &&
+                        !plan.followMeBonusRecorded)
+                    {
+                        const int escortBonus = 10 +
+                            (airplane.isPriority ? 5 : 0);
+                        shiftScore += escortBonus;
+                        followMeBonusPoints += escortBonus;
+                        plan.followMeBonusRecorded = true;
+                    }
                     plan.scoreRecorded = true;
                 }
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
@@ -5818,6 +5834,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
         const auto finishFollowMeEscort = [&](FlightPlan& plan)
         {
+            plan.followMeEscortCompleted = plan.followMeEscortRequested &&
+                plan.followMeEscortWasActive;
             plan.followMeEscortRequested = false;
             followMeStatus = FollowMeStatus::Available;
             followMeAssignedFlightIndex = -1;
@@ -5997,6 +6015,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                             followMeStatus = safeToMove && vehicleIsLeading ?
                                 FollowMeStatus::Escorting :
                                 FollowMeStatus::MovingToAircraft;
+                            if (followMeStatus == FollowMeStatus::Escorting)
+                                escorted.followMeEscortWasActive = true;
                             followMeDebugReason = !safeToMove ?
                                 "blocked by traffic" :
                                 followMeDebugMovement > 0.01f ? "moving" :
@@ -7180,8 +7200,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 20.0f * std::clamp(1.0f -
                     static_cast<float>(safetyViolations) /
                         static_cast<float>(scheduledFlights), 0.0f, 1.0f) : 0.0f;
-            const int finalScore = static_cast<int>(std::lround(
-                punctualityScore + completionScore + safetyScore));
+            const int finalScore = std::clamp(static_cast<int>(std::lround(
+                punctualityScore + completionScore + safetyScore +
+                static_cast<float>(followMeBonusPoints))), 0, 100);
             const int excellentThreshold = savedDifficulty == GameDifficulty::Hard ? 82 :
                 (savedDifficulty == GameDifficulty::Medium ? 85 : 88);
             const int strongThreshold = savedDifficulty == GameDifficulty::Hard ? 65 :
@@ -7238,6 +7259,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 static_cast<int>(scorePanel.x + 180.0f),
                 static_cast<int>(scorePanel.y + 43.0f), 12,
                 Color{222, 232, 229, 255});
+            DrawText(TextFormat("FOLLOW-ME BONUS  +%d", followMeBonusPoints),
+                static_cast<int>(scorePanel.x + 180.0f),
+                static_cast<int>(scorePanel.y + 67.0f), 10,
+                Color{153, 255, 190, 255});
 
             const float tileGap = 14.0f;
             const float tileWidth = (panel.width - 48.0f - tileGap) * 0.5f;
