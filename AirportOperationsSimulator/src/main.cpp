@@ -1714,7 +1714,7 @@ namespace
                     "Reroute traffic around taxiway closures.",
                     "Dispatch fire trucks and extinguish the fire in time.",
                     Color{255, 133, 91, 255});
-                DrawText("Tip: during a fire alert, click DISPATCH TRUCKS beside the parked fire trucks.",
+                DrawText("Tip: during a fire alert, click the fire truck icon beside the parked fire trucks.",
                     static_cast<int>(panel.x + sideMargin),
                     static_cast<int>(panel.y + 468.0f), 10,
                     Color{255, 207, 151, 255});
@@ -2721,6 +2721,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             return left.startsAtSeconds < right.startsAtSeconds;
         });
     float weatherAnimationTime = 0.0f;
+    // The terminal fire is a once-per-shift random event. It uses its own random
+    // engine so weather scheduling is unaffected, and never starts in the first
+    // 15 minutes or the final 30 minutes of the planned shift.
+    std::random_device fireEntropy;
+    std::mt19937 fireRandom(fireEntropy());
+    constexpr float FireEarliestStartSeconds = 15.0f * 60.0f;
+    constexpr float FireEndBufferSeconds = 30.0f * 60.0f;
+    const float terminalFireStartsAtSeconds = std::uniform_real_distribution<float>(
+        FireEarliestStartSeconds,
+        std::max(FireEarliestStartSeconds + 1.0f,
+            plannedShiftDurationSeconds - FireEndBufferSeconds))(fireRandom);
+    const int terminalFireRolledIndex = static_cast<int>(fireRandom() % 2u);
     struct ScorePopup
     {
         int points;
@@ -4555,11 +4567,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             PlaySound(nextPointSound == PointSoundType::Positive ?
                 positivePointsSound : negativePointsSound);
         }
-        if (!showMainMenu && terminalFireIndex < 0)
+        if (!showMainMenu && terminalFireIndex < 0 && !shiftComplete && !isPaused &&
+            shiftClockSeconds >= terminalFireStartsAtSeconds)
         {
-            // Each shift (RunGame call) ignites exactly one of the two fixed spots.
-            std::random_device fireEntropy;
-            terminalFireIndex = static_cast<int>(fireEntropy() % 2u);
+            // Ignites one of the two fixed spots, once, at the scheduled shift time.
+            terminalFireIndex = terminalFireRolledIndex;
             priorityNotification = terminalFireIndex == 0 ?
                 "FIRE ALERT - TERMINAL WEST ROOF ON FIRE" :
                 "FIRE ALERT - TERMINAL EAST ROOF ON FIRE";
@@ -8280,26 +8292,33 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
             if (!terminalFireDispatched)
             {
-                // Glowing clickable dispatch alert above the parked fire trucks.
+                // Glowing clickable fire-truck icon above the parked fire trucks.
                 const Vector2 parked = GetWorldToScreen(
                     {(FireTruckParkingPositions[0].x + FireTruckParkingPositions[1].x) * 0.5f,
                         7.0f, FireTruckParkingPositions[0].y}, sceneCamera);
-                const Rectangle dispatchButton{parked.x - 78.0f, parked.y - 17.0f,
-                    156.0f, 34.0f};
-                const bool dispatchHovered = CheckCollisionPointRec(
-                    GetMousePosition(), dispatchButton);
-                DrawRectangleRounded({dispatchButton.x - 6.0f, dispatchButton.y - 6.0f,
-                    dispatchButton.width + 12.0f, dispatchButton.height + 12.0f},
-                    0.4f, 8, Fade(Color{255, 90, 50, 255}, 0.15f + 0.25f * alertPulse));
-                DrawRectangleRounded(dispatchButton, 0.3f, 8,
+                const float iconRadius = 24.0f;
+                const Vector2 iconCenter{parked.x, parked.y};
+                const bool dispatchHovered = CheckCollisionPointCircle(
+                    GetMousePosition(), iconCenter, iconRadius + 4.0f);
+                DrawCircleV(iconCenter, iconRadius + 10.0f,
+                    Fade(Color{255, 90, 50, 255}, 0.10f + 0.14f * alertPulse));
+                DrawCircleV(iconCenter, iconRadius + 5.0f,
+                    Fade(Color{255, 120, 60, 255}, 0.16f + 0.18f * alertPulse));
+                DrawCircleV(iconCenter, iconRadius,
                     dispatchHovered ? Color{235, 70, 40, 255} : Color{176, 38, 28, 245});
-                DrawRectangleRoundedLinesEx(dispatchButton, 0.3f, 8, 2.0f,
-                    Color{255, 214, 120, 255});
-                const char* dispatchText = "DISPATCH TRUCKS";
-                DrawText(dispatchText,
-                    static_cast<int>(dispatchButton.x + (dispatchButton.width -
-                        MeasureText(dispatchText, 14)) * 0.5f),
-                    static_cast<int>(dispatchButton.y + 10.0f), 14, RAYWHITE);
+                DrawCircleLines(static_cast<int>(iconCenter.x),
+                    static_cast<int>(iconCenter.y), iconRadius, Color{255, 214, 120, 255});
+                // Fire truck silhouette: body, cab, ladder, wheels and warning light.
+                const float ix = iconCenter.x;
+                const float iy = iconCenter.y;
+                DrawRectangle(static_cast<int>(ix - 15), static_cast<int>(iy - 5), 20, 11, RAYWHITE);
+                DrawRectangle(static_cast<int>(ix + 5), static_cast<int>(iy - 2), 10, 8, Color{255, 236, 190, 255});
+                DrawRectangle(static_cast<int>(ix + 9), static_cast<int>(iy - 1), 5, 4, Color{54, 117, 143, 255});
+                DrawRectangle(static_cast<int>(ix - 13), static_cast<int>(iy - 8), 16, 2, Color{255, 214, 120, 255});
+                DrawRectangle(static_cast<int>(ix + 8), static_cast<int>(iy - 6), 4, 3,
+                    alertPulse > 0.5f ? Color{255, 214, 120, 255} : Color{255, 120, 80, 255});
+                DrawCircle(static_cast<int>(ix - 8), static_cast<int>(iy + 7), 3.2f, Color{30, 34, 36, 255});
+                DrawCircle(static_cast<int>(ix + 9), static_cast<int>(iy + 7), 3.2f, Color{30, 34, 36, 255});
                 if (dispatchHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
                     !isPaused && !showUpgradeMenu && !shiftComplete)
                 {
