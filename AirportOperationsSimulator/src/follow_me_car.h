@@ -47,9 +47,11 @@ private:
     float taxiLeadDistance{28.0f};
     float wheelRotationDegrees{0.0f};
     float steeringAngleDegrees{0.0f};
+    float beaconFlashPhase{0.0f};
     bool taxiRouteActive{false};
 
     float CalculateNextTaxiSpeed(float targetProgress,
         float deltaTime) const;
     Vector2 GetTaxiDirectionAtProgress(float progress) const;
+    void UpdateBeaconFlash(float deltaTime);
 };

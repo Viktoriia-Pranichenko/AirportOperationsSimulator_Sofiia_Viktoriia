@@ -23,6 +23,25 @@ namespace
     constexpr float TaxiAcceleration = 8.0f;
     constexpr float TaxiDeceleration = 10.0f;
     constexpr float TaxiMaximumTurnRate = 95.0f;
+    constexpr float BeaconFlashPeriod = 0.8f;
+
+    float BeaconIntensity(float phase)
+    {
+        constexpr float fadeDuration = 0.06f;
+        constexpr float onDuration = BeaconFlashPeriod * 0.5f;
+        const auto smoothStep = [](float value)
+        {
+            const float clamped = std::clamp(value, 0.0f, 1.0f);
+            return clamped * clamped * (3.0f - 2.0f * clamped);
+        };
+        if (phase < fadeDuration)
+            return smoothStep(phase / fadeDuration);
+        if (phase < onDuration - fadeDuration) return 1.0f;
+        if (phase < onDuration)
+            return 1.0f - smoothStep(
+                (phase - (onDuration - fadeDuration)) / fadeDuration);
+        return 0.0f;
+    }
 
     void DrawWheel(float x, float y, float z, float radius, float side,
         float spinDegrees, float steeringDegrees)
@@ -37,15 +56,17 @@ namespace
         DrawCylinderEx({side * 0.07f, 0.0f, 0.0f},
             {side * 0.16f, 0.0f, 0.0f},
             radius * 0.46f, radius * 0.46f, 8, WheelHub);
-        for (float spokeAngle : {0.0f, PI * 0.5f, PI, PI * 1.5f})
+        for (int spoke = 0; spoke < 5; ++spoke)
         {
+            const float spokeAngle = 2.0f * PI * spoke / 5.0f;
             const float innerY = std::cos(spokeAngle) * radius * 0.16f;
             const float innerZ = std::sin(spokeAngle) * radius * 0.16f;
-            const float outerY = std::cos(spokeAngle) * radius * 0.76f;
-            const float outerZ = std::sin(spokeAngle) * radius * 0.76f;
+            const float outerY = std::cos(spokeAngle) * radius * 0.84f;
+            const float outerZ = std::sin(spokeAngle) * radius * 0.84f;
             DrawCylinderEx({side * 0.145f, innerY, innerZ},
                 {side * 0.145f, outerY, outerZ},
-                0.025f, 0.025f, 6, Trim);
+                0.04f, 0.04f, 6,
+                spoke == 0 ? Color{255, 222, 150, 255} : Trim);
         }
         rlPopMatrix();
     }
@@ -84,6 +105,7 @@ void FollowMeCar::SetWaypoints(std::vector<Vector2> waypoints,
 bool FollowMeCar::AdvanceRoute(float deltaTime)
 {
     if (deltaTime <= 0.0f || activeWaypoints.empty()) return false;
+    UpdateBeaconFlash(deltaTime);
     constexpr float MovementSpeed = 12.0f;
     constexpr float MaximumSteeringRate = 95.0f;
     float remainingTime = deltaTime;
@@ -327,6 +349,7 @@ void FollowMeCar::AdvanceTaxiRoute(float targetProgress, float deltaTime,
     bool allowMovement)
 {
     if (!taxiRouteActive || deltaTime <= 0.0f) return;
+    UpdateBeaconFlash(deltaTime);
     const Vector2 direction = GetTaxiDirectionAtProgress(taxiRouteProgress);
     const float desiredHeading = std::atan2(direction.x, direction.y) /
         DegreesToRadians;
@@ -434,6 +457,12 @@ Vector2 FollowMeCar::GetTaxiDirectionAtProgress(float progress) const
     return {0.0f, 1.0f};
 }
 
+void FollowMeCar::UpdateBeaconFlash(float deltaTime)
+{
+    beaconFlashPhase = std::fmod(beaconFlashPhase + deltaTime,
+        BeaconFlashPeriod);
+}
+
 const ServiceVehicleRoute& FollowMeCar::GetRoute() const
 {
     return route;
@@ -469,8 +498,24 @@ void FollowMeCar::Draw() const
     }
 
     DrawCubeV({0.0f, 2.12f, -0.35f}, {0.32f, 0.08f, 0.3f}, FollowYellow);
+    const float beaconIntensity = BeaconIntensity(beaconFlashPhase);
+    const Color beaconColor{
+        static_cast<unsigned char>(std::lround(55.0f +
+            200.0f * beaconIntensity)),
+        static_cast<unsigned char>(std::lround(4.0f +
+            48.0f * beaconIntensity)),
+        static_cast<unsigned char>(std::lround(7.0f +
+            30.0f * beaconIntensity)),
+        255
+    };
     DrawCubeV({0.0f, 2.27f, -0.35f}, {0.24f, 0.2f, 0.22f},
-        Color{220, 52, 37, 255});
+        beaconColor);
+    if (beaconIntensity > 0.01f)
+    {
+        DrawSphereEx({0.0f, 2.27f, -0.35f}, 0.34f, 8, 10,
+            Color{255, 20, 12, static_cast<unsigned char>(
+                std::lround(45.0f * beaconIntensity))});
+    }
     DrawCubeV({-0.68f, 1.14f, 2.34f}, {0.32f, 0.16f, 0.06f}, Trim);
     DrawCubeV({0.68f, 1.14f, 2.34f}, {0.32f, 0.16f, 0.06f}, Trim);
     rlPopMatrix();
