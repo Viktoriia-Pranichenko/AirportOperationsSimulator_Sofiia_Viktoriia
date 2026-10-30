@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 #include <utility>
 
 namespace
@@ -18,6 +19,12 @@ namespace
     constexpr Color Tire{37, 42, 43, 255};
     constexpr Color WheelHub{162, 166, 155, 255};
     constexpr float DegreesToRadians = PI / 180.0f;
+    constexpr float TaxiMovementSpeed = 13.0f;
+    constexpr float TaxiAcceleration = 8.0f;
+    constexpr float TaxiDeceleration = 10.0f;
+    constexpr float TaxiMaximumTurnRate = 80.0f * DegreesToRadians;
+    constexpr float TaxiTurnLookBehind = 4.0f;
+    constexpr float TaxiTurnLookAhead = 6.0f;
 
     void DrawWheel(float x, float y, float z, float radius)
     {
@@ -116,18 +123,242 @@ bool FollowMeCar::AdvanceRoute(float deltaTime)
     return nextRoutePoint >= activeWaypoints.size();
 }
 
-void FollowMeCar::MoveTowardsPosition(Vector2 target, float deltaTime)
+bool FollowMeCar::SetTaxiRoute(const std::vector<Vector2>& waypoints,
+    bool startAtRouteBeginning)
 {
-    if (deltaTime <= 0.0f) return;
-    constexpr float MovementSpeed = 12.0f;
-    const float dx = target.x - positionX;
-    const float dz = target.y - positionZ;
-    const float distance = std::sqrt(dx * dx + dz * dz);
-    if (distance <= 0.001f) return;
-    headingDegrees = std::atan2(dx, dz) / DegreesToRadians;
-    const float travelled = std::min(distance, MovementSpeed * deltaTime);
-    positionX += dx / distance * travelled;
-    positionZ += dz / distance * travelled;
+    if (waypoints.size() < 2) return false;
+    bool sameRoute = taxiRouteActive &&
+        taxiWaypoints.size() == waypoints.size();
+    if (sameRoute)
+    {
+        for (std::size_t index = 0; index < waypoints.size(); ++index)
+        {
+            if (taxiWaypoints[index].x != waypoints[index].x ||
+                taxiWaypoints[index].y != waypoints[index].y)
+            {
+                sameRoute = false;
+                break;
+            }
+        }
+    }
+    if (sameRoute) return true;
+
+    taxiWaypoints = waypoints;
+    taxiWaypointDistances.assign(taxiWaypoints.size(), 0.0f);
+    for (std::size_t index = 1; index < taxiWaypoints.size(); ++index)
+    {
+        const float dx = taxiWaypoints[index].x - taxiWaypoints[index - 1].x;
+        const float dz = taxiWaypoints[index].y - taxiWaypoints[index - 1].y;
+        taxiWaypointDistances[index] = taxiWaypointDistances[index - 1] +
+            std::sqrt(dx * dx + dz * dz);
+    }
+    if (taxiWaypointDistances.back() <= 0.001f)
+    {
+        ClearTaxiRoute();
+        return false;
+    }
+
+    taxiRouteActive = true;
+    taxiSpeed = 0.0f;
+    if (startAtRouteBeginning)
+    {
+        taxiRouteProgress = 0.0f;
+        const Vector2 start = GetTaxiPositionAtProgress(taxiRouteProgress);
+        SetPosition(start.x, start.y);
+        const Vector2 direction = GetSmoothedTaxiDirection(taxiRouteProgress);
+        headingDegrees = std::atan2(direction.x, direction.y) /
+            DegreesToRadians;
+        return true;
+    }
+
+    float nearestDistanceSquared = std::numeric_limits<float>::max();
+    float nearestProgress = 0.0f;
+    Vector2 nearestPosition = taxiWaypoints.front();
+    const Vector2 currentPosition = GetPosition();
+    for (std::size_t index = 1; index < taxiWaypoints.size(); ++index)
+    {
+        const Vector2 start = taxiWaypoints[index - 1];
+        const Vector2 end = taxiWaypoints[index];
+        const float dx = end.x - start.x;
+        const float dz = end.y - start.y;
+        const float segmentLengthSquared = dx * dx + dz * dz;
+        if (segmentLengthSquared <= 0.001f) continue;
+        const float projection = std::clamp(
+            ((currentPosition.x - start.x) * dx +
+                (currentPosition.y - start.y) * dz) /
+                segmentLengthSquared, 0.0f, 1.0f);
+        const Vector2 projected{start.x + dx * projection,
+            start.y + dz * projection};
+        const float offsetX = currentPosition.x - projected.x;
+        const float offsetZ = currentPosition.y - projected.y;
+        const float distanceSquared = offsetX * offsetX + offsetZ * offsetZ;
+        if (distanceSquared < nearestDistanceSquared)
+        {
+            nearestDistanceSquared = distanceSquared;
+            nearestPosition = projected;
+            nearestProgress = taxiWaypointDistances[index - 1] +
+                std::sqrt(segmentLengthSquared) * projection;
+        }
+    }
+    taxiRouteProgress = nearestProgress;
+    SetPosition(nearestPosition.x, nearestPosition.y);
+    return true;
+}
+
+void FollowMeCar::ClearTaxiRoute()
+{
+    taxiWaypoints.clear();
+    taxiWaypointDistances.clear();
+    taxiRouteProgress = 0.0f;
+    taxiSpeed = 0.0f;
+    taxiRouteActive = false;
+}
+
+bool FollowMeCar::HasTaxiRoute() const
+{
+    return taxiRouteActive;
+}
+
+float FollowMeCar::GetTaxiRouteProgress() const
+{
+    return taxiRouteProgress;
+}
+
+float FollowMeCar::GetTaxiRouteLength() const
+{
+    return taxiWaypointDistances.empty() ? 0.0f :
+        taxiWaypointDistances.back();
+}
+
+float FollowMeCar::GetTaxiLeadDistance() const
+{
+    return taxiLeadDistance;
+}
+
+void FollowMeCar::SetTaxiLeadDistance(float distance)
+{
+    taxiLeadDistance = std::max(0.0f, distance);
+}
+
+float FollowMeCar::GetTaxiTargetProgress(float aircraftProgress) const
+{
+    return std::clamp(aircraftProgress + taxiLeadDistance,
+        0.0f, GetTaxiRouteLength());
+}
+
+float FollowMeCar::GetNextTaxiRouteProgress(float targetProgress,
+    float deltaTime) const
+{
+    if (!taxiRouteActive || deltaTime <= 0.0f) return taxiRouteProgress;
+    const float target = std::clamp(targetProgress,
+        taxiRouteProgress, GetTaxiRouteLength());
+    if (target <= taxiRouteProgress) return taxiRouteProgress;
+
+    const float nextSpeed = CalculateNextTaxiSpeed(target, deltaTime);
+    const float travelDistance =
+        (taxiSpeed + nextSpeed) * 0.5f * deltaTime;
+    float nextProgress = std::min(target,
+        taxiRouteProgress + travelDistance);
+    const auto nextWaypoint = std::upper_bound(taxiWaypointDistances.begin(),
+        taxiWaypointDistances.end(), taxiRouteProgress + 0.001f);
+    if (nextWaypoint != taxiWaypointDistances.end())
+        nextProgress = std::min(nextProgress, *nextWaypoint);
+    return nextProgress;
+}
+
+Vector2 FollowMeCar::GetTaxiPositionAtProgress(float progress) const
+{
+    if (taxiWaypoints.empty()) return GetPosition();
+    if (taxiWaypoints.size() == 1) return taxiWaypoints.front();
+    const float clampedProgress = std::clamp(progress,
+        0.0f, GetTaxiRouteLength());
+    const auto nextWaypoint = std::upper_bound(taxiWaypointDistances.begin(),
+        taxiWaypointDistances.end(), clampedProgress);
+    if (nextWaypoint == taxiWaypointDistances.end())
+        return taxiWaypoints.back();
+    const std::size_t endIndex = static_cast<std::size_t>(
+        std::distance(taxiWaypointDistances.begin(), nextWaypoint));
+    if (endIndex == 0) return taxiWaypoints.front();
+    const std::size_t startIndex = endIndex - 1;
+    const float segmentLength = taxiWaypointDistances[endIndex] -
+        taxiWaypointDistances[startIndex];
+    if (segmentLength <= 0.001f) return taxiWaypoints[endIndex];
+    const float ratio = (clampedProgress -
+        taxiWaypointDistances[startIndex]) / segmentLength;
+    const Vector2 start = taxiWaypoints[startIndex];
+    const Vector2 end = taxiWaypoints[endIndex];
+    return {start.x + (end.x - start.x) * ratio,
+        start.y + (end.y - start.y) * ratio};
+}
+
+void FollowMeCar::AdvanceTaxiRoute(float targetProgress, float deltaTime,
+    bool allowMovement)
+{
+    if (!taxiRouteActive || deltaTime <= 0.0f) return;
+    if (allowMovement)
+    {
+        const float target = std::clamp(targetProgress,
+            taxiRouteProgress, GetTaxiRouteLength());
+        const float nextSpeed = CalculateNextTaxiSpeed(target, deltaTime);
+        taxiRouteProgress = GetNextTaxiRouteProgress(target, deltaTime);
+        taxiSpeed = taxiRouteProgress >= target - 0.001f ? 0.0f : nextSpeed;
+        const Vector2 position = GetTaxiPositionAtProgress(taxiRouteProgress);
+        SetPosition(position.x, position.y);
+    }
+    else
+    {
+        taxiSpeed = std::max(0.0f, taxiSpeed -
+            TaxiDeceleration * deltaTime);
+    }
+
+    const Vector2 direction = GetSmoothedTaxiDirection(taxiRouteProgress);
+    const float desiredHeading = std::atan2(direction.x, direction.y) /
+        DegreesToRadians;
+    const float headingDelta = std::remainder(
+        desiredHeading - headingDegrees, 360.0f);
+    headingDegrees = std::remainder(headingDegrees + std::clamp(headingDelta,
+        -TaxiMaximumTurnRate * deltaTime,
+        TaxiMaximumTurnRate * deltaTime), 360.0f);
+}
+
+float FollowMeCar::CalculateNextTaxiSpeed(float targetProgress,
+    float deltaTime) const
+{
+    const float remainingDistance = std::max(0.0f,
+        targetProgress - taxiRouteProgress);
+    const float desiredSpeed = std::min(TaxiMovementSpeed,
+        std::sqrt(2.0f * TaxiDeceleration * remainingDistance));
+    const float speedChange = std::clamp(desiredSpeed - taxiSpeed,
+        -TaxiDeceleration * deltaTime,
+        TaxiAcceleration * deltaTime);
+    return std::max(0.0f, taxiSpeed + speedChange);
+}
+
+Vector2 FollowMeCar::GetSmoothedTaxiDirection(float progress) const
+{
+    if (taxiWaypoints.size() < 2) return {0.0f, 1.0f};
+    const Vector2 before = GetTaxiPositionAtProgress(
+        std::max(0.0f, progress - TaxiTurnLookBehind));
+    const Vector2 after = GetTaxiPositionAtProgress(
+        std::min(GetTaxiRouteLength(), progress + TaxiTurnLookAhead));
+    const float dx = after.x - before.x;
+    const float dz = after.y - before.y;
+    const float length = std::sqrt(dx * dx + dz * dz);
+    if (length > 0.001f) return {dx / length, dz / length};
+
+    const auto nextWaypoint = std::upper_bound(taxiWaypointDistances.begin(),
+        taxiWaypointDistances.end(), progress);
+    if (nextWaypoint == taxiWaypointDistances.end()) return {0.0f, 1.0f};
+    const std::size_t endIndex = static_cast<std::size_t>(
+        std::distance(taxiWaypointDistances.begin(), nextWaypoint));
+    const Vector2 start = taxiWaypoints[endIndex - 1];
+    const Vector2 end = taxiWaypoints[endIndex];
+    const float segmentLength = std::sqrt(
+        (end.x - start.x) * (end.x - start.x) +
+        (end.y - start.y) * (end.y - start.y));
+    if (segmentLength <= 0.001f) return {0.0f, 1.0f};
+    return {(end.x - start.x) / segmentLength,
+        (end.y - start.y) / segmentLength};
 }
 
 const ServiceVehicleRoute& FollowMeCar::GetRoute() const

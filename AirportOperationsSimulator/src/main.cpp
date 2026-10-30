@@ -738,6 +738,37 @@ namespace
         return route;
     }
 
+    float GetRouteProgressAtPosition(const std::vector<Vector2>& route,
+        std::size_t nextWaypoint, Vector2 position)
+    {
+        if (route.size() < 2) return 0.0f;
+        const std::size_t next = std::min(nextWaypoint, route.size());
+        float progress = 0.0f;
+        for (std::size_t index = 1; index < next; ++index)
+        {
+            const float dx = route[index].x - route[index - 1].x;
+            const float dz = route[index].y - route[index - 1].y;
+            progress += std::sqrt(dx * dx + dz * dz);
+        }
+        if (next > 0 && next < route.size())
+        {
+            const Vector2 start = route[next - 1];
+            const Vector2 end = route[next];
+            const float dx = end.x - start.x;
+            const float dz = end.y - start.y;
+            const float segmentLengthSquared = dx * dx + dz * dz;
+            if (segmentLengthSquared > 0.001f)
+            {
+                const float projection = std::clamp(
+                    ((position.x - start.x) * dx +
+                        (position.y - start.y) * dz) /
+                        segmentLengthSquared, 0.0f, 1.0f);
+                progress += std::sqrt(segmentLengthSquared) * projection;
+            }
+        }
+        return progress;
+    }
+
     float GetWeatherDelaySeconds(const FlightPlan& plan, float shiftSeconds)
     {
         const float activeDelay = plan.weatherDelayStartedAtSeconds >= 0.0f ?
@@ -4796,6 +4827,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                             plan->followMeEscortRequested = false;
                             followMeStatus = FollowMeStatus::Available;
                             followMeAssignedFlightIndex = -1;
+                            followMeCars[0].ClearTaxiRoute();
                         }
                         else if (followMeStatus != FollowMeStatus::Available)
                         {
@@ -4808,27 +4840,13 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         {
                             const int assignedFlightIndex =
                                 static_cast<int>(plan - flights.data());
-                            const float aircraftHeading =
-                                plan->airplane.headingDegrees * DEG2RAD;
-                            const Vector2 forward{
-                                std::sin(aircraftHeading),
-                                -std::cos(aircraftHeading)};
-                            constexpr float EscortLeadDistance = 18.0f;
-                            const Vector2 carPosition{
-                                plan->airplane.position.x +
-                                    forward.x * EscortLeadDistance,
-                                plan->airplane.position.y +
-                                    forward.y * EscortLeadDistance};
-                            followMeCars[0].SetPosition(carPosition.x,
-                                carPosition.y);
-                            followMeCars[0].SetHeadingDegrees(std::atan2(
-                                forward.x, forward.y) / DEG2RAD);
+                            followMeCars[0].ClearTaxiRoute();
                             plan->followMeEscortDecisionMade = true;
                             plan->followMeEscortRequested = true;
                             followMeAssignedFlightIndex = assignedFlightIndex;
                             followMeStatus = FollowMeStatus::MovingToAircraft;
                             followMeDebugReason = "waiting for taxi";
-                            followMeDebugTarget = carPosition;
+                            followMeDebugTarget = plan->airplane.position;
                             followMeDebugAircraftPosition =
                                 plan->airplane.position;
                             followMeDebugMovement = 0.0f;
@@ -4852,6 +4870,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                             {
                                 followMeStatus = FollowMeStatus::Available;
                                 followMeAssignedFlightIndex = -1;
+                                followMeCars[0].ClearTaxiRoute();
                             }
                         }
                     }
@@ -5729,6 +5748,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             plan.followMeEscortRequested = false;
             followMeStatus = FollowMeStatus::Available;
             followMeAssignedFlightIndex = -1;
+            followMeCars[0].ClearTaxiRoute();
             followMeDebugReason = "escort ended";
         };
         if (followMeStatus == FollowMeStatus::MovingToAircraft ||
@@ -5740,6 +5760,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             {
                 followMeStatus = FollowMeStatus::Available;
                 followMeAssignedFlightIndex = -1;
+                followMeCars[0].ClearTaxiRoute();
                 followMeDebugReason = "assigned flight not found";
             }
             else
@@ -5773,6 +5794,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 {
                     followMeStatus = FollowMeStatus::MovingToAircraft;
                     followMeDebugReason = "waiting for taxi";
+                    if (followMeCars[0].HasTaxiRoute())
+                        followMeCars[0].AdvanceTaxiRoute(
+                            followMeCars[0].GetTaxiRouteProgress(),
+                            deltaTime, false);
                 }
                 else if (takingOff)
                 {
@@ -5783,115 +5808,127 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 {
                     followMeStatus = FollowMeStatus::Escorting;
                     followMeDebugReason = "waiting for takeoff authorization";
-                }
-                else if (!taxiing)
-                {
-                    followMeStatus = FollowMeStatus::MovingToAircraft;
-                    followMeDebugReason = "aircraft not taxiing";
-                }
-                else
-                {
-                    const float headingRadians =
-                        escorted.airplane.headingDegrees * DEG2RAD;
-                    constexpr float EscortLeadDistance = 24.0f;
-                    const Vector2 aircraftForward{
-                        std::sin(headingRadians), -std::cos(headingRadians)};
-                    const Vector2 escortTarget{
-                        escorted.airplane.position.x +
-                            aircraftForward.x * EscortLeadDistance,
-                        escorted.airplane.position.y +
-                            aircraftForward.y * EscortLeadDistance};
-                        followMeDebugTarget = escortTarget;
-
-                        const Vector2 previousPosition = followMeCars[0].GetPosition();
-                        followMeCars[0].MoveTowardsPosition(escortTarget, deltaTime);
-                        const Vector2 currentPosition = followMeCars[0].GetPosition();
-                        const float movementX = currentPosition.x - previousPosition.x;
-                        const float movementZ = currentPosition.y - previousPosition.y;
-                        const float movementLengthSquared =
-                            movementX * movementX + movementZ * movementZ;
-                        bool safeToMove = true;
-                        for (const FlightPlan& other : flights)
+                        if (followMeCars[0].HasTaxiRoute())
+                            followMeCars[0].AdvanceTaxiRoute(
+                                followMeCars[0].GetTaxiRouteProgress(),
+                                deltaTime, false);
+                    }
+                    else if (!taxiing)
+                    {
+                        followMeStatus = FollowMeStatus::MovingToAircraft;
+                        followMeDebugReason = "aircraft not taxiing";
+                        if (followMeCars[0].HasTaxiRoute())
+                            followMeCars[0].AdvanceTaxiRoute(
+                                followMeCars[0].GetTaxiRouteProgress(),
+                                deltaTime, false);
+                    }
+                    else
+                    {
+                        const std::vector<Vector2>& route =
+                            escorted.airplane.GetWaypointRoute();
+                        const bool firstRoute = !followMeCars[0].HasTaxiRoute();
+                        if (!followMeCars[0].SetTaxiRoute(route, firstRoute))
                         {
-                            if (!other.spawned ||
-                                other.airplane.state == AirplaneState::Departed ||
-                                other.airplane.flightId == escorted.airplane.flightId)
-                                continue;
-                            const float projection = movementLengthSquared > 0.001f ?
-                                std::clamp(((other.airplane.position.x - previousPosition.x) *
-                                    movementX + (other.airplane.position.y - previousPosition.y) *
-                                    movementZ) / movementLengthSquared, 0.0f, 1.0f) : 0.0f;
-                            const float closestX = previousPosition.x + movementX * projection;
-                            const float closestZ = previousPosition.y + movementZ * projection;
-                            const float dx = closestX - other.airplane.position.x;
-                            const float dz = closestZ - other.airplane.position.y;
-                            const float relativeX = previousPosition.x -
-                                other.airplane.position.x;
-                            const float relativeZ = previousPosition.y -
-                                other.airplane.position.y;
-                            const bool movingTowardAircraft =
-                                movementX * relativeX + movementZ * relativeZ < 0.0f;
-                            if (movingTowardAircraft &&
-                                dx * dx + dz * dz < 10.0f * 10.0f)
+                            followMeStatus = FollowMeStatus::MovingToAircraft;
+                            followMeDebugReason = "waiting for assigned route";
+                            followMeDebugMovement = 0.0f;
+                            followMeDebugTargetGap = 0.0f;
+                            if (followMeCars[0].HasTaxiRoute())
+                                followMeCars[0].AdvanceTaxiRoute(
+                                    followMeCars[0].GetTaxiRouteProgress(),
+                                    deltaTime, false);
+                        }
+                        else
+                        {
+                            const float aircraftProgress = GetRouteProgressAtPosition(
+                                route, escorted.airplane.GetNextWaypointIndex(),
+                                escorted.airplane.position);
+                            const float targetProgress =
+                                followMeCars[0].GetTaxiTargetProgress(
+                                    aircraftProgress);
+                            const float proposedProgress =
+                                followMeCars[0].GetNextTaxiRouteProgress(
+                                    targetProgress, deltaTime);
+                            const Vector2 previousPosition =
+                                followMeCars[0].GetPosition();
+                            const Vector2 proposedPosition =
+                                followMeCars[0].GetTaxiPositionAtProgress(
+                                    proposedProgress);
+                            const float movementX =
+                                proposedPosition.x - previousPosition.x;
+                            const float movementZ =
+                                proposedPosition.y - previousPosition.y;
+                            const float movementLengthSquared =
+                                movementX * movementX + movementZ * movementZ;
+                            bool safeToMove = true;
+                            for (const FlightPlan& other : flights)
                             {
-                                safeToMove = false;
-                                break;
+                                if (!other.spawned ||
+                                    other.airplane.state == AirplaneState::Departed ||
+                                    other.airplane.flightId == escorted.airplane.flightId)
+                                    continue;
+                                const float projection = movementLengthSquared > 0.001f ?
+                                    std::clamp(((other.airplane.position.x - previousPosition.x) *
+                                        movementX + (other.airplane.position.y - previousPosition.y) *
+                                        movementZ) / movementLengthSquared, 0.0f, 1.0f) : 0.0f;
+                                const float closestX =
+                                    previousPosition.x + movementX * projection;
+                                const float closestZ =
+                                    previousPosition.y + movementZ * projection;
+                                const float dx = closestX - other.airplane.position.x;
+                                const float dz = closestZ - other.airplane.position.y;
+                                const float relativeX =
+                                    previousPosition.x - other.airplane.position.x;
+                                const float relativeZ =
+                                    previousPosition.y - other.airplane.position.y;
+                                const bool movingTowardAircraft =
+                                    movementX * relativeX +
+                                        movementZ * relativeZ < 0.0f;
+                                if (movingTowardAircraft &&
+                                    dx * dx + dz * dz < 10.0f * 10.0f)
+                                {
+                                    safeToMove = false;
+                                    break;
+                                }
+                            }
+                            followMeCars[0].AdvanceTaxiRoute(
+                                targetProgress, deltaTime, safeToMove);
+                            const Vector2 actualPosition =
+                                followMeCars[0].GetPosition();
+                            const float actualMovementX =
+                                actualPosition.x - previousPosition.x;
+                            const float actualMovementZ =
+                                actualPosition.y - previousPosition.y;
+                            followMeDebugMovement = std::sqrt(
+                                actualMovementX * actualMovementX +
+                                    actualMovementZ * actualMovementZ);
+                            const Vector2 targetPosition =
+                                followMeCars[0].GetTaxiPositionAtProgress(
+                                    targetProgress);
+                            followMeDebugTarget = targetPosition;
+                            followMeDebugTargetGap = std::max(0.0f,
+                                targetProgress -
+                                    followMeCars[0].GetTaxiRouteProgress());
+                            const float routeLead =
+                                followMeCars[0].GetTaxiRouteProgress() -
+                                    aircraftProgress;
+                            const float availableLead = std::max(0.0f,
+                                followMeCars[0].GetTaxiRouteLength() -
+                                    aircraftProgress);
+                            const float requiredLead = std::min(
+                                std::max(0.0f,
+                                    followMeCars[0].GetTaxiLeadDistance() - 2.0f),
+                                availableLead);
+                            const bool vehicleIsLeading =
+                                routeLead >= requiredLead;
+                            followMeStatus = safeToMove && vehicleIsLeading ?
+                                FollowMeStatus::Escorting :
+                                FollowMeStatus::MovingToAircraft;
+                            followMeDebugReason = !safeToMove ?
+                                "blocked by traffic" :
+                                followMeDebugMovement > 0.01f ? "moving" :
+                                    "holding route lead";
                         }
-                        }
-                        const float assignedProjection = movementLengthSquared > 0.001f ?
-                            std::clamp(((escorted.airplane.position.x - previousPosition.x) *
-                                movementX + (escorted.airplane.position.y - previousPosition.y) *
-                                movementZ) / movementLengthSquared, 0.0f, 1.0f) : 0.0f;
-                        const float assignedClosestX = previousPosition.x +
-                            movementX * assignedProjection;
-                        const float assignedClosestZ = previousPosition.y +
-                            movementZ * assignedProjection;
-                        const float assignedDx = assignedClosestX -
-                            escorted.airplane.position.x;
-                        const float assignedDz = assignedClosestZ -
-                            escorted.airplane.position.y;
-                        const float assignedRelativeX = previousPosition.x -
-                            escorted.airplane.position.x;
-                        const float assignedRelativeZ = previousPosition.y -
-                            escorted.airplane.position.y;
-                        const bool movingTowardAssignedAircraft =
-                            movementX * assignedRelativeX +
-                                movementZ * assignedRelativeZ < 0.0f;
-                        if (movingTowardAssignedAircraft &&
-                            assignedDx * assignedDx + assignedDz * assignedDz <
-                                12.0f * 12.0f)
-                            safeToMove = false;
-                        if (!safeToMove)
-                            followMeCars[0].SetPosition(previousPosition.x,
-                                previousPosition.y);
-                        const Vector2 actualPosition = followMeCars[0].GetPosition();
-                        const float actualMovementX =
-                            actualPosition.x - previousPosition.x;
-                        const float actualMovementZ =
-                            actualPosition.y - previousPosition.y;
-                        followMeDebugMovement = std::sqrt(
-                            actualMovementX * actualMovementX +
-                                actualMovementZ * actualMovementZ);
-                        const float targetDx = escortTarget.x - actualPosition.x;
-                        const float targetDz = escortTarget.y - actualPosition.y;
-                        followMeDebugTargetGap = std::sqrt(
-                            targetDx * targetDx + targetDz * targetDz);
-                        const float relativeX = actualPosition.x -
-                            escorted.airplane.position.x;
-                        const float relativeZ = actualPosition.y -
-                            escorted.airplane.position.y;
-                        const float leadDistance = relativeX * aircraftForward.x +
-                            relativeZ * aircraftForward.y;
-                        const float lateralDistance = std::abs(
-                            relativeX * aircraftForward.y -
-                                relativeZ * aircraftForward.x);
-                        const bool vehicleIsLeading = leadDistance >= 12.0f &&
-                            lateralDistance <= 8.0f;
-                        followMeStatus = vehicleIsLeading ?
-                            FollowMeStatus::Escorting :
-                            FollowMeStatus::MovingToAircraft;
-                        followMeDebugReason = !safeToMove ? "blocked by traffic" :
-                            followMeDebugMovement > 0.01f ? "moving" : "at target";
                     }
                 }
             }
@@ -5941,7 +5978,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             baggageTug.Draw();
         for (const AircraftRefuellingTanker& refuellingTanker : refuellingTankers)
             refuellingTanker.Draw();
-        if (followMeStatus != FollowMeStatus::Available)
+        if (followMeStatus != FollowMeStatus::Available &&
+            followMeCars[0].HasTaxiRoute())
             for (const FollowMeCar& followMeCar : followMeCars)
                 followMeCar.Draw();
         for (const BaggageBeltLoader& baggageBeltLoader : baggageBeltLoaders)
