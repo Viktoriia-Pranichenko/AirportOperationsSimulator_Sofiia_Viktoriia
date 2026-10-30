@@ -1196,6 +1196,16 @@ namespace
         DrawRectangleGradientV(0, 0, width, height,
             Color{115, 164, 188, 255}, Color{231, 190, 143, 255});
 
+        const Vector2 menuSunCenter{w * 0.77f, h * 0.245f};
+        DrawCircleV(menuSunCenter, h * 0.12f,
+            Fade(Color{255, 218, 157, 255}, 0.045f));
+        DrawCircleV(menuSunCenter, h * 0.085f,
+            Fade(Color{255, 224, 172, 255}, 0.075f));
+        DrawCircleV(menuSunCenter, h * 0.052f,
+            Fade(Color{255, 231, 186, 255}, 0.14f));
+        DrawCircleGradient(menuSunCenter, h * 0.032f,
+            Color{255, 244, 211, 255}, Color{255, 193, 119, 255});
+
         // Thin cloud bands and a hazy horizon keep the sky spacious and calm.
         for (int i = 0; i < 5; ++i)
         {
@@ -1304,6 +1314,160 @@ namespace
                 }
             }
 
+        const Color terminalFrame{107, 137, 143, 255};
+        const Color terminalHighlight{222, 209, 178, 255};
+        DrawCubeV({runwayX, 20.0f, -231.0f}, {39.0f, 5.5f, 17.0f},
+            Color{151, 174, 170, 255});
+        DrawCubeV({runwayX, 23.0f, -231.0f}, {44.0f, 1.0f, 21.0f},
+            terminalRoof);
+        DrawCubeV({runwayX, 19.8f, -222.2f}, {34.0f, 3.2f, 0.3f},
+            terminalGlass);
+        DrawCubeV({runwayX, 17.1f, -220.8f}, {112.0f, 0.65f, 27.0f},
+            terminalHighlight);
+        DrawCubeV({runwayX, 17.5f, -220.8f}, {108.0f, 0.16f, 24.0f},
+            Color{235, 222, 190, 255});
+        for (int support = 0; support < 9; ++support)
+        {
+            const float x = runwayX - 45.0f + static_cast<float>(support) * 11.25f;
+            DrawCubeV({x, 8.6f, -220.0f}, {0.72f, 16.8f, 0.62f},
+                terminalFrame);
+        }
+        for (float bridgeX : {runwayX - 29.0f, runwayX + 29.0f})
+        {
+            DrawCubeV({bridgeX, 4.8f, -204.5f}, {5.2f, 3.4f, 27.0f},
+                Color{167, 180, 170, 255});
+            DrawCubeV({bridgeX, 6.65f, -204.5f}, {5.8f, 0.42f, 27.8f},
+                terminalRoof);
+            DrawCubeV({bridgeX, 0.95f, -195.5f}, {0.48f, 1.9f, 0.48f},
+                terminalFrame);
+            DrawCubeV({bridgeX, 5.0f, -217.7f}, {6.1f, 5.0f, 3.4f},
+                Color{181, 190, 178, 255});
+            for (int window = 0; window < 4; ++window)
+                DrawCubeV({bridgeX - 2.64f, 5.0f,
+                    -214.0f + static_cast<float>(window) * 6.0f},
+                    {0.12f, 1.6f, 3.8f}, terminalGlass);
+        }
+        for (int light = 0; light < 8; ++light)
+        {
+            const float x = runwayX - 35.0f + static_cast<float>(light) * 10.0f;
+            DrawCubeV({x, 17.88f, -208.0f}, {0.42f, 0.12f, 0.42f},
+                Color{245, 220, 147, 255});
+        }
+
+        const auto drawServiceVehicle = [](float x, float z, Color body,
+            Color accent, bool highBody)
+        {
+            const Color chassis{48, 57, 59, 255};
+            const Color glass{54, 117, 134, 255};
+            DrawCubeV({x, 0.78f, z}, {3.5f, 0.7f, 7.0f}, chassis);
+            DrawCubeV({x, 1.1f, z}, {3.3f, 0.75f, 6.7f}, body);
+            if (highBody)
+                DrawCubeV({x, 2.05f, z - 0.9f}, {3.25f, 1.35f, 4.1f}, body);
+            else
+                DrawCubeV({x, 1.45f, z - 0.55f}, {2.8f, 0.8f, 2.6f}, body);
+            DrawCubeV({x, 1.78f, z + 2.1f}, {2.65f, 1.25f, 2.45f}, accent);
+            DrawCubeV({x, 2.12f, z + 3.34f}, {2.12f, 0.62f, 0.08f}, glass);
+            DrawCubeV({x - 1.35f, 1.72f, z + 2.1f}, {0.08f, 0.9f, 1.7f}, glass);
+            DrawCubeV({x + 1.35f, 1.72f, z + 2.1f}, {0.08f, 0.9f, 1.7f}, glass);
+            DrawCubeV({x, 0.96f, z - 3.56f}, {2.0f, 0.3f, 0.16f}, accent);
+            DrawCubeV({x - 1.05f, 1.18f, z + 3.42f}, {0.42f, 0.2f, 0.12f},
+                Color{255, 227, 159, 255});
+            DrawCubeV({x + 1.05f, 1.18f, z + 3.42f}, {0.42f, 0.2f, 0.12f},
+                Color{255, 227, 159, 255});
+            DrawCubeV({x, highBody ? 2.78f : 2.18f, z + 0.1f},
+                {0.45f, 0.15f, 0.45f}, Color{255, 176, 67, 255});
+            for (float side : {-1.0f, 1.0f})
+                for (float axle : {-2.25f, 2.25f})
+                    DrawCylinderEx({x + side * 1.68f - 0.12f, 0.48f, z + axle},
+                        {x + side * 1.68f + 0.12f, 0.48f, z + axle},
+                        0.47f, 0.47f, 8, Color{29, 34, 36, 255});
+        };
+        drawServiceVehicle(runwayX - 35.0f, -189.0f,
+            Color{220, 222, 207, 255}, Color{61, 143, 152, 255}, true);
+        drawServiceVehicle(runwayX + 3.0f, -183.0f,
+            Color{231, 183, 65, 255}, Color{50, 67, 67, 255}, false);
+        drawServiceVehicle(runwayX + 43.0f, -192.0f,
+            Color{225, 232, 222, 255}, Color{78, 151, 119, 255}, true);
+        drawServiceVehicle(runwayX - 50.0f, -169.0f,
+            Color{226, 230, 219, 255}, Color{64, 132, 160, 255}, true);
+        drawServiceVehicle(runwayX + 76.0f, -169.0f,
+            Color{198, 59, 49, 255}, Color{228, 224, 207, 255}, true);
+
+        const auto drawBaggageTrain = [](float x, float z)
+        {
+            const Color tugYellow{235, 181, 55, 255};
+            const Color cartBody{133, 149, 151, 255};
+            const Color dark{42, 51, 53, 255};
+            DrawCubeV({x, 0.62f, z}, {2.1f, 0.55f, 3.2f}, dark);
+            DrawCubeV({x, 1.05f, z - 0.35f}, {1.95f, 0.8f, 2.25f},
+                tugYellow);
+            DrawCubeV({x, 1.45f, z + 0.65f}, {1.7f, 0.9f, 1.25f},
+                Color{48, 65, 68, 255});
+            DrawCubeV({x, 1.66f, z + 1.29f}, {1.3f, 0.38f, 0.08f},
+                Color{75, 135, 148, 255});
+            for (float cartOffset : {4.0f, 7.6f})
+            {
+                const float cartZ = z - cartOffset;
+                DrawCubeV({x, 0.62f, cartZ}, {2.8f, 0.5f, 3.0f}, dark);
+                DrawCubeV({x, 1.18f, cartZ}, {2.65f, 0.9f, 2.8f},
+                    cartBody);
+                DrawCubeV({x, 1.67f, cartZ}, {2.75f, 0.12f, 2.9f},
+                    Color{72, 89, 92, 255});
+            }
+            for (float side : {-1.0f, 1.0f})
+                for (float axle : {-1.05f, 1.05f, -4.7f, -8.3f})
+                    DrawCylinderEx({x + side * 1.42f - 0.1f, 0.42f,
+                        z + axle}, {x + side * 1.42f + 0.1f, 0.42f,
+                        z + axle}, 0.35f, 0.35f, 7,
+                        Color{31, 37, 39, 255});
+        };
+        drawBaggageTrain(runwayX + 27.0f, -170.0f);
+
+        const auto drawFuelTanker = [](float x, float z)
+        {
+            const Color dark{48, 57, 59, 255};
+            const Color tank{222, 220, 199, 255};
+            DrawCubeV({x, 0.72f, z}, {3.8f, 0.65f, 9.0f}, dark);
+            DrawCylinderEx({x, 1.55f, z - 1.25f},
+                {x, 1.55f, z + 2.55f}, 1.35f, 1.35f, 12, tank);
+            DrawCubeV({x, 1.72f, z + 3.25f},
+                {3.0f, 1.65f, 2.8f}, Color{69, 135, 111, 255});
+            DrawCubeV({x, 2.14f, z + 4.65f},
+                {2.25f, 0.65f, 0.08f}, Color{63, 117, 133, 255});
+            DrawCubeV({x, 1.1f, z - 1.2f},
+                {3.65f, 0.18f, 4.3f}, Color{88, 130, 113, 255});
+            for (float side : {-1.0f, 1.0f})
+                for (float axle : {-3.2f, -0.5f, 2.4f, 4.0f})
+                    DrawCylinderEx({x + side * 1.84f - 0.12f, 0.45f,
+                        z + axle}, {x + side * 1.84f + 0.12f, 0.45f,
+                        z + axle}, 0.48f, 0.48f, 8,
+                        Color{29, 34, 36, 255});
+        };
+        drawFuelTanker(runwayX + 116.0f, -167.0f);
+
+        const auto drawRampWorker = [](float x, float z, Color shirt, Color trousers)
+        {
+            const Color skin{194, 146, 111, 255};
+            DrawCylinder({x - 0.14f, 0.0f, z}, 0.13f, 0.11f, 0.72f, 7,
+                trousers);
+            DrawCylinder({x + 0.14f, 0.0f, z}, 0.13f, 0.11f, 0.72f, 7,
+                trousers);
+            DrawCylinder({x, 0.68f, z}, 0.27f, 0.2f, 0.76f, 8, shirt);
+            DrawCylinderEx({x - 0.2f, 1.23f, z},
+                {x - 0.39f, 0.78f, z + 0.08f}, 0.09f, 0.07f, 7, shirt);
+            DrawCylinderEx({x + 0.2f, 1.23f, z},
+                {x + 0.39f, 0.82f, z - 0.08f}, 0.09f, 0.07f, 7, shirt);
+            DrawSphere({x, 1.57f, z}, 0.2f, skin);
+            DrawCylinder({x, 1.68f, z}, 0.22f, 0.2f, 0.12f, 8,
+                Color{244, 180, 63, 255});
+        };
+        drawRampWorker(runwayX - 17.0f, -197.0f,
+            Color{49, 132, 140, 255}, Color{44, 57, 63, 255});
+        drawRampWorker(runwayX + 17.0f, -195.0f,
+            Color{220, 139, 54, 255}, Color{57, 66, 63, 255});
+        drawRampWorker(runwayX + 57.0f, -183.0f,
+            Color{62, 119, 99, 255}, Color{48, 58, 60, 255});
+
         // Offset upper storey and stepped roof give the second building the same
         // compact, practical service-block silhouette as the in-game model.
         const float serviceX = runwayX + 78.0f;
@@ -1321,6 +1485,63 @@ namespace
                 DrawCubeV({x - 3.0f, 17.2f, serviceZ + 9.2f}, {3.6f, 2.8f, 0.3f},
                     win == 1 ? Color{211, 180, 122, 255} : terminalGlass);
         }
+
+        const float cargoX = runwayX + 148.0f;
+        const float cargoZ = -223.0f;
+        DrawCubeV({cargoX, 7.0f, cargoZ}, {47.0f, 14.0f, 35.0f},
+            Color{151, 164, 157, 255});
+        DrawCubeV({cargoX, 14.4f, cargoZ}, {51.0f, 1.2f, 39.0f},
+            Color{46, 74, 84, 255});
+        DrawCubeV({cargoX, 15.15f, cargoZ - 0.8f}, {45.0f, 0.25f, 35.0f},
+            Color{115, 141, 143, 255});
+        for (int bay = 0; bay < 4; ++bay)
+        {
+            const float bayX = cargoX - 16.0f + static_cast<float>(bay) * 10.5f;
+            DrawCubeV({bayX, 5.2f, cargoZ + 17.65f}, {7.4f, 8.5f, 0.45f},
+                Color{76, 107, 111, 255});
+            DrawCubeV({bayX, 1.05f, cargoZ + 17.95f}, {7.0f, 0.3f, 0.18f},
+                Color{228, 174, 76, 255});
+            DrawCubeV({bayX, 11.25f, cargoZ + 17.8f}, {8.4f, 0.35f, 0.25f},
+                Color{205, 215, 199, 255});
+        }
+        DrawCubeV({cargoX, 16.15f, cargoZ - 3.0f}, {17.0f, 0.8f, 14.0f},
+            Color{36, 64, 77, 255});
+        for (int panel = 0; panel < 4; ++panel)
+            DrawCubeV({cargoX - 6.0f + static_cast<float>(panel) * 4.0f,
+                16.62f, cargoZ - 3.0f}, {3.1f, 0.12f, 9.0f},
+                Color{62, 103, 116, 255});
+
+        const float towerX = runwayX + 112.0f;
+        const float towerZ = -259.0f;
+        DrawCubeV({towerX, 3.2f, towerZ}, {27.0f, 6.4f, 23.0f},
+            Color{144, 158, 151, 255});
+        DrawCubeV({towerX, 15.8f, towerZ}, {8.0f, 19.0f, 8.0f},
+            Color{176, 185, 171, 255});
+        DrawCubeV({towerX, 26.0f, towerZ}, {16.0f, 4.0f, 15.0f},
+            Color{48, 75, 87, 255});
+        DrawCubeV({towerX, 26.3f, towerZ + 7.62f}, {14.0f, 2.4f, 0.2f},
+            Color{67, 151, 166, 255});
+        DrawCubeV({towerX, 26.3f, towerZ - 7.62f}, {14.0f, 2.4f, 0.2f},
+            Color{67, 151, 166, 255});
+        DrawCubeV({towerX, 28.3f, towerZ}, {18.0f, 0.55f, 17.0f},
+            Color{36, 57, 68, 255});
+        DrawCylinder({towerX, 28.6f, towerZ}, 0.22f, 0.22f, 5.2f, 8,
+            Color{120, 139, 139, 255});
+        DrawSphere({towerX, 34.2f, towerZ}, 0.36f,
+            Color{243, 183, 80, 255});
+
+        const float maintenanceX = runwayX - 124.0f;
+        const float maintenanceZ = -233.0f;
+        DrawCubeV({maintenanceX, 6.0f, maintenanceZ},
+            {38.0f, 12.0f, 30.0f}, Color{166, 167, 146, 255});
+        DrawCubeV({maintenanceX, 12.5f, maintenanceZ},
+            {42.0f, 1.2f, 34.0f}, Color{52, 76, 84, 255});
+        DrawCubeV({maintenanceX, 2.8f, maintenanceZ + 15.2f},
+            {18.0f, 5.2f, 0.35f}, Color{77, 107, 110, 255});
+        for (int window = 0; window < 4; ++window)
+            DrawCubeV({maintenanceX - 14.0f + window * 9.0f, 8.5f,
+                maintenanceZ + 15.25f}, {4.0f, 2.4f, 0.3f},
+                Color{57, 119, 134, 255});
 
         // Use the same detailed 3D aircraft renderer as gameplay. Each nose follows
         // its own route direction, including the descending traffic stream.
@@ -8058,6 +8279,22 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 Fade(Color{4, 16, 25, 255}, 0.34f));
             DrawRectangle(0, 0, GetScreenWidth(), 5, Fade(Color{77, 211, 217, 255}, 0.72f));
 
+            const Rectangle menuPanel{menuX - 28.0f, screenHeight * 0.135f,
+                388.0f, screenHeight * 0.675f};
+            DrawRectangleRounded({menuPanel.x + 5.0f, menuPanel.y + 8.0f,
+                menuPanel.width, menuPanel.height}, 0.035f, 10,
+                Fade(Color{0, 8, 15, 255}, 0.34f));
+            DrawRectangleRounded(menuPanel, 0.035f, 10,
+                Fade(Color{7, 23, 35, 255}, 0.82f));
+            DrawRectangleRoundedLinesEx(menuPanel, 0.035f, 10, 1.0f,
+                Fade(Color{121, 190, 197, 255}, 0.34f));
+            DrawRectangleRounded({menuPanel.x + 1.0f, menuPanel.y + 1.0f,
+                3.0f, menuPanel.height - 2.0f}, 0.4f, 4,
+                Fade(Color{87, 220, 218, 255}, 0.56f));
+            DrawLineEx({menuPanel.x + 24.0f, menuPanel.y + 146.0f},
+                {menuPanel.x + menuPanel.width - 24.0f, menuPanel.y + 146.0f},
+                1.0f, Fade(Color{114, 168, 180, 255}, 0.2f));
+
             DrawCircle(62, 66, 24.0f, Fade(Color{39, 190, 202, 255}, 0.12f + pulse * 0.06f));
             DrawCircleLines(62, 66, 18.0f, Fade(Color{89, 227, 225, 255}, 0.78f));
             DrawText("A", 54, 53, 27, Color{120, 239, 230, 255});
@@ -8066,8 +8303,16 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
             DrawText("AIRPORT", static_cast<int>(menuX), static_cast<int>(screenHeight * 0.17f),
                 17, Color{107, 220, 221, 255});
+            DrawText("OPERATIONS",
+                static_cast<int>(menuX - 1.0f),
+                static_cast<int>(screenHeight * 0.205f + 2.0f), 45,
+                Fade(Color{1, 10, 16, 255}, 0.65f));
             DrawText("OPERATIONS", static_cast<int>(menuX) - 2,
                 static_cast<int>(screenHeight * 0.205f), 45, RAYWHITE);
+            DrawText("SIMULATOR",
+                static_cast<int>(menuX - 1.0f),
+                static_cast<int>(screenHeight * 0.267f + 2.0f), 45,
+                Fade(Color{1, 10, 16, 255}, 0.65f));
             DrawText("SIMULATOR", static_cast<int>(menuX) - 2,
                 static_cast<int>(screenHeight * 0.267f), 45, RAYWHITE);
             DrawRectangle(static_cast<int>(menuX), static_cast<int>(screenHeight * 0.326f),
@@ -8077,41 +8322,78 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 11, Color{180, 201, 207, 255});
 
             const auto drawMenuButton = [](Rectangle bounds, const char* title,
-                const char* detail, bool hovered, bool primary)
+                const char* detail, bool hovered, bool primary, float animationPulse)
             {
                 const Color fill = primary ?
                     (hovered ? Color{25, 126, 144, 250} : Color{18, 88, 109, 242}) :
                     (hovered ? Color{32, 66, 80, 248} : Color{14, 38, 51, 234});
                 const Color border = primary ? Color{91, 222, 218, 255} : Color{65, 115, 128, 230};
-                DrawRectangleRec(bounds, fill);
-                DrawRectangleLinesEx(bounds, hovered ? 2.0f : 1.0f, border);
-                DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y), 4,
-                    static_cast<int>(bounds.height), primary ? Color{111, 237, 227, 255} : border);
-                DrawText(title, static_cast<int>(bounds.x + 23), static_cast<int>(bounds.y + 10),
-                    18, RAYWHITE);
-                DrawText(detail, static_cast<int>(bounds.x + 23), static_cast<int>(bounds.y + 34),
-                    9, Color{166, 193, 200, 255});
-                DrawText(">", static_cast<int>(bounds.x + bounds.width - 31),
-                    static_cast<int>(bounds.y + 18), 18,
-                    hovered ? Color{137, 244, 229, 255} : Color{111, 171, 183, 255});
+                if (primary && (hovered || animationPulse > 0.0f))
+                    DrawRectangleRounded({bounds.x - 3.0f, bounds.y - 3.0f,
+                        bounds.width + 6.0f, bounds.height + 6.0f}, 0.12f, 8,
+                        Fade(Color{64, 226, 218, 255},
+                            hovered ? 0.16f : 0.055f + animationPulse * 0.035f));
+                DrawRectangleRounded({bounds.x + 2.0f, bounds.y + 4.0f,
+                    bounds.width, bounds.height}, 0.1f, 8,
+                    Fade(Color{0, 8, 14, 255}, 0.4f));
+                DrawRectangleRounded(bounds, 0.1f, 8, fill);
+                DrawRectangleRoundedLinesEx(bounds, 0.1f, 8,
+                    hovered ? 2.0f : 1.0f, border);
+                DrawRectangleRounded({bounds.x + 1.0f, bounds.y + 5.0f,
+                    4.0f, bounds.height - 10.0f}, 0.4f, 4,
+                    primary ? Color{111, 237, 227, 255} : border);
+                DrawText(title, static_cast<int>(bounds.x + 22.0f),
+                    static_cast<int>(bounds.y + 8.0f), 17, RAYWHITE);
+                DrawText(detail, static_cast<int>(bounds.x + 22.0f),
+                    static_cast<int>(bounds.y + 33.0f), 9,
+                    Color{177, 202, 207, 255});
+                const float iconX = bounds.x + bounds.width - 26.0f;
+                const float iconY = bounds.y + bounds.height * 0.5f;
+                DrawCircleV({iconX, iconY}, 12.0f,
+                    Fade(primary ? Color{106, 231, 220, 255} :
+                        Color{123, 170, 180, 255}, hovered ? 0.2f : 0.1f));
+                DrawCircleLines(static_cast<int>(iconX), static_cast<int>(iconY),
+                    11.0f, Fade(border, 0.8f));
+                DrawText(">", static_cast<int>(iconX - 4.0f),
+                    static_cast<int>(iconY - 9.0f), 17,
+                    hovered ? Color{137, 244, 229, 255} :
+                        Color{152, 195, 201, 255});
             };
-            drawMenuButton(startButton, "START GAME", "OPEN AIRFIELD CONTROL", hoverStart, true);
-            drawMenuButton(settingsButton, "SETTINGS", "GAMEPLAY GUIDE", hoverSettings, false);
-            drawMenuButton(exitButton, "EXIT", "CLOSE SIMULATOR", hoverExit, false);
+            drawMenuButton(startButton, "START GAME", "OPEN AIRFIELD CONTROL",
+                hoverStart, true, pulse);
+            drawMenuButton(settingsButton, "SETTINGS", "GAMEPLAY GUIDE",
+                hoverSettings, false, pulse);
+            drawMenuButton(exitButton, "EXIT", "CLOSE SIMULATOR",
+                hoverExit, false, pulse);
 
             const float statusWidth = 278.0f;
             const float statusX = screenWidth - statusWidth - 32.0f;
-            DrawRectangle(static_cast<int>(statusX), 28, static_cast<int>(statusWidth), 36,
+            const Rectangle statusPanel{statusX, 28.0f, statusWidth, 40.0f};
+            DrawRectangleRounded({statusPanel.x + 2.0f, statusPanel.y + 3.0f,
+                statusPanel.width, statusPanel.height}, 0.25f, 8,
+                Fade(Color{0, 8, 15, 255}, 0.28f));
+            DrawRectangleRounded(statusPanel, 0.25f, 8,
                 Fade(Color{8, 28, 39, 238}, 0.92f));
-            DrawCircle(static_cast<int>(statusX + 18), 46, 4.5f,
+            DrawRectangleRoundedLinesEx(statusPanel, 0.25f, 8, 1.0f,
+                Fade(Color{100, 177, 186, 255}, 0.4f));
+            DrawCircle(static_cast<int>(statusX + 20), 48, 9.0f,
+                Fade(Color{95, 234, 183, 255}, 0.1f + pulse * 0.05f));
+            DrawCircle(static_cast<int>(statusX + 20), 48, 4.5f,
                 Fade(Color{95, 234, 183, 255}, 0.68f + pulse * 0.32f));
             DrawText("AIRFIELD SYSTEMS ONLINE", static_cast<int>(statusX + 31), 39, 10,
                 Color{190, 222, 222, 255});
             const int overviewY = static_cast<int>(screenHeight - 138);
-            DrawRectangle(static_cast<int>(statusX), overviewY, static_cast<int>(statusWidth), 98,
+            const Rectangle overviewPanel{statusX, static_cast<float>(overviewY),
+                statusWidth, 98.0f};
+            DrawRectangleRounded({overviewPanel.x + 3.0f, overviewPanel.y + 4.0f,
+                overviewPanel.width, overviewPanel.height}, 0.08f, 8,
+                Fade(Color{0, 8, 15, 255}, 0.28f));
+            DrawRectangleRounded(overviewPanel, 0.08f, 8,
                 Fade(Color{7, 24, 34, 220}, 0.94f));
-            DrawRectangle(static_cast<int>(statusX), overviewY, 3, 98,
-                Color{71, 206, 208, 255});
+            DrawRectangleRoundedLinesEx(overviewPanel, 0.08f, 8, 1.0f,
+                Fade(Color{95, 154, 168, 255}, 0.42f));
+            DrawRectangleRounded({statusX + 1.0f, static_cast<float>(overviewY + 13),
+                3.0f, 72.0f}, 0.35f, 4, Color{71, 206, 208, 255});
             DrawText("AIRFIELD OVERVIEW", static_cast<int>(statusX + 17), overviewY + 12,
                 11, Color{130, 224, 221, 255});
             DrawText(TextFormat("%02d RUNWAYS    %02d STANDS",
@@ -8124,8 +8406,13 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawText("GROUND CONTROL",
                 static_cast<int>(statusX + 17), overviewY + 77, 10,
                 Color{161, 185, 194, 255});
-            DrawText("v1.0  |  PRESS ENTER TO START", 22,
-                GetScreenHeight() - 27, 9, Color{135, 165, 175, 255});
+            DrawText("v1.0", 22, GetScreenHeight() - 27, 9,
+                Color{135, 165, 175, 255});
+            DrawCircle(GetScreenWidth() - 29, GetScreenHeight() - 24,
+                2.5f, Color{97, 227, 185, 255});
+            DrawText("READY FOR SHIFT  /  ENTER TO CONTINUE",
+                GetScreenWidth() - 282, GetScreenHeight() - 28, 9,
+                Color{153, 191, 197, 255});
             }
         }
 
