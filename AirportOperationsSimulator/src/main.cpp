@@ -1046,6 +1046,67 @@ namespace
             {center.x, center.y - 2.0f}, 1.2f, Color{220, 248, 255, 255});
     }
 
+    void DrawOffscreenAttentionIndicator(Rectangle bounds, bool hovered,
+        float animationTime)
+    {
+        constexpr float TailHeight = 8.0f;
+        const float bubbleHeight = bounds.height - TailHeight;
+        const float centerX = bounds.x + bounds.width * 0.5f;
+        const float centerY = bounds.y + bubbleHeight * 0.5f;
+        const float radius = std::min(bounds.width, bubbleHeight) * 0.5f;
+        const float tailBaseY = centerY + radius - 6.0f;
+        const float tailTipY = bounds.y + bounds.height - 1.0f;
+        const float pulse = 0.5f + 0.5f * std::sin(animationTime * 2.2f);
+        const Color glow{255, 181, 32, 255};
+        const float glowStrength = hovered ? 1.25f : 0.72f + pulse * 0.28f;
+        const Color bubbleEdge = hovered ? Color{255, 197, 50, 255} :
+            Color{246, 174, 28, 255};
+        const Color tailFill = bubbleEdge;
+
+        DrawCircleV({centerX, centerY}, radius + 10.0f,
+            Fade(glow, 0.035f * glowStrength));
+        DrawTriangle({centerX - 10.0f, tailBaseY},
+            {centerX, tailTipY + 3.0f},
+            {centerX + 10.0f, tailBaseY},
+            Fade(glow, 0.035f * glowStrength));
+        DrawCircleV({centerX, centerY}, radius + 6.0f,
+            Fade(glow, 0.055f * glowStrength));
+        DrawTriangle({centerX - 9.0f, tailBaseY},
+            {centerX, tailTipY + 1.0f},
+            {centerX + 9.0f, tailBaseY},
+            Fade(glow, 0.055f * glowStrength));
+        DrawCircleV({centerX, centerY}, radius + 3.0f,
+            Fade(glow, 0.075f * glowStrength));
+
+        DrawCircleV({centerX + 1.5f, centerY + 3.0f},
+            radius + 1.0f, Fade(Color{67, 43, 9, 255}, 0.42f));
+        DrawTriangle({centerX - 7.0f + 1.5f, tailBaseY + 2.0f},
+            {centerX + 1.5f, tailTipY + 2.0f},
+            {centerX + 7.0f + 1.5f, tailBaseY + 2.0f},
+            Fade(Color{67, 43, 9, 255}, 0.42f));
+        DrawTriangle({centerX - 7.0f, tailBaseY},
+            {centerX, tailTipY}, {centerX + 7.0f, tailBaseY}, tailFill);
+        DrawCircleGradient({centerX, centerY}, radius,
+            hovered ? Color{255, 225, 119, 255} :
+                Color{255, 211, 76, 255},
+            tailFill);
+        DrawCircleGradient({centerX - 7.0f, centerY - 8.0f}, 7.0f,
+            Color{255, 255, 230, 105}, Color{255, 246, 190, 0});
+        DrawCircleLines(static_cast<int>(centerX), static_cast<int>(centerY),
+            radius, hovered ? Color{255, 241, 184, 255} :
+                Color{181, 112, 12, 255});
+        DrawCircleLines(static_cast<int>(centerX), static_cast<int>(centerY),
+            radius - 1.5f, Fade(Color{255, 228, 143, 255}, 0.55f));
+
+        const float glyphCenterY = centerY;
+        const unsigned char glyphAlpha = static_cast<unsigned char>(
+            225.0f + 30.0f * pulse);
+        const Color glyph{255, 255, 255, glyphAlpha};
+        DrawRectangleRounded({centerX - 2.0f, glyphCenterY - 10.0f,
+            4.0f, 14.0f}, 0.45f, 4, glyph);
+        DrawCircleV({centerX, glyphCenterY + 8.0f}, 2.3f, glyph);
+    }
+
     void DrawAirplanePreview3D(const Airplane& airplane, Rectangle bounds,
         const Camera3D& previewCamera, RenderTexture2D& previewTarget)
     {
@@ -2127,6 +2188,66 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         const Rectangle details = notificationDetailsBounds(slot);
         return Rectangle{details.x + 8.0f, details.y + 55.0f,
             details.width - 16.0f, 19.0f};
+    };
+    const auto buildBottomAttentionOrder = [&flights, &cameraController,
+        &buildActiveNotificationOrder]()
+    {
+        std::vector<std::size_t> order;
+        const Camera3D& camera = cameraController.GetCamera3D();
+        const Vector3 viewDirection{
+            camera.target.x - camera.position.x,
+            camera.target.y - camera.position.y,
+            camera.target.z - camera.position.z
+        };
+        for (const std::size_t index : buildActiveNotificationOrder())
+        {
+            const FlightPlan& plan = flights[index];
+            const AirplaneState state = plan.airplane.state;
+            const bool awaitingPlayerAction =
+                (state == AirplaneState::AwaitingTaxiAuthorization &&
+                    !plan.taxiToStandQueued) ||
+                state == AirplaneState::AwaitingTakeoffAuthorization;
+            if (!awaitingPlayerAction) continue;
+
+            const Vector3 aircraftPosition{
+                plan.airplane.position.x, 1.1f, plan.airplane.position.y};
+            const Vector3 cameraToAircraft{
+                aircraftPosition.x - camera.position.x,
+                aircraftPosition.y - camera.position.y,
+                aircraftPosition.z - camera.position.z
+            };
+            const float cameraDepth = cameraToAircraft.x * viewDirection.x +
+                cameraToAircraft.y * viewDirection.y +
+                cameraToAircraft.z * viewDirection.z;
+            if (cameraDepth <= 0.0f) continue;
+
+            const Vector2 screen = GetWorldToScreen(aircraftPosition, camera);
+            if (screen.y >= static_cast<float>(GetScreenHeight()))
+                order.push_back(index);
+        }
+        return order;
+    };
+    const auto bottomAttentionIndicatorBounds = [](int slot, int count)
+    {
+        constexpr float Width = 42.0f;
+        constexpr float Height = 48.0f;
+        constexpr float Gap = 8.0f;
+        constexpr float SideMargin = 16.0f;
+        constexpr float BottomMargin = 20.0f;
+        const float screenWidth = static_cast<float>(GetScreenWidth());
+        const int columns = std::max(1, static_cast<int>(
+            (screenWidth - SideMargin * 2.0f + Gap) / (Width + Gap)));
+        const int row = slot / columns;
+        const int rowStart = row * columns;
+        const int rowCount = std::min(columns, count - rowStart);
+        const int column = slot - rowStart;
+        const float rowWidth = rowCount * Width + (rowCount - 1) * Gap;
+        return Rectangle{
+            (screenWidth - rowWidth) * 0.5f + column * (Width + Gap),
+            static_cast<float>(GetScreenHeight()) - BottomMargin -
+                (row + 1) * Height - row * Gap,
+            Width, Height
+        };
     };
     const auto simulationSpeedButtonBounds = [](int speed)
     {
@@ -4890,7 +5011,30 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            if (CheckCollisionPointRec(mouse, GetUpgradesHudButtonBounds()))
+            const std::vector<std::size_t> bottomAttentionOrder =
+                buildBottomAttentionOrder();
+            int clickedAttentionFlight = -1;
+            for (std::size_t slot = 0; slot < bottomAttentionOrder.size(); ++slot)
+            {
+                if (CheckCollisionPointRec(mouse,
+                    bottomAttentionIndicatorBounds(static_cast<int>(slot),
+                        static_cast<int>(bottomAttentionOrder.size()))))
+                {
+                    clickedAttentionFlight = static_cast<int>(
+                        bottomAttentionOrder[slot]);
+                    break;
+                }
+            }
+            if (clickedAttentionFlight >= 0)
+            {
+                const FlightPlan& plan = flights[
+                    static_cast<std::size_t>(clickedAttentionFlight)];
+                cameraController.FocusOn(plan.airplane.position);
+                selectedGateId.clear();
+                selectedFlightIndex = clickedAttentionFlight;
+                selectedNotificationFlightIndex = -1;
+            }
+            else if (CheckCollisionPointRec(mouse, GetUpgradesHudButtonBounds()))
                 showUpgradeMenu = true;
             else if (!selectSimulationSpeedAtPosition(mouse))
             {
@@ -6921,6 +7065,19 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (selected || hovered)
                 DrawRectangleRoundedLinesEx(icon, 0.2f, 4, selected ? 2.0f : 1.0f,
                     selected ? Color{89, 223, 210, 255} : Color{117, 173, 191, 255});
+        }
+
+        const std::vector<std::size_t> bottomAttentionOrder =
+            buildBottomAttentionOrder();
+        for (std::size_t slot = 0; slot < bottomAttentionOrder.size(); ++slot)
+        {
+            const Rectangle indicator = bottomAttentionIndicatorBounds(
+                static_cast<int>(slot),
+                static_cast<int>(bottomAttentionOrder.size()));
+            const bool hovered = CheckCollisionPointRec(notificationMouse,
+                indicator);
+            DrawOffscreenAttentionIndicator(indicator, hovered,
+                gameplayAnimationTime);
         }
 
         if (selectedFlightIndex >= 0 &&

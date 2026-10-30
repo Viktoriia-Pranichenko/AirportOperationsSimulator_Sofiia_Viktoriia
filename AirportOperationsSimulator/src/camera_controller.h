@@ -51,6 +51,8 @@ public:
             moveRight *= 0.70710678f;
             moveForward *= 0.70710678f;
         }
+        if (moveRight != 0.0f || moveForward != 0.0f)
+            focusTransitionActive = false;
 
         float forwardX = camera3D.target.x - camera3D.position.x;
         float forwardZ = camera3D.target.z - camera3D.position.z;
@@ -71,6 +73,28 @@ public:
             camera3D.target.z += shift.z;
             camera3D.position.x += shift.x;
             camera3D.position.z += shift.z;
+        }
+
+        if (focusTransitionActive && deltaTime > 0.0f)
+        {
+            const float blend = 1.0f - std::exp(-FocusTransitionRate * deltaTime);
+            const float shiftX = (focusTarget.x - camera3D.target.x) * blend;
+            const float shiftZ = (focusTarget.z - camera3D.target.z) * blend;
+            camera3D.target.x += shiftX;
+            camera3D.target.z += shiftZ;
+            camera3D.position.x += shiftX;
+            camera3D.position.z += shiftZ;
+            if (std::abs(focusTarget.x - camera3D.target.x) < 0.05f &&
+                std::abs(focusTarget.z - camera3D.target.z) < 0.05f)
+            {
+                const float finalShiftX = focusTarget.x - camera3D.target.x;
+                const float finalShiftZ = focusTarget.z - camera3D.target.z;
+                camera3D.target.x = focusTarget.x;
+                camera3D.target.z = focusTarget.z;
+                camera3D.position.x += finalShiftX;
+                camera3D.position.z += finalShiftZ;
+                focusTransitionActive = false;
+            }
         }
 
         // Keep the screen-space camera state available for the existing 2D UI layer.
@@ -108,8 +132,16 @@ public:
     float GetZoomLevel() const { return zoomLevel; }
     bool IsGateViewActive() const { return gateViewActive; }
 
+    void FocusOn(Vector2 worldPosition)
+    {
+        ReturnToOverview();
+        focusTarget = {worldPosition.x, camera3D.target.y, worldPosition.y};
+        focusTransitionActive = true;
+    }
+
     void EnterGateView(Vector3 focus, float gateOrientationDegrees)
     {
+        focusTransitionActive = false;
         if (!gateViewActive)
         {
             overviewCamera = camera3D;
@@ -133,17 +165,21 @@ public:
         camera3D = overviewCamera;
         zoomLevel = overviewZoomLevel;
         gateViewActive = false;
+        focusTransitionActive = false;
     }
 
 private:
     static constexpr float MinZoom = 0.5f;
     static constexpr float MaxZoom = 2.5f;
     static constexpr float InitialDistance = 223.8f;
+    static constexpr float FocusTransitionRate = 5.0f;
 
     Camera2D camera2D;
     Camera3D camera3D;
+    Vector3 focusTarget{};
     Camera3D overviewCamera{};
     float zoomLevel = 1.0f;
     float overviewZoomLevel = 1.0f;
     bool gateViewActive = false;
+    bool focusTransitionActive = false;
 };
