@@ -1484,7 +1484,21 @@ namespace
             184.0f, 40.0f};
     }
 
-    void DrawGameplayGuide(float animationTime)
+    Rectangle GetGameplayGuidePreviousButtonBounds()
+    {
+        const Rectangle panel = GetGameplayGuidePanelBounds();
+        return {panel.x + panel.width - 206.0f,
+            panel.y + panel.height - 62.0f, 82.0f, 40.0f};
+    }
+
+    Rectangle GetGameplayGuideNextButtonBounds()
+    {
+        const Rectangle panel = GetGameplayGuidePanelBounds();
+        return {panel.x + panel.width - 112.0f,
+            panel.y + panel.height - 62.0f, 84.0f, 40.0f};
+    }
+
+    void DrawGameplayGuide(float animationTime, int page)
     {
         const Rectangle panel = GetGameplayGuidePanelBounds();
         const float pulse = 0.5f + 0.5f * std::sin(animationTime * 1.8f);
@@ -1501,10 +1515,16 @@ namespace
         DrawText("OPERATIONS MANUAL  /  GAMEPLAY GUIDE",
             static_cast<int>(panel.x + 28.0f), static_cast<int>(panel.y + 22.0f),
             10, Color{111, 222, 221, 255});
-        DrawText("RUN THE AIRFIELD",
+        const char* pageTitle = page == 0 ? "RUN THE AIRFIELD" :
+            page == 1 ? "FIELD OPERATIONS" : "SCORE & SHIFT RESULTS";
+        DrawText(pageTitle,
             static_cast<int>(panel.x + 28.0f), static_cast<int>(panel.y + 43.0f),
             30, RAYWHITE);
-        DrawText("Coordinate traffic, turnaround services and time-critical decisions.",
+        const char* pageSubtitle = page == 0 ?
+            "Coordinate traffic, turnaround services and time-critical decisions." :
+            page == 1 ? "Controls, priorities, weather and emergency response." :
+                "Understand your score, Credits, audio cues and final report.";
+        DrawText(pageSubtitle,
             static_cast<int>(panel.x + 29.0f), static_cast<int>(panel.y + 82.0f),
             11, Color{178, 202, 211, 255});
 
@@ -1516,10 +1536,13 @@ namespace
             Fade(Color{89, 208, 207, 255}, 0.65f + pulse * 0.25f));
         DrawCircleV({badge.x + 15.0f, badge.y + 14.0f}, 3.5f,
             Color{98, 227, 184, 255});
-        DrawText("3-STAGE SHIFT", static_cast<int>(badge.x + 27.0f),
+        DrawText(TextFormat("FIELD GUIDE  %d / 3", page + 1),
+            static_cast<int>(badge.x + 27.0f),
             static_cast<int>(badge.y + 9.0f), 10,
             Color{199, 226, 227, 255});
 
+        if (page == 0)
+        {
         const float sideMargin = 28.0f;
         const float cardGap = 16.0f;
         const float cardWidth = (panel.width - sideMargin * 2.0f - cardGap) * 0.5f;
@@ -1628,6 +1651,106 @@ namespace
             static_cast<int>(scorePanel.x + 14.0f),
             static_cast<int>(scorePanel.y + 59.0f), 9,
             Color{164, 190, 199, 255});
+        }
+        else
+        {
+            const float sideMargin = 28.0f;
+            const float cardGap = 14.0f;
+            const float cardWidth = (panel.width - sideMargin * 2.0f - cardGap) * 0.5f;
+            const float cardHeight = 158.0f;
+            const float firstRowY = panel.y + 122.0f;
+            const float secondRowY = firstRowY + cardHeight + 14.0f;
+            const Color blue{89, 220, 218, 255};
+            const Color gold{242, 185, 94, 255};
+            const Color purple{190, 155, 240, 255};
+            const Color green{98, 227, 184, 255};
+            const auto drawFeatureCard = [](Rectangle bounds, const char* number,
+                const char* heading, const char* first, const char* second,
+                const char* third, Color accent)
+            {
+                DrawRectangleRec(bounds, Color{15, 35, 52, 255});
+                DrawRectangleLinesEx(bounds, 1.0f, Color{49, 84, 103, 255});
+                DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y),
+                    static_cast<int>(bounds.width), 3, accent);
+                DrawText(number, static_cast<int>(bounds.x + 15.0f),
+                    static_cast<int>(bounds.y + 14.0f), 11, accent);
+                DrawText(heading, static_cast<int>(bounds.x + 43.0f),
+                    static_cast<int>(bounds.y + 12.0f), 14, RAYWHITE);
+                const char* rows[] = {first, second, third};
+                for (int i = 0; i < 3; ++i)
+                {
+                    const int rowY = static_cast<int>(bounds.y + 48.0f +
+                        static_cast<float>(i) * 34.0f);
+                    DrawCircleV({bounds.x + 18.0f,
+                        static_cast<float>(rowY + 5)}, 2.5f, accent);
+                    DrawText(rows[i], static_cast<int>(bounds.x + 30.0f),
+                        rowY, 9, Color{196, 214, 220, 255});
+                }
+            };
+
+            if (page == 1)
+            {
+                drawFeatureCard({panel.x + sideMargin, firstRowY,
+                    cardWidth, cardHeight}, "01", "CAMERA & QUICK KEYS",
+                    "WASD or arrow keys pan the airport view.",
+                    "Keys 1 / 2 / 3 set simulation speed.",
+                    "ESC pauses; use the pause menu to resume.",
+                    blue);
+                drawFeatureCard({panel.x + sideMargin + cardWidth + cardGap,
+                    firstRowY, cardWidth, cardHeight}, "02", "FLIGHTS & GATES",
+                    "Select aircraft to inspect status and schedule.",
+                    "Coordinate fuel, checks, baggage and boarding.",
+                    "Authorize departures and monitor runway traffic.",
+                    gold);
+                drawFeatureCard({panel.x + sideMargin, secondRowY,
+                    cardWidth, cardHeight}, "03", "PRIORITIES & ESCORTS",
+                    "Watch the objective panel for timed priorities.",
+                    "Choose ESCORT at an eligible gate for Follow-Me.",
+                    "On-time tasks and escorts can earn score bonuses.",
+                    purple);
+                drawFeatureCard({panel.x + sideMargin + cardWidth + cardGap,
+                    secondRowY, cardWidth, cardHeight}, "04", "WEATHER & FIRE",
+                    "Rain may delay operations; heavy rain suspends them.",
+                    "Reroute traffic around taxiway closures.",
+                    "Dispatch fire trucks and extinguish the fire in time.",
+                    Color{255, 133, 91, 255});
+                DrawText("Tip: during a fire alert, click DISPATCH TRUCKS beside the parked fire trucks.",
+                    static_cast<int>(panel.x + sideMargin),
+                    static_cast<int>(panel.y + 468.0f), 10,
+                    Color{255, 207, 151, 255});
+            }
+            else
+            {
+                drawFeatureCard({panel.x + sideMargin, firstRowY,
+                    cardWidth, cardHeight}, "01", "SHIFT SCORE",
+                    "Final score: punctuality 40, completion 40, safety 20.",
+                    "Delays and waits are tracked; violations hurt safety.",
+                    "Priority and Follow-Me actions can add bonuses.",
+                    blue);
+                drawFeatureCard({panel.x + sideMargin + cardWidth + cardGap,
+                    firstRowY, cardWidth, cardHeight}, "02", "CREDITS",
+                    "Completed departures award spendable Credits.",
+                    "Use Credits for service upgrades between operations.",
+                    "Credits are separate from your shift score.",
+                    gold);
+                drawFeatureCard({panel.x + sideMargin, secondRowY,
+                    cardWidth, cardHeight}, "03", "AUDIO CUES",
+                    "Menu and gameplay music switch with the current screen.",
+                    "Rain and fire ambience follow active weather/events.",
+                    "Aircraft and score sounds mark key events.",
+                    purple);
+                drawFeatureCard({panel.x + sideMargin + cardWidth + cardGap,
+                    secondRowY, cardWidth, cardHeight}, "04", "SHIFT REPORT",
+                    "Review completed arrivals and departures.",
+                    "Check delays, average waiting and priority results.",
+                    "Keep operations safe to protect your final rating.",
+                    green);
+                DrawText("The live score display shows point changes; the shift results screen summarizes your performance.",
+                    static_cast<int>(panel.x + sideMargin),
+                    static_cast<int>(panel.y + 468.0f), 10,
+                    Color{164, 210, 204, 255});
+            }
+        }
 
         const Rectangle backButton = GetGameplayGuideBackButtonBounds();
         const bool backHovered = CheckCollisionPointRec(GetMousePosition(), backButton);
@@ -1640,9 +1763,36 @@ namespace
             static_cast<int>(backButton.y + 13.0f), 11,
             backHovered ? RAYWHITE : Color{190, 215, 220, 255});
         DrawText("ESC TO RETURN",
-            static_cast<int>(panel.x + panel.width - 128.0f),
+            static_cast<int>(panel.x + panel.width - 318.0f),
             static_cast<int>(backButton.y + 15.0f), 9,
             Color{118, 153, 166, 255});
+        const Rectangle previousButton = GetGameplayGuidePreviousButtonBounds();
+        const Rectangle nextButton = GetGameplayGuideNextButtonBounds();
+        const bool previousEnabled = page > 0;
+        const bool nextEnabled = page < 2;
+        const bool previousHovered = previousEnabled &&
+            CheckCollisionPointRec(GetMousePosition(), previousButton);
+        const bool nextHovered = nextEnabled &&
+            CheckCollisionPointRec(GetMousePosition(), nextButton);
+        const auto drawPageButton = [](Rectangle bounds, const char* label,
+            bool enabled, bool hovered)
+        {
+            const Color fill = !enabled ? Color{12, 29, 42, 170} :
+                hovered ? Color{27, 87, 102, 255} : Color{17, 51, 66, 255};
+            const Color border = !enabled ? Color{40, 62, 72, 180} :
+                hovered ? Color{123, 230, 222, 255} : Color{73, 139, 154, 255};
+            DrawRectangleRounded(bounds, 0.18f, 6, fill);
+            DrawRectangleRoundedLinesEx(bounds, 0.18f, 6,
+                hovered ? 2.0f : 1.0f, border);
+            DrawText(label, static_cast<int>(bounds.x + 12.0f),
+                static_cast<int>(bounds.y + 13.0f), 10,
+                enabled ? Color{190, 215, 220, 255} :
+                    Color{94, 119, 130, 255});
+        };
+        drawPageButton(previousButton, "< PREV", previousEnabled,
+            previousHovered);
+        drawPageButton(nextButton, page == 2 ? "DONE >" : "NEXT >", true,
+            nextHovered);
         DrawText("SELECT AN AIRCRAFT  /  USE THE FLIGHT PANEL FOR COMMANDS",
             static_cast<int>(panel.x + 260.0f),
             static_cast<int>(backButton.y + 15.0f), 9,
@@ -1826,6 +1976,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     AirportGround airportGround(terminal);
     bool showMainMenu = !startImmediately;
     bool showGameplayGuide = false;
+    int gameplayGuidePage = 0;
     bool showDifficultySelection = false;
     bool showUpgradeMenu = false;
     bool isPaused = false;
@@ -5128,6 +5279,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 if (CheckCollisionPointRec(mouse,
                     GetGameplayGuideBackButtonBounds()))
                     showGameplayGuide = false;
+                else if (gameplayGuidePage > 0 &&
+                    CheckCollisionPointRec(mouse,
+                        GetGameplayGuidePreviousButtonBounds()))
+                    --gameplayGuidePage;
+                else if (CheckCollisionPointRec(mouse,
+                    GetGameplayGuideNextButtonBounds()))
+                {
+                    if (gameplayGuidePage < 2)
+                        ++gameplayGuidePage;
+                    else
+                        showGameplayGuide = false;
+                }
             }
             else if (showDifficultySelection)
             {
@@ -5172,9 +5335,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     showDifficultySelection = true;
                 else if (CheckCollisionPointRec(mouse, exitButton)) exitRequested = true;
                 else if (CheckCollisionPointRec(mouse, settingsButton))
+                {
                     showGameplayGuide = true;
+                    gameplayGuidePage = 0;
+                }
             }
         }
+        else if (showMainMenu && showGameplayGuide &&
+            IsKeyPressed(KEY_LEFT))
+            gameplayGuidePage = std::max(0, gameplayGuidePage - 1);
+        else if (showMainMenu && showGameplayGuide &&
+            IsKeyPressed(KEY_RIGHT))
+            gameplayGuidePage = std::min(2, gameplayGuidePage + 1);
         else if (showMainMenu && showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
             showGameplayGuide = false;
         else if (showMainMenu && showDifficultySelection && IsKeyPressed(KEY_ESCAPE))
@@ -7752,7 +7924,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             DrawMenuBackground(menuAnimationTime);
             if (showGameplayGuide)
-                DrawGameplayGuide(menuAnimationTime);
+                DrawGameplayGuide(menuAnimationTime, gameplayGuidePage);
             else if (!showDifficultySelection)
             {
             const float screenWidth = static_cast<float>(GetScreenWidth());
