@@ -1364,7 +1364,14 @@ enum class RunGameResult
     ReturnToMainMenu
 };
 
-RunGameResult RunGame(bool startImmediately)
+enum class GameDifficulty
+{
+    Easy,
+    Medium,
+    Hard
+};
+
+RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
@@ -1408,6 +1415,7 @@ RunGameResult RunGame(bool startImmediately)
     AirportGround airportGround(terminal);
     bool showMainMenu = !startImmediately;
     bool showGameplayGuide = false;
+    bool showDifficultySelection = false;
     bool isPaused = false;
     bool showRestartConfirmation = false;
     bool showEndShiftConfirmation = false;
@@ -4049,6 +4057,35 @@ RunGameResult RunGame(bool startImmediately)
                     GetGameplayGuideBackButtonBounds()))
                     showGameplayGuide = false;
             }
+            else if (showDifficultySelection)
+            {
+                const float screenWidth = static_cast<float>(GetScreenWidth());
+                const float screenHeight = static_cast<float>(GetScreenHeight());
+                const float panelWidth = std::min(780.0f, screenWidth - 40.0f);
+                const float panelHeight = std::min(356.0f, screenHeight - 32.0f);
+                const float panelX = (screenWidth - panelWidth) * 0.5f;
+                const float panelY = (screenHeight - panelHeight) * 0.5f;
+                const float gap = 12.0f;
+                const float cardWidth = (panelWidth - 56.0f - gap * 2.0f) / 3.0f;
+                bool started = false;
+                for (int i = 0; i < 3; ++i)
+                {
+                    const Rectangle card{panelX + 28.0f + i * (cardWidth + gap),
+                        panelY + 122.0f, cardWidth, 140.0f};
+                    if (CheckCollisionPointRec(mouse, card))
+                    {
+                        savedDifficulty = static_cast<GameDifficulty>(i);
+                        showDifficultySelection = false;
+                        showMainMenu = false;
+                        started = true;
+                        break;
+                    }
+                }
+                const Rectangle backButton{panelX + 28.0f,
+                    panelY + panelHeight - 58.0f, 132.0f, 38.0f};
+                if (!started && CheckCollisionPointRec(mouse, backButton))
+                    showDifficultySelection = false;
+            }
             else
             {
                 const float menuX = static_cast<float>(GetScreenWidth()) * 0.085f;
@@ -4056,7 +4093,8 @@ RunGameResult RunGame(bool startImmediately)
                 const Rectangle startButton{menuX, menuY, 330.0f, 58.0f};
                 const Rectangle settingsButton{menuX, menuY + 72.0f, 330.0f, 58.0f};
                 const Rectangle exitButton{menuX, menuY + 144.0f, 330.0f, 58.0f};
-                if (CheckCollisionPointRec(mouse, startButton)) showMainMenu = false;
+                if (CheckCollisionPointRec(mouse, startButton))
+                    showDifficultySelection = true;
                 else if (CheckCollisionPointRec(mouse, exitButton)) exitRequested = true;
                 else if (CheckCollisionPointRec(mouse, settingsButton))
                     showGameplayGuide = true;
@@ -4064,9 +4102,26 @@ RunGameResult RunGame(bool startImmediately)
         }
         else if (showMainMenu && showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
             showGameplayGuide = false;
-        else if (showMainMenu && !showGameplayGuide && IsKeyPressed(KEY_ENTER))
+        else if (showMainMenu && showDifficultySelection && IsKeyPressed(KEY_ESCAPE))
+            showDifficultySelection = false;
+        else if (showMainMenu && showDifficultySelection && IsKeyPressed(KEY_ENTER))
+        {
+            showDifficultySelection = false;
             showMainMenu = false;
-        else if (showMainMenu && !showGameplayGuide && IsKeyPressed(KEY_ESCAPE))
+        }
+        else if (showMainMenu && showDifficultySelection &&
+            (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_THREE)))
+        {
+            savedDifficulty = IsKeyPressed(KEY_ONE) ? GameDifficulty::Easy :
+                (IsKeyPressed(KEY_TWO) ? GameDifficulty::Medium : GameDifficulty::Hard);
+            showDifficultySelection = false;
+            showMainMenu = false;
+        }
+        else if (showMainMenu && !showGameplayGuide &&
+            !showDifficultySelection && IsKeyPressed(KEY_ENTER))
+            showDifficultySelection = true;
+        else if (showMainMenu && !showGameplayGuide &&
+            !showDifficultySelection && IsKeyPressed(KEY_ESCAPE))
             exitRequested = true;
         else if (!showMainMenu && shiftComplete &&
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -6005,6 +6060,79 @@ RunGameResult RunGame(bool startImmediately)
             }
         }
 
+        if (showMainMenu && showDifficultySelection)
+        {
+            const float screenWidth = static_cast<float>(GetScreenWidth());
+            const float screenHeight = static_cast<float>(GetScreenHeight());
+            const float panelWidth = std::min(780.0f, screenWidth - 40.0f);
+            const float panelHeight = std::min(356.0f, screenHeight - 32.0f);
+            const float panelX = (screenWidth - panelWidth) * 0.5f;
+            const float panelY = (screenHeight - panelHeight) * 0.5f;
+            const float gap = 12.0f;
+            const float cardWidth = (panelWidth - 56.0f - gap * 2.0f) / 3.0f;
+            const Vector2 mouse = GetMousePosition();
+            const char* names[] = {"EASY", "MEDIUM", "HARD"};
+            const char* profiles[] = {"PROFILE 01", "PROFILE 02", "PROFILE 03"};
+
+            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Fade(Color{3, 13, 21, 255}, 0.66f));
+            DrawRectangleRec({panelX, panelY, panelWidth, panelHeight},
+                Color{8, 27, 38, 250});
+            DrawRectangleLinesEx({panelX, panelY, panelWidth, panelHeight},
+                2.0f, Color{74, 202, 207, 255});
+            DrawRectangle(static_cast<int>(panelX), static_cast<int>(panelY),
+                static_cast<int>(panelWidth), 4, Color{100, 231, 223, 255});
+            DrawText("SHIFT SETUP", static_cast<int>(panelX + 28.0f),
+                static_cast<int>(panelY + 24.0f), 11, Color{110, 222, 220, 255});
+            DrawText("SELECT DIFFICULTY", static_cast<int>(panelX + 28.0f),
+                static_cast<int>(panelY + 48.0f), 27, RAYWHITE);
+            DrawText("Choose a profile. All options currently use the same gameplay settings.",
+                static_cast<int>(panelX + 28.0f), static_cast<int>(panelY + 86.0f),
+                11, Color{166, 193, 200, 255});
+
+            for (int i = 0; i < 3; ++i)
+            {
+                const Rectangle card{panelX + 28.0f + i * (cardWidth + gap),
+                    panelY + 122.0f, cardWidth, 140.0f};
+                const bool hovered = CheckCollisionPointRec(mouse, card);
+                const bool selected = static_cast<int>(savedDifficulty) == i;
+                const Color border = selected || hovered ?
+                    Color{91, 222, 218, 255} : Color{65, 115, 128, 230};
+                const Color fill = hovered ? Color{22, 76, 91, 250} :
+                    (selected ? Color{17, 62, 76, 248} : Color{12, 39, 52, 245});
+                DrawRectangleRec(card, fill);
+                DrawRectangleLinesEx(card, selected || hovered ? 2.0f : 1.0f, border);
+                DrawRectangle(static_cast<int>(card.x), static_cast<int>(card.y), 4,
+                    static_cast<int>(card.height), selected ?
+                        Color{111, 237, 227, 255} : border);
+                DrawText(TextFormat("0%d", i + 1), static_cast<int>(card.x + 17.0f),
+                    static_cast<int>(card.y + 16.0f), 10, Color{112, 190, 197, 255});
+                DrawText(names[i], static_cast<int>(card.x + 17.0f),
+                    static_cast<int>(card.y + 41.0f), 20, RAYWHITE);
+                DrawText(profiles[i], static_cast<int>(card.x + 17.0f),
+                    static_cast<int>(card.y + 75.0f), 9, Color{153, 184, 193, 255});
+                DrawText(selected ? "CURRENT SELECTION" : "SAME GAMEPLAY SETTINGS",
+                    static_cast<int>(card.x + 17.0f),
+                    static_cast<int>(card.y + 105.0f), 8,
+                    selected ? Color{107, 230, 212, 255} :
+                        Color{129, 159, 169, 255});
+            }
+
+            const Rectangle backButton{panelX + 28.0f,
+                panelY + panelHeight - 58.0f, 132.0f, 38.0f};
+            const bool backHovered = CheckCollisionPointRec(mouse, backButton);
+            DrawRectangleRec(backButton, backHovered ? Color{31, 69, 82, 250} :
+                Color{14, 38, 51, 234});
+            DrawRectangleLinesEx(backButton, backHovered ? 2.0f : 1.0f,
+                Color{65, 115, 128, 230});
+            DrawText("BACK", static_cast<int>(backButton.x + 45.0f),
+                static_cast<int>(backButton.y + 12.0f), 11, RAYWHITE);
+            DrawText("CLICK A PROFILE OR PRESS 1 / 2 / 3    ENTER: START    ESC: BACK",
+                static_cast<int>(panelX + 178.0f),
+                static_cast<int>(panelY + panelHeight - 45.0f), 8,
+                Color{135, 165, 175, 255});
+        }
+
         if (priorityNotificationTime > 0.0f)
         {
             const int notificationWidth = MeasureText(priorityNotification.c_str(), 13) + 28;
@@ -6357,9 +6485,10 @@ RunGameResult RunGame(bool startImmediately)
 int main()
 {
     bool startImmediately = false;
+    GameDifficulty savedDifficulty = GameDifficulty::Medium;
     while (true)
     {
-        const RunGameResult result = RunGame(startImmediately);
+        const RunGameResult result = RunGame(startImmediately, savedDifficulty);
         if (result == RunGameResult::Exit) break;
         startImmediately = result == RunGameResult::RestartShift;
     }
