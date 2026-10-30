@@ -1816,6 +1816,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {179.85f, -112.25f},
         {184.95f, -112.25f}
     };
+    // Two fixed test-fire spots on the terminal's main concourse roof.
+    constexpr Vector3 TerminalFirePositions[] = {
+        {-75.0f, 31.8f, 8.0f},
+        {75.0f, 31.8f, 8.0f}
+    };
+    int terminalFireIndex = -1;
     constexpr Vector2 RefuellingTankerParkingPositions[] = {
         {190.05f, -112.25f},
         {195.15f, -112.25f}
@@ -4258,6 +4264,16 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             PlaySound(nextPointSound == PointSoundType::Positive ?
                 positivePointsSound : negativePointsSound);
         }
+        if (!showMainMenu && terminalFireIndex < 0)
+        {
+            // Each shift (RunGame call) ignites exactly one of the two fixed spots.
+            std::random_device fireEntropy;
+            terminalFireIndex = static_cast<int>(fireEntropy() % 2u);
+            priorityNotification = terminalFireIndex == 0 ?
+                "FIRE ALERT - TERMINAL WEST ROOF ON FIRE" :
+                "FIRE ALERT - TERMINAL EAST ROOF ON FIRE";
+            priorityNotificationTime = 6.0f;
+        }
         if (showMainMenu)
             menuAnimationTime += realDeltaTime;
         else if (!isPaused)
@@ -6552,6 +6568,39 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawBoardingPassenger(passenger, gameplayAnimationTime);
         for (const BoardingPassenger& technician : maintenanceTechnicians)
             DrawBoardingPassenger(technician, gameplayAnimationTime);
+        if (terminalFireIndex >= 0)
+        {
+            const Vector3 base = TerminalFirePositions[terminalFireIndex];
+            const float t = gameplayAnimationTime;
+            for (int flame = 0; flame < 9; ++flame)
+            {
+                const float phase = static_cast<float>(flame) * 1.7f;
+                const float flicker = 0.7f + 0.3f * std::sin(t * 9.0f + phase);
+                const float angle = static_cast<float>(flame) * 0.785f;
+                const float radius = 0.9f * static_cast<float>(flame % 3);
+                const float height = (3.0f + static_cast<float>(flame % 3) * 1.6f) *
+                    flicker;
+                const unsigned char green = static_cast<unsigned char>(
+                    70 + (flame % 3) * 60);
+                DrawCubeV({base.x + std::cos(angle) * radius,
+                        base.y + height * 0.5f,
+                        base.z + std::sin(angle) * radius},
+                    {2.0f - static_cast<float>(flame % 3) * 0.4f, height,
+                        2.0f - static_cast<float>(flame % 3) * 0.4f},
+                    Color{255, green, 20, 210});
+            }
+            DrawSphere({base.x, base.y + 1.5f, base.z},
+                3.2f + 0.3f * std::sin(t * 7.0f), Fade(Color{255, 150, 30, 255}, 0.35f));
+            for (int puff = 0; puff < 6; ++puff)
+            {
+                const float rise = std::fmod(t * 3.5f + static_cast<float>(puff) * 3.0f,
+                    18.0f);
+                DrawSphere({base.x + std::sin(rise * 0.7f + puff) * 1.5f,
+                        base.y + 6.0f + rise, base.z + std::cos(rise * 0.5f + puff)},
+                    1.6f + rise * 0.18f,
+                    Fade(Color{70, 70, 74, 255}, 0.4f * (1.0f - rise / 18.0f)));
+            }
+        }
         if (!shiftComplete)
             DrawWeatherParticles(currentWeather, weatherAnimationTime, sceneCamera);
         }
