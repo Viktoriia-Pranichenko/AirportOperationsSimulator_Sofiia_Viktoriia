@@ -113,6 +113,92 @@ namespace
         drawGrassRect(platformMinX, platformMaxX, groundMinZ, platformMinZ);
         drawGrassRect(platformMaxX, spurMaxX, groundMinZ, spurMinZ);
         drawGrassRect(platformMaxX, spurMaxX, spurMaxZ, groundMaxZ);
+
+        // Decorative concrete curb and rounded outer corners. All pieces are flat
+        // and lie below the stand paint and taxiway surfaces.
+        constexpr float cornerRadius = 10.0f;
+        constexpr float curbWidth = 1.4f;
+        constexpr float curbY = 0.03f;
+        constexpr float cornerFillY = 0.024f;
+        const Color curbColor{176, 177, 168, 255};
+        const Color curbJoint{128, 132, 128, 255};
+        const auto flatQuad = [](Vector3 a, Vector3 b, Vector3 c, Vector3 d,
+            Color color)
+        {
+            DrawTriangle3D(a, b, c, color);
+            DrawTriangle3D(a, c, b, color);
+            DrawTriangle3D(a, c, d, color);
+            DrawTriangle3D(a, d, c, color);
+        };
+        const auto alongX = [&](float x0, float x1, float edgeZ, float inward)
+        {
+            if (x1 <= x0) return;
+            const float zA = edgeZ;
+            const float zB = edgeZ + inward * curbWidth;
+            flatQuad({x0, curbY, zA}, {x1, curbY, zA}, {x1, curbY, zB},
+                {x0, curbY, zB}, curbColor);
+            const float zJ = edgeZ + inward * curbWidth;
+            flatQuad({x0, curbY + 0.004f, zJ}, {x1, curbY + 0.004f, zJ},
+                {x1, curbY + 0.004f, zJ + inward * 0.2f},
+                {x0, curbY + 0.004f, zJ + inward * 0.2f}, curbJoint);
+        };
+        const auto alongZ = [&](float z0, float z1, float edgeX, float inward)
+        {
+            if (z1 <= z0) return;
+            const float xA = edgeX;
+            const float xB = edgeX + inward * curbWidth;
+            flatQuad({xA, curbY, z0}, {xA, curbY, z1}, {xB, curbY, z1},
+                {xB, curbY, z0}, curbColor);
+            const float xJ = edgeX + inward * curbWidth;
+            flatQuad({xJ, curbY + 0.004f, z0}, {xJ, curbY + 0.004f, z1},
+                {xJ + inward * 0.2f, curbY + 0.004f, z1},
+                {xJ + inward * 0.2f, curbY + 0.004f, z0}, curbJoint);
+        };
+        const float r = cornerRadius;
+        alongZ(platformMinZ + r, platformMaxZ - r, platformMinX, 1.0f);
+        alongX(platformMinX + r, platformMaxX - r, platformMinZ, 1.0f);
+        alongX(platformMinX + r, platformMaxX - r, platformMaxZ, -1.0f);
+        alongZ(platformMinZ + r, spurMinZ, platformMaxX, -1.0f);
+        alongZ(spurMaxZ, platformMaxZ - r, platformMaxX, -1.0f);
+        alongX(platformMaxX, spurMaxX - r, spurMinZ, 1.0f);
+        alongX(platformMaxX, spurMaxX - r, spurMaxZ, -1.0f);
+        alongZ(spurMinZ + r, spurMaxZ - r, spurMaxX, -1.0f);
+
+        // Each convex corner: grass fill outside the arc, then a curved curb.
+        const auto roundedCorner = [&](float cornerX, float cornerZ,
+            float outwardX, float outwardZ)
+        {
+            const float centerX = cornerX - outwardX * r;
+            const float centerZ = cornerZ - outwardZ * r;
+            constexpr int segments = 10;
+            constexpr float quarterTurn = 1.57079633f;
+            for (int i = 0; i < segments; ++i)
+            {
+                // Sweep from the X-facing edge to the Z-facing edge.
+                const float t0 = quarterTurn * static_cast<float>(i) / segments;
+                const float t1 = quarterTurn * static_cast<float>(i + 1) / segments;
+                const auto point = [&](float t, float radius) {
+                    return Vector3{centerX + outwardX * std::cos(t) * radius,
+                        0.0f, centerZ + outwardZ * std::sin(t) * radius};
+                };
+                Vector3 outer0 = point(t0, r);
+                Vector3 outer1 = point(t1, r);
+                Vector3 inner0 = point(t0, r - curbWidth);
+                Vector3 inner1 = point(t1, r - curbWidth);
+                outer0.y = outer1.y = cornerFillY;
+                const Vector3 corner{cornerX, cornerFillY, cornerZ};
+                DrawTriangle3D(corner, outer0, outer1, grassColor);
+                DrawTriangle3D(corner, outer1, outer0, grassColor);
+                outer0.y = outer1.y = inner0.y = inner1.y = curbY;
+                flatQuad(outer0, outer1, inner1, inner0, curbColor);
+            }
+        };
+        roundedCorner(platformMinX, platformMinZ, -1.0f, -1.0f);
+        roundedCorner(platformMaxX, platformMinZ, 1.0f, -1.0f);
+        roundedCorner(platformMinX, platformMaxZ, -1.0f, 1.0f);
+        roundedCorner(platformMaxX, platformMaxZ, 1.0f, 1.0f);
+        roundedCorner(spurMaxX, spurMinZ, 1.0f, -1.0f);
+        roundedCorner(spurMaxX, spurMaxZ, 1.0f, 1.0f);
     }
 
     void DrawRunway(const AirportRunway& runway)

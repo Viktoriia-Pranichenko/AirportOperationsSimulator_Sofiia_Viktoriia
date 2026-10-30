@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <vector>
 
 namespace
 {
@@ -356,6 +357,60 @@ namespace
         }
     }
 
+    // Purely decorative asphalt weathering. Every piece sits between the slab
+    // top (-0.01) and the stand paint (0.06) so nothing else is affected.
+    void DrawApronSurfaceDetail()
+    {
+        struct Tile { Vector3 center; Vector2 size; Color color; };
+        static const std::vector<Tile> tiles = []
+        {
+            std::vector<Tile> result;
+            unsigned int seed = 20240611u;
+            const auto next = [&seed]()
+            {
+                seed = seed * 1664525u + 1013904223u;
+                return static_cast<float>((seed >> 8) & 0xFFFF) / 65535.0f;
+            };
+            struct Area { float minX, maxX, minZ, maxZ; };
+            constexpr Area areas[] = {
+                {-217.0f, 217.0f, -267.0f, 157.0f},
+                {222.0f, 277.0f, -177.0f, 42.0f}};
+            for (const Area& area : areas)
+            {
+                const float width = area.maxX - area.minX;
+                const float depth = area.maxZ - area.minZ;
+                const int patches = static_cast<int>(width * depth / 420.0f);
+                for (int i = 0; i < patches; ++i)
+                {
+                    const float sizeX = 5.0f + next() * 26.0f;
+                    const float sizeZ = 4.0f + next() * 18.0f;
+                    const float x = area.minX + sizeX * 0.5f +
+                        next() * (width - sizeX);
+                    const float z = area.minZ + sizeZ * 0.5f +
+                        next() * (depth - sizeZ);
+                    const float shift = (next() - 0.5f) * 14.0f;
+                    result.push_back({{x, 0.012f, z}, {sizeX, sizeZ},
+                        Color{static_cast<unsigned char>(105 + shift),
+                            static_cast<unsigned char>(121 + shift),
+                            static_cast<unsigned char>(122 + shift * 0.9f),
+                            static_cast<unsigned char>(55 + next() * 45.0f)}});
+                }
+                const int specks = static_cast<int>(width * depth / 55.0f);
+                for (int i = 0; i < specks; ++i)
+                {
+                    const float size = 0.35f + next() * 0.9f;
+                    const bool light = next() > 0.5f;
+                    result.push_back({{area.minX + next() * width, 0.016f,
+                        area.minZ + next() * depth}, {size, size * (0.6f + next())},
+                        light ? Color{146, 158, 156, 80} : Color{72, 84, 87, 90}});
+                }
+            }
+            return result;
+        }();
+        for (const Tile& tile : tiles)
+            DrawPlane(tile.center, tile.size, tile.color);
+    }
+
     void DrawApronAndStands()
     {
         // The apron and the service-area spur meet edge-to-edge to form one paved platform.
@@ -373,6 +428,7 @@ namespace
             {250.0f, -0.01f - platformThickness * 0.5f, serviceSpurCenterZ},
             {60.0f, platformThickness, serviceSpurDepth},
             platformColor);
+        DrawApronSurfaceDetail();
 
         // Four stands face the main section and three serve each wing (ten total).
         // The main row sits slightly closer to its boarding facade while leaving
