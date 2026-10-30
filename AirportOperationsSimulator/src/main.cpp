@@ -4714,7 +4714,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     else if (CheckCollisionPointRec(mouse, mainMenuButton))
                     {
                         isPaused = false;
-                        showMainMenu = true;
+                        returnToMainMenuRequested = true;
+                        exitRequested = true;
                     }
                     else if (CheckCollisionPointRec(mouse, restartButton))
                         showRestartConfirmation = true;
@@ -7482,6 +7483,9 @@ int main()
     bool additionalServiceCrewsUpgrade = false;
     while (true)
     {
+        // Upgrades are session-specific: every new shift starts locked.
+        automaticServiceUpgrade = false;
+        additionalServiceCrewsUpgrade = false;
         const RunGameResult result = RunGame(startImmediately, savedDifficulty,
             automaticServiceUpgrade, additionalServiceCrewsUpgrade);
         if (result == RunGameResult::Exit) break;
