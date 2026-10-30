@@ -2019,6 +2019,72 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     bool terminalFireGameOver = false;
     constexpr float TerminalFireExtinguishSeconds = 8.0f;
     bool terminalFireDispatched = false;
+    bool terminalFireTrucksArrived = false;
+    constexpr float FireTruckDriveSpeed = 114.0f;
+    constexpr float FireTruckSafeSeparation = 14.0f;
+    struct FireTruckDrive
+    {
+        std::vector<Vector2> path;
+        std::size_t nextPoint{1};
+        Vector2 position{0.0f, 0.0f};
+        float headingDegrees{0.0f};
+        float finalHeadingDegrees{0.0f};
+        bool arrived{false};
+    };
+    FireTruckDrive fireTruckDrives[2];
+    bool terminalFireTrucksReturning = false;
+    bool terminalFireTrucksReturned = false;
+    // Advances one truck along its path, then pivots it to its final heading.
+    const auto advanceFireTruck = [&fireTruckDrives, FireTruckDriveSpeed,
+        FireTruckSafeSeparation](int truckIndex, float deltaTime)
+    {
+        FireTruckDrive& drive = fireTruckDrives[truckIndex];
+        if (drive.arrived) return;
+        // The second truck waits at the start until the first has cleared its
+        // bay so the two trucks never overlap.
+        if (truckIndex == 1 && drive.nextPoint <= 1)
+        {
+            const Vector2 lead = fireTruckDrives[0].position;
+            if (std::hypot(drive.position.x - lead.x,
+                    drive.position.y - lead.y) < FireTruckSafeSeparation)
+                return;
+        }
+        float travel = FireTruckDriveSpeed * deltaTime;
+        const auto turnToward = [&drive](float target, float maxStep)
+        {
+            const float difference = std::remainder(
+                target - drive.headingDegrees, 360.0f);
+            drive.headingDegrees += std::clamp(difference, -maxStep, maxStep);
+            return std::abs(difference) <= maxStep;
+        };
+        while (travel > 0.0f && drive.nextPoint < drive.path.size())
+        {
+            const Vector2 target = drive.path[drive.nextPoint];
+            const float dx = target.x - drive.position.x;
+            const float dz = target.y - drive.position.y;
+            const float distance = std::hypot(dx, dz);
+            if (distance > 0.001f)
+                turnToward(std::atan2(dx, dz) * RAD2DEG, 900.0f * deltaTime);
+            if (distance <= travel)
+            {
+                drive.position = target;
+                travel -= distance;
+                ++drive.nextPoint;
+            }
+            else
+            {
+                drive.position.x += dx / distance * travel;
+                drive.position.y += dz / distance * travel;
+                travel = 0.0f;
+            }
+        }
+        if (drive.nextPoint >= drive.path.size() &&
+            turnToward(drive.finalHeadingDegrees, 240.0f * deltaTime))
+        {
+            drive.headingDegrees = drive.finalHeadingDegrees;
+            drive.arrived = true;
+        }
+    };
     float terminalFireExtinguishProgress = 0.0f;
     // Trucks stand on the apron in front of the terminal (the roof fire is behind
     // the facade at z = -2), mirrored per fire side, well apart and angled differently.
@@ -4507,7 +4573,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (terminalFireIndex >= 0 && !terminalFireExtinguished &&
                 !terminalFireGameOver && !shiftComplete && !showUpgradeMenu)
             {
-                if (terminalFireDispatched)
+                if (terminalFireTrucksArrived)
                 {
                     // Countdown and growth are paused while firefighting.
                     terminalFireExtinguishProgress = std::min(
@@ -4526,6 +4592,38 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         terminalFireGameOver = true;
                         shiftEndedEarly = true;
                     }
+                }
+                if (terminalFireDispatched && !terminalFireTrucksArrived &&
+                    !terminalFireGameOver)
+                {
+                    for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
+                        advanceFireTruck(truckIndex, speedScaledRealDeltaTime);
+                    if (fireTruckDrives[0].arrived && fireTruckDrives[1].arrived)
+                        terminalFireTrucksArrived = true;
+                }
+            }
+            if (terminalFireExtinguished && terminalFireDispatched &&
+                !terminalFireTrucksReturned && !terminalFireGameOver)
+            {
+                if (!terminalFireTrucksReturning)
+                {
+                    // Drive back along the same routes, ending at the original
+                    // parking spots with the original (zero) heading.
+                    terminalFireTrucksReturning = true;
+                    for (FireTruckDrive& drive : fireTruckDrives)
+                    {
+                        std::reverse(drive.path.begin(), drive.path.end());
+                        drive.nextPoint = 1;
+                        drive.finalHeadingDegrees = 0.0f;
+                        drive.arrived = false;
+                    }
+                }
+                if (!showUpgradeMenu)
+                {
+                    for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
+                        advanceFireTruck(truckIndex, speedScaledRealDeltaTime);
+                    if (fireTruckDrives[0].arrived && fireTruckDrives[1].arrived)
+                        terminalFireTrucksReturned = true;
                 }
             }
             if (!shiftComplete)
@@ -6830,15 +6928,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         for (const PassengerShuttle& shuttle : passengerShuttles)
             shuttle.Draw();
         const bool fireTrucksAtFire = terminalFireIndex >= 0 && terminalFireDispatched &&
-            !terminalFireExtinguished;
+            !terminalFireTrucksReturned;
         if (fireTrucksAtFire)
         {
             for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
             {
-                const Vector3 truckPosition =
-                    TerminalFireTruckPositions[terminalFireIndex][truckIndex];
-                AirportFireTruck(truckPosition.x, truckPosition.z,
-                    TerminalFireTruckYawDegrees[terminalFireIndex][truckIndex]).Draw();
+                const FireTruckDrive& drive = fireTruckDrives[truckIndex];
+                AirportFireTruck(drive.position.x, drive.position.y,
+                    drive.headingDegrees).Draw();
             }
         }
         else
@@ -6931,7 +7028,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     (1.6f + rise * 0.18f) * fireScale,
                     Fade(Color{70, 70, 74, 255}, 0.4f * (1.0f - rise / 18.0f)));
             }
-            if (terminalFireDispatched)
+            if (terminalFireTrucksArrived)
             {
                 // Water arcs from each truck's nozzle to the flames.
                 for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
@@ -8205,11 +8302,63 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     static_cast<int>(dispatchButton.y + 10.0f), 14, RAYWHITE);
                 if (dispatchHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
                     !isPaused && !showUpgradeMenu && !shiftComplete)
+                {
                     terminalFireDispatched = true;
+                    const float side = terminalFireIndex == 0 ? -1.0f : 1.0f;
+                    // Waypoints use the lot's aisles and the open apron south of the
+                    // wings, then enter the terminal apron by two different lanes.
+                    const std::vector<Vector2> routes[2] = {
+                        {FireTruckParkingPositions[0], {179.85f, -100.5f},
+                            {150.0f, -100.5f}, {150.0f, -245.0f},
+                            {62.0f * side, -245.0f}, {62.0f * side, -55.0f},
+                            {91.0f * side, -55.0f}, {91.0f * side, -12.0f}},
+                        {FireTruckParkingPositions[1], {184.95f, -93.5f},
+                            {140.0f, -93.5f}, {140.0f, -258.0f},
+                            {0.0f, -258.0f}, {0.0f, -40.0f},
+                            {78.0f * side, -40.0f}, {78.0f * side, -26.0f}}
+                    };
+                    for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
+                    {
+                        const std::vector<Vector2>& corners = routes[truckIndex];
+                        std::vector<Vector2> smooth{corners.front()};
+                        constexpr float CornerRadius = 9.0f;
+                        for (std::size_t k = 1; k + 1 < corners.size(); ++k)
+                        {
+                            const Vector2 p = corners[k];
+                            const Vector2 a = corners[k - 1];
+                            const Vector2 b = corners[k + 1];
+                            const float inLength = std::hypot(p.x - a.x, p.y - a.y);
+                            const float outLength = std::hypot(b.x - p.x, b.y - p.y);
+                            const float r = std::min({CornerRadius, inLength * 0.5f,
+                                outLength * 0.5f});
+                            const Vector2 start{p.x - (p.x - a.x) / inLength * r,
+                                p.y - (p.y - a.y) / inLength * r};
+                            const Vector2 end{p.x + (b.x - p.x) / outLength * r,
+                                p.y + (b.y - p.y) / outLength * r};
+                            for (int step = 0; step <= 8; ++step)
+                            {
+                                const float t = static_cast<float>(step) / 8.0f;
+                                const float u = 1.0f - t;
+                                smooth.push_back({
+                                    u * u * start.x + 2.0f * u * t * p.x + t * t * end.x,
+                                    u * u * start.y + 2.0f * u * t * p.y + t * t * end.y});
+                            }
+                        }
+                        smooth.push_back(corners.back());
+                        FireTruckDrive& drive = fireTruckDrives[truckIndex];
+                        drive.path = std::move(smooth);
+                        drive.nextPoint = 1;
+                        drive.position = corners.front();
+                        drive.headingDegrees = 0.0f;
+                        drive.finalHeadingDegrees =
+                            TerminalFireTruckYawDegrees[terminalFireIndex][truckIndex];
+                        drive.arrived = false;
+                    }
+                }
             }
 
             const float secondsLeft = TerminalFireCountdownSeconds - terminalFireAge;
-            if (secondsLeft <= 10.0f && !terminalFireDispatched)
+            if (secondsLeft <= 10.0f && !terminalFireTrucksArrived)
             {
                 // Urgency rises from 0 to 1 over the final 10 seconds; pulse
                 // frequency and strength both scale with it.
