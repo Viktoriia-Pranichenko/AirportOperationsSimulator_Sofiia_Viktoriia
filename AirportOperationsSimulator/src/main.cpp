@@ -6683,6 +6683,26 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         DrawText(scenarioStatus.c_str(), objectiveX + 12, objectiveY + 44, 9,
             scenarioStage == 2 ? Color{245, 199, 104, 255} : Color{116, 226, 202, 255});
 
+        const bool followMeAvailable =
+            followMeStatus == FollowMeStatus::Available;
+        const std::string followMeFlightId = followMeAssignedFlightIndex >= 0 ?
+            flights[static_cast<std::size_t>(
+                followMeAssignedFlightIndex)].airplane.flightId : "--";
+        constexpr int followMePanelHeight = 48;
+        const int followMePanelY = objectiveY + objectiveHeight + 8;
+        DrawRectangle(objectiveX, followMePanelY, objectiveWidth,
+            followMePanelHeight, Fade(Color{13, 26, 34, 255}, 0.91f));
+        DrawRectangle(objectiveX, followMePanelY, 4, followMePanelHeight,
+            followMeAvailable ? Color{116, 226, 202, 255} :
+                Color{245, 190, 94, 255});
+        DrawText(followMeAvailable ? "FOLLOW-ME  AVAILABLE" :
+            "FOLLOW-ME  BUSY", objectiveX + 12, followMePanelY + 7, 11,
+            followMeAvailable ? Color{153, 255, 190, 255} :
+                Color{255, 210, 135, 255});
+        DrawText(TextFormat("ASSIGNED FLIGHT  %s", followMeFlightId.c_str()),
+            objectiveX + 12, followMePanelY + 27, 9,
+            Color{203, 219, 224, 255});
+
         const std::vector<std::size_t> notificationOrder =
             buildActiveNotificationOrder();
         const Vector2 notificationMouse = GetMousePosition();
@@ -6869,36 +6889,6 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawText(selected.airplane.isPriority ?
                 "PRIORITY FLIGHT" : "STANDARD FLIGHT",
                 infoX + 22, infoY + 297, 13, RAYWHITE);
-        }
-
-        const char* followMeStatusText = followMeStatus == FollowMeStatus::Available ?
-            "AVAILABLE" :
-            followMeStatus == FollowMeStatus::MovingToAircraft ?
-                "MOVING TO AIRCRAFT" :
-                "ESCORTING";
-        const std::string followMeFlightId = followMeAssignedFlightIndex >= 0 ?
-            flights[static_cast<std::size_t>(
-                followMeAssignedFlightIndex)].airplane.flightId : "--";
-        DrawRectangle(16, GetScreenHeight() - 80, 720, 64,
-            Fade(Color{13, 26, 34, 255}, 0.93f));
-        DrawRectangle(16, GetScreenHeight() - 80, 4, 64,
-            followMeStatus == FollowMeStatus::Available ?
-                Color{116, 226, 202, 255} : Color{245, 190, 94, 255});
-        DrawText(TextFormat("FOLLOW-ME  %s", followMeStatusText),
-            28, GetScreenHeight() - 72, 11, RAYWHITE);
-        DrawText(TextFormat("ASSIGNED FLIGHT  %s", followMeFlightId.c_str()),
-            28, GetScreenHeight() - 53, 9, Color{203, 219, 224, 255});
-        if (followMeStatus != FollowMeStatus::Available)
-        {
-            const Vector2 carPosition = followMeCars[0].GetPosition();
-            DrawText(TextFormat("DEBUG %s | %s | CAR %.1f,%.1f | AIRCRAFT %.1f,%.1f | TARGET %.1f,%.1f | STEP %.2f | GAP %.1f",
-                followMeDebugReason, followMeDebugAircraftState,
-                carPosition.x, carPosition.y,
-                followMeDebugAircraftPosition.x,
-                followMeDebugAircraftPosition.y, followMeDebugTarget.x,
-                followMeDebugTarget.y, followMeDebugMovement,
-                followMeDebugTargetGap),
-                28, GetScreenHeight() - 37, 8, Color{180, 201, 207, 255});
         }
 
         if (!selectedGateId.empty())
