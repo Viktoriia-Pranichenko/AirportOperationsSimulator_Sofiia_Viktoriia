@@ -7995,6 +7995,22 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
             if (!terminalFireDispatched)
             {
+                // Subtitle strip attached to the bottom of the alert banner.
+                const char* instructionText = "Dispatch fire trucks from Service Building parking";
+                const int instructionWidth = std::max(fireWidth,
+                    MeasureText(instructionText, 12) + 24);
+                const int instructionX = (GetScreenWidth() - instructionWidth) / 2;
+                DrawRectangle(instructionX, 182, instructionWidth, 20,
+                    Fade(Color{40, 10, 8, 255}, 0.88f));
+                DrawRectangleLines(instructionX, 182, instructionWidth, 20,
+                    Fade(Color{255, 160, 60, 255}, 0.55f));
+                DrawText(instructionText,
+                    instructionX + (instructionWidth - MeasureText(instructionText, 12)) / 2,
+                    187, 12, Color{255, 226, 170, 255});
+            }
+
+            if (!terminalFireDispatched)
+            {
                 // Glowing clickable dispatch alert above the parked fire trucks.
                 const Vector2 parked = GetWorldToScreen(
                     {(FireTruckParkingPositions[0].x + FireTruckParkingPositions[1].x) * 0.5f,
