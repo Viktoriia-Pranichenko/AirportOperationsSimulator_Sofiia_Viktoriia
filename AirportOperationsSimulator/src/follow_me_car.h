@@ -40,15 +40,16 @@ private:
     std::vector<Vector2> activeWaypoints;
     std::size_t nextRoutePoint{0};
     std::size_t reverseWaypointCount{0};
-    float headingDegrees{0.0f};
     std::vector<Vector2> taxiWaypoints;
     std::vector<float> taxiWaypointDistances;
     float taxiRouteProgress{0.0f};
     float taxiSpeed{0.0f};
     float taxiLeadDistance{28.0f};
+    float wheelRotationDegrees{0.0f};
+    float steeringAngleDegrees{0.0f};
     bool taxiRouteActive{false};
 
     float CalculateNextTaxiSpeed(float targetProgress,
         float deltaTime) const;
-    Vector2 GetSmoothedTaxiDirection(float progress) const;
+    Vector2 GetTaxiDirectionAtProgress(float progress) const;
 };

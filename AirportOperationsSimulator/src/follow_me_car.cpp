@@ -22,16 +22,32 @@ namespace
     constexpr float TaxiMovementSpeed = 13.0f;
     constexpr float TaxiAcceleration = 8.0f;
     constexpr float TaxiDeceleration = 10.0f;
-    constexpr float TaxiMaximumTurnRate = 80.0f * DegreesToRadians;
-    constexpr float TaxiTurnLookBehind = 4.0f;
-    constexpr float TaxiTurnLookAhead = 6.0f;
+    constexpr float TaxiMaximumTurnRate = 95.0f;
 
-    void DrawWheel(float x, float y, float z, float radius)
+    void DrawWheel(float x, float y, float z, float radius, float side,
+        float spinDegrees, float steeringDegrees)
     {
-        DrawCylinderEx({x - 0.14f, y, z}, {x + 0.14f, y, z},
+        rlPushMatrix();
+        rlTranslatef(x, y, z);
+        rlRotatef(steeringDegrees, 0.0f, 1.0f, 0.0f);
+        rlRotatef(spinDegrees, 1.0f, 0.0f, 0.0f);
+
+        DrawCylinderEx({-0.14f, 0.0f, 0.0f}, {0.14f, 0.0f, 0.0f},
             radius, radius, 10, Tire);
-        DrawCylinderEx({x - 0.16f, y, z}, {x - 0.07f, y, z},
+        DrawCylinderEx({side * 0.07f, 0.0f, 0.0f},
+            {side * 0.16f, 0.0f, 0.0f},
             radius * 0.46f, radius * 0.46f, 8, WheelHub);
+        for (float spokeAngle : {0.0f, PI * 0.5f, PI, PI * 1.5f})
+        {
+            const float innerY = std::cos(spokeAngle) * radius * 0.16f;
+            const float innerZ = std::sin(spokeAngle) * radius * 0.16f;
+            const float outerY = std::cos(spokeAngle) * radius * 0.76f;
+            const float outerZ = std::sin(spokeAngle) * radius * 0.76f;
+            DrawCylinderEx({side * 0.145f, innerY, innerZ},
+                {side * 0.145f, outerY, outerZ},
+                0.025f, 0.025f, 6, Trim);
+        }
+        rlPopMatrix();
     }
 }
 
@@ -69,7 +85,7 @@ bool FollowMeCar::AdvanceRoute(float deltaTime)
 {
     if (deltaTime <= 0.0f || activeWaypoints.empty()) return false;
     constexpr float MovementSpeed = 12.0f;
-    constexpr float MaximumSteeringRate = 75.0f * DegreesToRadians;
+    constexpr float MaximumSteeringRate = 95.0f;
     float remainingTime = deltaTime;
     while (nextRoutePoint < activeWaypoints.size() && remainingTime > 0.0f)
     {
@@ -86,9 +102,10 @@ bool FollowMeCar::AdvanceRoute(float deltaTime)
         const float pathHeading = std::atan2(dx, dz) / DegreesToRadians;
         const bool reversing =
             nextRoutePoint <= reverseWaypointCount;
-        headingDegrees = std::remainder(
+        const float desiredHeading = std::remainder(
             pathHeading + (reversing ? 180.0f : 0.0f), 360.0f);
-
+        const float headingDelta = std::remainder(
+            desiredHeading - headingDegrees, 360.0f);
         float segmentSpeed = MovementSpeed;
         if (nextRoutePoint + 1 < activeWaypoints.size())
         {
@@ -111,8 +128,23 @@ bool FollowMeCar::AdvanceRoute(float deltaTime)
             }
         }
 
+        const float turnTime = std::min(remainingTime,
+            distance / segmentSpeed);
+        headingDegrees = std::remainder(headingDegrees +
+            std::clamp(headingDelta, -MaximumSteeringRate * turnTime,
+                MaximumSteeringRate * turnTime), 360.0f);
+        const float desiredSteering = std::clamp(
+            headingDelta * 0.4f, -28.0f, 28.0f);
+        steeringAngleDegrees += std::clamp(
+            desiredSteering - steeringAngleDegrees,
+            -100.0f * turnTime, 100.0f * turnTime);
+
         const float travelDistance = std::min(distance,
             segmentSpeed * remainingTime);
+        wheelRotationDegrees = std::remainder(
+            wheelRotationDegrees + travelDistance / 0.38f /
+                DegreesToRadians * (reversing ? -1.0f : 1.0f),
+            360.0f);
         positionX += dx / distance * travelDistance;
         positionZ += dz / distance * travelDistance;
         remainingTime -= travelDistance / segmentSpeed;
@@ -165,7 +197,7 @@ bool FollowMeCar::SetTaxiRoute(const std::vector<Vector2>& waypoints,
         taxiRouteProgress = 0.0f;
         const Vector2 start = GetTaxiPositionAtProgress(taxiRouteProgress);
         SetPosition(start.x, start.y);
-        const Vector2 direction = GetSmoothedTaxiDirection(taxiRouteProgress);
+        const Vector2 direction = GetTaxiDirectionAtProgress(taxiRouteProgress);
         headingDegrees = std::atan2(direction.x, direction.y) /
             DegreesToRadians;
         return true;
@@ -295,13 +327,24 @@ void FollowMeCar::AdvanceTaxiRoute(float targetProgress, float deltaTime,
     bool allowMovement)
 {
     if (!taxiRouteActive || deltaTime <= 0.0f) return;
+    const Vector2 direction = GetTaxiDirectionAtProgress(taxiRouteProgress);
+    const float desiredHeading = std::atan2(direction.x, direction.y) /
+        DegreesToRadians;
+    const float headingDelta = std::remainder(
+        desiredHeading - headingDegrees, 360.0f);
+
     if (allowMovement)
     {
         const float target = std::clamp(targetProgress,
             taxiRouteProgress, GetTaxiRouteLength());
         const float nextSpeed = CalculateNextTaxiSpeed(target, deltaTime);
+        const float previousProgress = taxiRouteProgress;
         taxiRouteProgress = GetNextTaxiRouteProgress(target, deltaTime);
         taxiSpeed = taxiRouteProgress >= target - 0.001f ? 0.0f : nextSpeed;
+        const float distanceTravelled = taxiRouteProgress - previousProgress;
+        wheelRotationDegrees = std::remainder(
+            wheelRotationDegrees + distanceTravelled / 0.38f /
+                DegreesToRadians, 360.0f);
         const Vector2 position = GetTaxiPositionAtProgress(taxiRouteProgress);
         SetPosition(position.x, position.y);
     }
@@ -311,11 +354,11 @@ void FollowMeCar::AdvanceTaxiRoute(float targetProgress, float deltaTime,
             TaxiDeceleration * deltaTime);
     }
 
-    const Vector2 direction = GetSmoothedTaxiDirection(taxiRouteProgress);
-    const float desiredHeading = std::atan2(direction.x, direction.y) /
-        DegreesToRadians;
-    const float headingDelta = std::remainder(
-        desiredHeading - headingDegrees, 360.0f);
+    const float desiredSteering = std::clamp(
+        headingDelta * 0.4f, -28.0f, 28.0f);
+    steeringAngleDegrees += std::clamp(
+        desiredSteering - steeringAngleDegrees,
+        -100.0f * deltaTime, 100.0f * deltaTime);
     headingDegrees = std::remainder(headingDegrees + std::clamp(headingDelta,
         -TaxiMaximumTurnRate * deltaTime,
         TaxiMaximumTurnRate * deltaTime), 360.0f);
@@ -328,37 +371,67 @@ float FollowMeCar::CalculateNextTaxiSpeed(float targetProgress,
         targetProgress - taxiRouteProgress);
     const float desiredSpeed = std::min(TaxiMovementSpeed,
         std::sqrt(2.0f * TaxiDeceleration * remainingDistance));
-    const float speedChange = std::clamp(desiredSpeed - taxiSpeed,
+    float cornerSpeedLimit = TaxiMovementSpeed;
+    const auto nextWaypoint = std::upper_bound(taxiWaypointDistances.begin(),
+        taxiWaypointDistances.end(), taxiRouteProgress + 0.001f);
+    if (nextWaypoint != taxiWaypointDistances.end())
+    {
+        const std::size_t cornerIndex = static_cast<std::size_t>(
+            std::distance(taxiWaypointDistances.begin(), nextWaypoint));
+        if (cornerIndex + 1 < taxiWaypoints.size())
+        {
+            const Vector2 corner = taxiWaypoints[cornerIndex];
+            const Vector2 previous = taxiWaypoints[cornerIndex - 1];
+            const Vector2 next = taxiWaypoints[cornerIndex + 1];
+            const float incomingX = corner.x - previous.x;
+            const float incomingZ = corner.y - previous.y;
+            const float outgoingX = next.x - corner.x;
+            const float outgoingZ = next.y - corner.y;
+            const float angle = std::abs(std::atan2(
+                incomingX * outgoingZ - incomingZ * outgoingX,
+                incomingX * outgoingX + incomingZ * outgoingZ));
+            const float distanceToCorner =
+                taxiWaypointDistances[cornerIndex] - taxiRouteProgress;
+            constexpr float TurnSlowdownDistance = 12.0f;
+            if (angle > 0.15f && distanceToCorner < TurnSlowdownDistance)
+            {
+                const float severity = std::clamp(angle / PI, 0.0f, 1.0f);
+                const float turnSpeed = std::max(6.0f,
+                    TaxiMovementSpeed * (1.0f - 0.45f * severity));
+                const float turnProgress = std::clamp(
+                    distanceToCorner / TurnSlowdownDistance, 0.0f, 1.0f);
+                cornerSpeedLimit = turnSpeed +
+                    (TaxiMovementSpeed - turnSpeed) * turnProgress;
+            }
+        }
+    }
+    const float speedLimit = std::min(desiredSpeed, cornerSpeedLimit);
+    const float speedChange = std::clamp(speedLimit - taxiSpeed,
         -TaxiDeceleration * deltaTime,
         TaxiAcceleration * deltaTime);
     return std::max(0.0f, taxiSpeed + speedChange);
 }
 
-Vector2 FollowMeCar::GetSmoothedTaxiDirection(float progress) const
+Vector2 FollowMeCar::GetTaxiDirectionAtProgress(float progress) const
 {
     if (taxiWaypoints.size() < 2) return {0.0f, 1.0f};
-    const Vector2 before = GetTaxiPositionAtProgress(
-        std::max(0.0f, progress - TaxiTurnLookBehind));
-    const Vector2 after = GetTaxiPositionAtProgress(
-        std::min(GetTaxiRouteLength(), progress + TaxiTurnLookAhead));
-    const float dx = after.x - before.x;
-    const float dz = after.y - before.y;
-    const float length = std::sqrt(dx * dx + dz * dz);
-    if (length > 0.001f) return {dx / length, dz / length};
-
     const auto nextWaypoint = std::upper_bound(taxiWaypointDistances.begin(),
         taxiWaypointDistances.end(), progress);
-    if (nextWaypoint == taxiWaypointDistances.end()) return {0.0f, 1.0f};
-    const std::size_t endIndex = static_cast<std::size_t>(
-        std::distance(taxiWaypointDistances.begin(), nextWaypoint));
-    const Vector2 start = taxiWaypoints[endIndex - 1];
-    const Vector2 end = taxiWaypoints[endIndex];
-    const float segmentLength = std::sqrt(
-        (end.x - start.x) * (end.x - start.x) +
-        (end.y - start.y) * (end.y - start.y));
-    if (segmentLength <= 0.001f) return {0.0f, 1.0f};
-    return {(end.x - start.x) / segmentLength,
-        (end.y - start.y) / segmentLength};
+    std::size_t endIndex = nextWaypoint == taxiWaypointDistances.end() ?
+        taxiWaypoints.size() - 1 :
+        static_cast<std::size_t>(std::distance(
+            taxiWaypointDistances.begin(), nextWaypoint));
+    while (endIndex > 0)
+    {
+        const Vector2 start = taxiWaypoints[endIndex - 1];
+        const Vector2 end = taxiWaypoints[endIndex];
+        const float dx = end.x - start.x;
+        const float dz = end.y - start.y;
+        const float length = std::sqrt(dx * dx + dz * dz);
+        if (length > 0.001f) return {dx / length, dz / length};
+        --endIndex;
+    }
+    return {0.0f, 1.0f};
 }
 
 const ServiceVehicleRoute& FollowMeCar::GetRoute() const
@@ -390,7 +463,9 @@ void FollowMeCar::Draw() const
         }
 
         for (float axleZ : {-1.48f, 1.48f})
-            DrawWheel(side * 1.04f, 0.38f, axleZ, 0.38f);
+            DrawWheel(side * 1.04f, 0.38f, axleZ, 0.38f, side,
+                wheelRotationDegrees, axleZ > 0.0f ?
+                    steeringAngleDegrees : 0.0f);
     }
 
     DrawCubeV({0.0f, 2.12f, -0.35f}, {0.32f, 0.08f, 0.3f}, FollowYellow);
