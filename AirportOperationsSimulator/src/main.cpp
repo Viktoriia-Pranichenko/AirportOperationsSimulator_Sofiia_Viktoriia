@@ -4087,8 +4087,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             {
                 const float screenWidth = static_cast<float>(GetScreenWidth());
                 const float screenHeight = static_cast<float>(GetScreenHeight());
-                const float panelWidth = std::min(780.0f, screenWidth - 40.0f);
-                const float panelHeight = std::min(356.0f, screenHeight - 32.0f);
+                const float panelWidth = std::min(960.0f, screenWidth - 32.0f);
+                const float panelHeight = std::min(382.0f, screenHeight - 32.0f);
                 const float panelX = (screenWidth - panelWidth) * 0.5f;
                 const float panelY = (screenHeight - panelHeight) * 0.5f;
                 const float gap = 12.0f;
@@ -4097,7 +4097,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 for (int i = 0; i < 3; ++i)
                 {
                     const Rectangle card{panelX + 28.0f + i * (cardWidth + gap),
-                        panelY + 122.0f, cardWidth, 140.0f};
+                        panelY + 134.0f, cardWidth, 156.0f};
                     if (CheckCollisionPointRec(mouse, card))
                     {
                         savedDifficulty = static_cast<GameDifficulty>(i);
@@ -4109,7 +4109,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     }
                 }
                 const Rectangle backButton{panelX + 28.0f,
-                    panelY + panelHeight - 58.0f, 132.0f, 38.0f};
+                    panelY + panelHeight - 56.0f, 138.0f, 40.0f};
                 if (!started && CheckCollisionPointRec(mouse, backButton))
                     showDifficultySelection = false;
             }
@@ -5997,7 +5997,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             DrawMenuBackground(menuAnimationTime);
             if (showGameplayGuide)
                 DrawGameplayGuide(menuAnimationTime);
-            else
+            else if (!showDifficultySelection)
             {
             const float screenWidth = static_cast<float>(GetScreenWidth());
             const float screenHeight = static_cast<float>(GetScreenHeight());
@@ -6096,8 +6096,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         {
             const float screenWidth = static_cast<float>(GetScreenWidth());
             const float screenHeight = static_cast<float>(GetScreenHeight());
-            const float panelWidth = std::min(780.0f, screenWidth - 40.0f);
-            const float panelHeight = std::min(356.0f, screenHeight - 32.0f);
+            const float panelWidth = std::min(960.0f, screenWidth - 32.0f);
+            const float panelHeight = std::min(382.0f, screenHeight - 32.0f);
             const float panelX = (screenWidth - panelWidth) * 0.5f;
             const float panelY = (screenHeight - panelHeight) * 0.5f;
             const float gap = 12.0f;
@@ -6110,62 +6110,103 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 "22 ARRIVALS / 4 ADDITIONAL DEPARTURES"};
 
             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
-                Fade(Color{3, 13, 21, 255}, 0.66f));
-            DrawRectangleRec({panelX, panelY, panelWidth, panelHeight},
-                Color{8, 27, 38, 250});
+                Fade(Color{3, 13, 21, 255}, 0.24f));
+            // Faint airfield markings show through around the setup panel.
+            const Color airfieldMarking = Fade(Color{110, 217, 220, 255}, 0.12f);
+            DrawLineEx({0.0f, screenHeight * 0.76f},
+                {screenWidth, screenHeight * 0.65f}, 2.0f, airfieldMarking);
+            DrawLineEx({screenWidth * 0.08f, screenHeight},
+                {screenWidth * 0.35f, screenHeight * 0.68f}, 2.0f, airfieldMarking);
+            DrawLineEx({screenWidth * 0.92f, screenHeight},
+                {screenWidth * 0.65f, screenHeight * 0.68f}, 2.0f, airfieldMarking);
+            for (int dash = 0; dash < 7; ++dash)
+            {
+                const float dashY = screenHeight * 0.76f + dash * 19.0f;
+                DrawRectangle(static_cast<int>(screenWidth * 0.5f - 1.0f),
+                    static_cast<int>(dashY), 2, 9, airfieldMarking);
+            }
+            DrawRectangleRounded({panelX + 5.0f, panelY + 7.0f,
+                panelWidth, panelHeight}, 0.025f, 8, Fade(BLACK, 0.28f));
+            DrawRectangleGradientV(static_cast<int>(panelX), static_cast<int>(panelY),
+                static_cast<int>(panelWidth), static_cast<int>(panelHeight),
+                Color{12, 43, 58, 224}, Color{7, 24, 39, 226});
             DrawRectangleLinesEx({panelX, panelY, panelWidth, panelHeight},
                 2.0f, Color{74, 202, 207, 255});
             DrawRectangle(static_cast<int>(panelX), static_cast<int>(panelY),
                 static_cast<int>(panelWidth), 4, Color{100, 231, 223, 255});
-            DrawText("SHIFT SETUP", static_cast<int>(panelX + 28.0f),
+            DrawText("SHIFT SETUP  /  AIRFIELD CONTROL", static_cast<int>(panelX + 28.0f),
                 static_cast<int>(panelY + 24.0f), 11, Color{110, 222, 220, 255});
             DrawText("SELECT DIFFICULTY", static_cast<int>(panelX + 28.0f),
                 static_cast<int>(panelY + 48.0f), 27, RAYWHITE);
             DrawText("Choose a shift workload. Higher difficulties schedule more traffic.",
-                static_cast<int>(panelX + 28.0f), static_cast<int>(panelY + 86.0f),
+                static_cast<int>(panelX + 28.0f), static_cast<int>(panelY + 88.0f),
                 11, Color{166, 193, 200, 255});
+
+            const Rectangle runwayBadge{panelX + panelWidth - 214.0f,
+                panelY + 22.0f, 184.0f, 70.0f};
+            DrawRectangleRec(runwayBadge, Color{11, 39, 51, 245});
+            DrawRectangleLinesEx(runwayBadge, 1.0f, Color{50, 112, 127, 220});
+            DrawText("LIVE AIRFIELD", static_cast<int>(runwayBadge.x + 12.0f),
+                static_cast<int>(runwayBadge.y + 13.0f), 9,
+                Color{117, 215, 212, 255});
+            DrawText("GATES  /  RUNWAYS", static_cast<int>(runwayBadge.x + 12.0f),
+                static_cast<int>(runwayBadge.y + 35.0f), 9,
+                Color{170, 196, 201, 255});
+            DrawRectangle(static_cast<int>(runwayBadge.x + 130.0f),
+                static_cast<int>(runwayBadge.y + 10.0f), 38, 50,
+                Color{21, 61, 73, 255});
+            DrawRectangleLinesEx({runwayBadge.x + 130.0f, runwayBadge.y + 10.0f,
+                38.0f, 50.0f}, 1.0f, Color{76, 144, 155, 255});
+            for (int mark = 0; mark < 4; ++mark)
+                DrawRectangle(static_cast<int>(runwayBadge.x + 148.0f),
+                    static_cast<int>(runwayBadge.y + 16.0f + mark * 10.0f),
+                    2, 5, Color{128, 197, 199, 255});
 
             for (int i = 0; i < 3; ++i)
             {
                 const Rectangle card{panelX + 28.0f + i * (cardWidth + gap),
-                    panelY + 122.0f, cardWidth, 140.0f};
+                    panelY + 134.0f, cardWidth, 156.0f};
                 const bool hovered = CheckCollisionPointRec(mouse, card);
                 const bool selected = static_cast<int>(savedDifficulty) == i;
                 const Color border = selected || hovered ?
                     Color{91, 222, 218, 255} : Color{65, 115, 128, 230};
-                const Color fill = hovered ? Color{22, 76, 91, 250} :
-                    (selected ? Color{17, 62, 76, 248} : Color{12, 39, 52, 245});
-                DrawRectangleRec(card, fill);
+                const Color fill = hovered ? Color{29, 89, 103, 232} :
+                    (selected ? Color{19, 70, 84, 232} : Color{11, 39, 54, 226});
+                DrawRectangleRounded(card, 0.035f, 8, fill);
                 DrawRectangleLinesEx(card, selected || hovered ? 2.0f : 1.0f, border);
                 DrawRectangle(static_cast<int>(card.x), static_cast<int>(card.y), 4,
                     static_cast<int>(card.height), selected ?
                         Color{111, 237, 227, 255} : border);
-                DrawText(TextFormat("0%d", i + 1), static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 16.0f), 10, Color{112, 190, 197, 255});
+                const Color levelAccent[] = {
+                    Color{100, 210, 190, 255}, Color{94, 220, 220, 255},
+                    Color{235, 186, 104, 255}};
+                DrawText(TextFormat("0%d  /  OPERATIONS LEVEL", i + 1),
+                    static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + 14.0f), 9, levelAccent[i]);
                 DrawText(names[i], static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 41.0f), 20, RAYWHITE);
+                    static_cast<int>(card.y + 42.0f), 22, RAYWHITE);
                 DrawText(profiles[i], static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 73.0f), 8, Color{153, 184, 193, 255});
+                    static_cast<int>(card.y + 80.0f), 9, Color{176, 205, 211, 255});
                 DrawText(i == 0 ? "NO PRIORITY FLIGHTS" : "PRIORITY FLIGHTS INCLUDED",
                     static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 91.0f), 8,
+                    static_cast<int>(card.y + 104.0f), 9,
                     i == 0 ? Color{129, 159, 169, 255} : Color{240, 198, 113, 255});
                 DrawText(selected ? "CURRENT SELECTION" : "CLICK TO START",
                     static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 116.0f), 8,
+                    static_cast<int>(card.y + 132.0f), 9,
                     selected ? Color{107, 230, 212, 255} :
                         Color{129, 159, 169, 255});
             }
 
             const Rectangle backButton{panelX + 28.0f,
-                panelY + panelHeight - 58.0f, 132.0f, 38.0f};
+                panelY + panelHeight - 56.0f, 138.0f, 40.0f};
             const bool backHovered = CheckCollisionPointRec(mouse, backButton);
             DrawRectangleRec(backButton, backHovered ? Color{31, 69, 82, 250} :
                 Color{14, 38, 51, 234});
             DrawRectangleLinesEx(backButton, backHovered ? 2.0f : 1.0f,
                 Color{65, 115, 128, 230});
-            DrawText("BACK", static_cast<int>(backButton.x + 45.0f),
-                static_cast<int>(backButton.y + 12.0f), 11, RAYWHITE);
+            DrawText("BACK", static_cast<int>(backButton.x + 48.0f),
+                static_cast<int>(backButton.y + 13.0f), 11, RAYWHITE);
             DrawText("CLICK A PROFILE OR PRESS 1 / 2 / 3    ENTER: START    ESC: BACK",
                 static_cast<int>(panelX + 178.0f),
                 static_cast<int>(panelY + panelHeight - 45.0f), 8,
