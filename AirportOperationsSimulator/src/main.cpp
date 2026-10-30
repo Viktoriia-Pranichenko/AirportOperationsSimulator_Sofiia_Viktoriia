@@ -1699,6 +1699,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         "resources/music/background-music.mp3";
     bool backgroundMusicStarted = false;
     bool backgroundMusicPaused = false;
+    Music rainMusic{};
+    const char* rainMusicPath = DirectoryExists("music") ?
+        "music/rain.mp3" :
+        "resources/music/rain.mp3";
+    bool rainMusicStarted = false;
+    bool rainMusicPaused = false;
     if (!audioDeviceReady)
         TraceLog(LOG_WARNING, "Audio device is unavailable; sound effects are disabled.");
     else
@@ -1733,6 +1739,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             backgroundMusic.looping = true;
             SetMusicVolume(backgroundMusic, 0.18f);
+        }
+        rainMusic = LoadMusicStream(rainMusicPath);
+        if (rainMusic.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load rain sound: %s", rainMusicPath);
+        else
+        {
+            rainMusic.looping = true;
+            SetMusicVolume(rainMusic, 0.22f);
         }
     }
     rlSetClipPlanes(10.0, 4000.0);
@@ -6439,6 +6453,38 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
         const WeatherState currentWeather = GetWeatherState(
             shiftClockSeconds, weatherSchedule);
+        const bool rainShouldPlay = !showMainMenu && !shiftComplete &&
+            !returnToMainMenuRequested && currentWeather != WeatherState::Clear &&
+            rainMusic.frameCount > 0;
+        if (rainShouldPlay)
+        {
+            if (!rainMusicStarted)
+            {
+                PlayMusicStream(rainMusic);
+                rainMusicStarted = true;
+            }
+
+            const bool rainShouldPause = isPaused || showUpgradeMenu;
+            if (rainShouldPause)
+            {
+                if (!rainMusicPaused)
+                    PauseMusicStream(rainMusic);
+                rainMusicPaused = true;
+            }
+            else
+            {
+                if (rainMusicPaused)
+                    ResumeMusicStream(rainMusic);
+                rainMusicPaused = false;
+                UpdateMusicStream(rainMusic);
+            }
+        }
+        else if (rainMusicStarted)
+        {
+            StopMusicStream(rainMusic);
+            rainMusicStarted = false;
+            rainMusicPaused = false;
+        }
         BeginDrawing();
         const int backgroundScenarioStage =
             shiftClockSeconds < MorningStageEndSeconds ? 0 :
@@ -8173,6 +8219,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (backgroundMusicStarted)
                 StopMusicStream(backgroundMusic);
             UnloadMusicStream(backgroundMusic);
+        }
+        if (rainMusic.frameCount > 0)
+        {
+            if (rainMusicStarted)
+                StopMusicStream(rainMusic);
+            UnloadMusicStream(rainMusic);
         }
         if (takeoffSound.frameCount > 0) UnloadSound(takeoffSound);
         if (landingSound.frameCount > 0) UnloadSound(landingSound);
