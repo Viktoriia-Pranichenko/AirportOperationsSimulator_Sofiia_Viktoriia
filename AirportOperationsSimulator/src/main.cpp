@@ -2220,6 +2220,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     float weatherAnimationTime = 0.0f;
     int shiftScore = 0;
     int followMeBonusPoints = 0;
+    int credits = 0;
+    std::string creditNotification;
+    float creditNotificationTime = 0.0f;
     int completedFlights = 0;
     int completedArrivals = 0;
     int punctualOperations = 0;
@@ -2260,6 +2263,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     {
         return savedDifficulty == GameDifficulty::Hard ? 2 :
             (savedDifficulty == GameDifficulty::Medium ? 1 : 0);
+    };
+    const auto automaticServicePrice = [&]()
+    {
+        return savedDifficulty == GameDifficulty::Easy ? 250 : 350;
+    };
+    const auto additionalCrewPrice = [&]()
+    {
+        return 200;
     };
     const auto maximumServiceCrews = [&]()
     {
@@ -4045,6 +4056,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 refuellingMessageTime - speedScaledRealDeltaTime);
             priorityNotificationTime = std::max(0.0f,
                 priorityNotificationTime - speedScaledRealDeltaTime);
+            creditNotificationTime = std::max(0.0f,
+                creditNotificationTime - speedScaledRealDeltaTime);
             const auto updateBaggageLoading = [&](BaggageLoadingState& state,
                 float& timeRemaining, const char* aircraftName)
             {
@@ -4663,14 +4676,35 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             const Vector2 mouse = GetMousePosition();
             const UpgradeMenuLayout layout = GetUpgradeMenuLayout();
             if (CheckCollisionPointRec(mouse, layout.automaticCard))
-                automaticServiceUpgrade = true;
+            {
+                if (!automaticServiceUpgrade &&
+                    credits >= automaticServicePrice())
+                {
+                    credits -= automaticServicePrice();
+                    automaticServiceUpgrade = true;
+                }
+                else if (!automaticServiceUpgrade)
+                {
+                    refuellingMessage = "Not enough Credits.";
+                    refuellingMessageTime = 2.5f;
+                }
+            }
             else if (CheckCollisionPointRec(mouse, layout.additionalCard))
             {
                 if (additionalServiceCrewsUpgrade <
                     maximumAdditionalCrewPurchases())
                 {
-                    ++additionalServiceCrewsUpgrade;
-                    addThirdServiceCrewFleet();
+                    if (credits >= additionalCrewPrice())
+                    {
+                        credits -= additionalCrewPrice();
+                        ++additionalServiceCrewsUpgrade;
+                        addThirdServiceCrewFleet();
+                    }
+                    else
+                    {
+                        refuellingMessage = "Not enough Credits.";
+                        refuellingMessageTime = 2.5f;
+                    }
                 }
             }
             else if (CheckCollisionPointRec(mouse, layout.backButton))
@@ -5486,6 +5520,25 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         plan.followMeBonusRecorded = true;
                     }
                     plan.scoreRecorded = true;
+                    // Credits are awarded in the same once-only block as the score.
+                    const auto serviceRecord = serviceProgressByFlight.find(
+                        airplane.flightId);
+                    const bool fullyServiced =
+                        serviceRecord != serviceProgressByFlight.end() &&
+                        serviceRecord->second.disembarking ==
+                            DisembarkingState::Complete &&
+                        serviceRecord->second.maintenance ==
+                            MaintenanceInspectionState::Complete &&
+                        serviceRecord->second.refuellingFinished &&
+                        serviceRecord->second.cateringWater ==
+                            CateringWaterState::Complete &&
+                        serviceRecord->second.baggage ==
+                            BaggageLoadingState::Complete &&
+                        serviceRecord->second.boarding == BoardingState::Complete;
+                    const int creditsEarned = 40 + (fullyServiced ? 10 : 0);
+                    credits += creditsEarned;
+                    creditNotification = TextFormat("+%d Credits", creditsEarned);
+                    creditNotificationTime = 3.0f;
                 }
                 releaseRoute(plan.activeRouteNodeIds, airplane.flightId);
                 plan.activeRouteNodeIds.clear();
@@ -6653,6 +6706,31 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 static_cast<int>(upgradesButton.x + 27.0f),
                 static_cast<int>(upgradesButton.y + 10.0f), 11,
                 Color{203, 236, 232, 255});
+
+            const Rectangle creditsBadge{upgradesButton.x - 128.0f,
+                upgradesButton.y, 118.0f, 32.0f};
+            DrawRectangleRounded(creditsBadge, 0.18f, 6, Color{15, 44, 57, 245});
+            DrawRectangleRoundedLinesEx(creditsBadge, 0.18f, 6, 1.0f,
+                Color{238, 185, 82, 255});
+            const char* creditsLabel = TextFormat("%d CREDITS", credits);
+            DrawText(creditsLabel,
+                static_cast<int>(creditsBadge.x + (creditsBadge.width -
+                    static_cast<float>(MeasureText(creditsLabel, 11))) * 0.5f),
+                static_cast<int>(creditsBadge.y + 10.0f), 11,
+                Color{255, 226, 164, 255});
+            if (creditNotificationTime > 0.0f)
+            {
+                const float alpha = std::min(1.0f, creditNotificationTime);
+                const int toastWidth = MeasureText(creditNotification.c_str(), 12) + 20;
+                const int toastX = static_cast<int>(creditsBadge.x +
+                    creditsBadge.width) - toastWidth;
+                DrawRectangle(toastX, 204, toastWidth, 24,
+                    Fade(Color{20, 52, 44, 255}, 0.92f * alpha));
+                DrawRectangleLines(toastX, 204, toastWidth, 24,
+                    Fade(Color{117, 235, 183, 255}, alpha));
+                DrawText(creditNotification.c_str(), toastX + 10, 210, 12,
+                    Fade(Color{190, 255, 220, 255}, alpha));
+            }
         }
 
         const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
@@ -7527,10 +7605,16 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawText("AIRFIELD UPGRADES",
                 static_cast<int>(layout.panel.x + 26.0f),
                 static_cast<int>(layout.panel.y + 24.0f), 24, RAYWHITE);
-            DrawText("Both upgrades are free. No currency or prices are used.",
+            DrawText("Spend Credits earned from completed departures.",
                 static_cast<int>(layout.panel.x + 28.0f),
                 static_cast<int>(layout.panel.y + 62.0f), 11,
                 Color{164, 196, 203, 255});
+            const char* upgradeCreditsText = TextFormat("CREDITS: %d", credits);
+            DrawText(upgradeCreditsText,
+                static_cast<int>(layout.panel.x + layout.panel.width - 26.0f -
+                    MeasureText(upgradeCreditsText, 20)),
+                static_cast<int>(layout.panel.y + 26.0f), 20,
+                Color{255, 226, 164, 255});
 
             const auto drawUpgradeCard = [&](Rectangle card, const char* title,
                 const char* descriptionLineOne, const char* descriptionLineTwo,
@@ -7547,11 +7631,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     hovered ? 2.0f : 1.0f, border);
                 DrawText(title, static_cast<int>(card.x + 18.0f),
                     static_cast<int>(card.y + 18.0f), 17, RAYWHITE);
+                const bool isPriceBadge = badgeText != nullptr &&
+                    std::strncmp(badgeText, "PRICE", 5) == 0;
                 DrawText(badgeText != nullptr ? badgeText :
                     (enabled ? "UNLOCKED" : "FREE UPGRADE"),
                     static_cast<int>(card.x + 18.0f),
-                    static_cast<int>(card.y + 52.0f), 10,
+                    static_cast<int>(card.y + 50.0f), isPriceBadge ? 13 : 10,
                     enabled ? Color{117, 235, 183, 255} :
+                        isPriceBadge ? Color{255, 213, 107, 255} :
                         Color{180, 193, 196, 255});
                 DrawText(descriptionLineOne, static_cast<int>(card.x + 18.0f),
                     static_cast<int>(card.y + 82.0f), 9,
@@ -7568,21 +7655,31 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     static_cast<int>(card.y + card.height - 15.0f), 8,
                     Color{137, 166, 173, 255});
             };
+            const int autoPrice = automaticServicePrice();
+            const std::string autoBadge = automaticServiceUpgrade ? "UNLOCKED" :
+                std::string(TextFormat("PRICE: %d CREDITS", autoPrice));
+            const char* autoHint = automaticServiceUpgrade ? "ALREADY UNLOCKED" :
+                (credits >= autoPrice ? "CLICK TO BUY" : "NOT ENOUGH CREDITS");
             drawUpgradeCard(layout.automaticCard, "AUTOMATIC SERVICE",
                 "After dispatch, servicing runs in order from",
                 "disembarking through inspection, fuel, and boarding.",
                 "Crew dispatch and departure clearance remain manual.",
-                automaticServiceUpgrade);
+                automaticServiceUpgrade, autoBadge.c_str(), autoHint);
             const int crewPurchaseLimit = maximumAdditionalCrewPurchases();
             const bool crewUpgradeExhausted =
                 additionalServiceCrewsUpgrade >= crewPurchaseLimit;
+            const int crewPrice = additionalCrewPrice();
             const std::string crewBadge = crewPurchaseLimit == 0 ?
-                "NOT AVAILABLE" : (additionalServiceCrewsUpgrade == 0 ?
-                    "FREE UPGRADE" : TextFormat("CREWS: %d / %d",
-                        1 + additionalServiceCrewsUpgrade, 1 + crewPurchaseLimit));
+                "NOT AVAILABLE" : (crewUpgradeExhausted ?
+                    std::string(TextFormat("CREWS: %d / %d",
+                        1 + additionalServiceCrewsUpgrade, 1 + crewPurchaseLimit)) :
+                    std::string(TextFormat("PRICE: %d CREDITS   CREWS: %d / %d",
+                        crewPrice, 1 + additionalServiceCrewsUpgrade,
+                        1 + crewPurchaseLimit)));
             const char* crewHint = crewPurchaseLimit == 0 ?
                 "EASY HAS ONE CREW" : (crewUpgradeExhausted ?
-                    "MAXIMUM CREWS REACHED" : "CLICK TO ADD ONE CREW");
+                    "MAXIMUM CREWS REACHED" : (credits >= crewPrice ?
+                        "CLICK TO ADD ONE CREW" : "NOT ENOUGH CREDITS"));
             drawUpgradeCard(layout.additionalCard, "ADDITIONAL CREW",
                 "Each purchase adds one complete crew, if the",
                 "difficulty permits: Easy 1, Medium 2, Hard 3.",
