@@ -1817,12 +1817,38 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         plan.departureHoldNodeId = setup.departureHold;
         flights.push_back(std::move(plan));
     }
-    TraceLog(LOG_INFO, "SCHEDULE: loaded %d aircraft (%d arrivals, %d departures)",
-        static_cast<int>(flights.size()),
-        static_cast<int>(std::count_if(flights.begin(), flights.end(),
-            [](const FlightPlan& plan) { return plan.hasArrivalSchedule; })),
-        static_cast<int>(std::count_if(flights.begin(), flights.end(),
-            [](const FlightPlan& plan) { return plan.departureFlight; })));
+    bool difficultyScheduleApplied = false;
+    const auto applyDifficultySchedule = [&]()
+    {
+        if (difficultyScheduleApplied) return;
+        // Keep each reduced schedule spread through the day. Medium omits only
+        // regular flights so every priority flight remains available; Easy's
+        // allow-list contains regular flights only.
+        static const std::unordered_set<std::string> mediumOmittedFlights{
+            "AO214", "AO317", "AO708", "AO548", "AO640", "AO685", "AO365"};
+        static const std::unordered_set<std::string> easyIncludedFlights{
+            "AO100", "AO214", "AO512", "AO731", "AO350", "AO548",
+            "AO560", "AO575", "AO640", "AO670", "AO860", "AO920",
+            "AO440", "AO700"};
+        if (savedDifficulty != GameDifficulty::Hard)
+        {
+            flights.erase(std::remove_if(flights.begin(), flights.end(),
+                [&](const FlightPlan& plan)
+                {
+                    if (savedDifficulty == GameDifficulty::Medium)
+                        return mediumOmittedFlights.count(plan.airplane.flightId) != 0;
+                    return easyIncludedFlights.count(plan.airplane.flightId) == 0;
+                }), flights.end());
+        }
+        difficultyScheduleApplied = true;
+        TraceLog(LOG_INFO, "SCHEDULE: %d difficulty aircraft (%d arrivals, %d departures)",
+            static_cast<int>(flights.size()),
+            static_cast<int>(std::count_if(flights.begin(), flights.end(),
+                [](const FlightPlan& plan) { return plan.hasArrivalSchedule; })),
+            static_cast<int>(std::count_if(flights.begin(), flights.end(),
+                [](const FlightPlan& plan) { return plan.departureFlight; })));
+    };
+    if (startImmediately) applyDifficultySchedule();
 
     constexpr int NotificationIconX = 16;
     constexpr int NotificationIconY = 16;
@@ -4075,6 +4101,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     if (CheckCollisionPointRec(mouse, card))
                     {
                         savedDifficulty = static_cast<GameDifficulty>(i);
+                        applyDifficultySchedule();
                         showDifficultySelection = false;
                         showMainMenu = false;
                         started = true;
@@ -4106,6 +4133,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             showDifficultySelection = false;
         else if (showMainMenu && showDifficultySelection && IsKeyPressed(KEY_ENTER))
         {
+            applyDifficultySchedule();
             showDifficultySelection = false;
             showMainMenu = false;
         }
@@ -4114,6 +4142,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         {
             savedDifficulty = IsKeyPressed(KEY_ONE) ? GameDifficulty::Easy :
                 (IsKeyPressed(KEY_TWO) ? GameDifficulty::Medium : GameDifficulty::Hard);
+            applyDifficultySchedule();
             showDifficultySelection = false;
             showMainMenu = false;
         }
@@ -5712,7 +5741,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
             (shiftClockSeconds < BusyStageEndSeconds ? 1 : 2);
         const char* stageName = scenarioStage == 0 ? "MORNING OPERATIONS" :
-            (scenarioStage == 1 ? "BUSY PERIOD" : "EVENING PRIORITY" );
+            (scenarioStage == 1 ? "BUSY PERIOD" :
+                (priorityFlightTotal > 0 ? "EVENING PRIORITY" : "EVENING OPERATIONS"));
         int stageFlightCount = 0;
         int stageCompletedCount = 0;
         for (const FlightPlan& plan : flights)
@@ -5738,6 +5768,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         else if (scenarioStage == 1)
             objective = "Objective: handle " + std::to_string(stageFlightCount) +
                 " flights; Taxiway A west closes 10:00-12:00.";
+        else if (priorityFlightTotal == 0)
+            objective = "Objective: keep the evening flight schedule moving.";
         else
             objective = "Objective: depart priority AO900 by 19:00 for its on-time score.";
         DrawText(objective.c_str(), objectiveX + 12, objectiveY + 27, 9,
@@ -6072,7 +6104,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             const float cardWidth = (panelWidth - 56.0f - gap * 2.0f) / 3.0f;
             const Vector2 mouse = GetMousePosition();
             const char* names[] = {"EASY", "MEDIUM", "HARD"};
-            const char* profiles[] = {"PROFILE 01", "PROFILE 02", "PROFILE 03"};
+            const char* profiles[] = {
+                "12 ARRIVALS / 2 ADDITIONAL DEPARTURES",
+                "16 ARRIVALS / 3 ADDITIONAL DEPARTURES",
+                "22 ARRIVALS / 4 ADDITIONAL DEPARTURES"};
 
             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
                 Fade(Color{3, 13, 21, 255}, 0.66f));
@@ -6086,7 +6121,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 static_cast<int>(panelY + 24.0f), 11, Color{110, 222, 220, 255});
             DrawText("SELECT DIFFICULTY", static_cast<int>(panelX + 28.0f),
                 static_cast<int>(panelY + 48.0f), 27, RAYWHITE);
-            DrawText("Choose a profile. All options currently use the same gameplay settings.",
+            DrawText("Choose a shift workload. Higher difficulties schedule more traffic.",
                 static_cast<int>(panelX + 28.0f), static_cast<int>(panelY + 86.0f),
                 11, Color{166, 193, 200, 255});
 
@@ -6110,10 +6145,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 DrawText(names[i], static_cast<int>(card.x + 17.0f),
                     static_cast<int>(card.y + 41.0f), 20, RAYWHITE);
                 DrawText(profiles[i], static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 75.0f), 9, Color{153, 184, 193, 255});
-                DrawText(selected ? "CURRENT SELECTION" : "SAME GAMEPLAY SETTINGS",
+                    static_cast<int>(card.y + 73.0f), 8, Color{153, 184, 193, 255});
+                DrawText(i == 0 ? "NO PRIORITY FLIGHTS" : "PRIORITY FLIGHTS INCLUDED",
                     static_cast<int>(card.x + 17.0f),
-                    static_cast<int>(card.y + 105.0f), 8,
+                    static_cast<int>(card.y + 91.0f), 8,
+                    i == 0 ? Color{129, 159, 169, 255} : Color{240, 198, 113, 255});
+                DrawText(selected ? "CURRENT SELECTION" : "CLICK TO START",
+                    static_cast<int>(card.x + 17.0f),
+                    static_cast<int>(card.y + 116.0f), 8,
                     selected ? Color{107, 230, 212, 255} :
                         Color{129, 159, 169, 255});
             }
@@ -6185,6 +6224,17 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                         static_cast<float>(scheduledFlights), 0.0f, 1.0f) : 0.0f;
             const int finalScore = static_cast<int>(std::lround(
                 punctualityScore + completionScore + safetyScore));
+            const int excellentThreshold = savedDifficulty == GameDifficulty::Hard ? 82 :
+                (savedDifficulty == GameDifficulty::Medium ? 85 : 88);
+            const int strongThreshold = savedDifficulty == GameDifficulty::Hard ? 65 :
+                (savedDifficulty == GameDifficulty::Medium ? 68 : 71);
+            const int steadyThreshold = savedDifficulty == GameDifficulty::Hard ? 48 :
+                (savedDifficulty == GameDifficulty::Medium ? 51 : 54);
+            const char* difficultyName = savedDifficulty == GameDifficulty::Hard ? "HARD" :
+                (savedDifficulty == GameDifficulty::Medium ? "MEDIUM" : "EASY");
+            const char* performanceRating = finalScore >= excellentThreshold ?
+                "EXCELLENT" : finalScore >= strongThreshold ? "STRONG" :
+                finalScore >= steadyThreshold ? "STEADY" : "NEEDS IMPROVEMENT";
 
             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
                 Fade(Color{4, 12, 18, 255}, 0.82f));
@@ -6220,10 +6270,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             DrawText("/ 100", static_cast<int>(scorePanel.x + 86.0f),
                 static_cast<int>(scorePanel.y + 57.0f), 15,
                 Color{161, 185, 194, 255});
+            DrawText(TextFormat("%s DIFFICULTY  |  %s PERFORMANCE",
+                difficultyName, performanceRating),
+                static_cast<int>(scorePanel.x + 180.0f),
+                static_cast<int>(scorePanel.y + 15.0f), 11,
+                Color{116, 226, 202, 255});
             DrawText(TextFormat("PUNCTUALITY  %.0f/40     COMPLETION  %.0f/40     SAFETY  %.0f/20",
                 punctualityScore, completionScore, safetyScore),
                 static_cast<int>(scorePanel.x + 180.0f),
-                static_cast<int>(scorePanel.y + 39.0f), 13,
+                static_cast<int>(scorePanel.y + 43.0f), 12,
                 Color{222, 232, 229, 255});
 
             const float tileGap = 14.0f;
