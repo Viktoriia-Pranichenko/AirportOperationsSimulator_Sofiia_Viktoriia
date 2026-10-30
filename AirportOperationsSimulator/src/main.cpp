@@ -1709,6 +1709,16 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         "resources/music/rain.mp3";
     bool rainMusicStarted = false;
     bool rainMusicPaused = false;
+    Music terminalFireSound{};
+    const char* terminalFireSoundPath = DirectoryExists("music") ?
+        "music/fire-sound.mp3" :
+        "resources/music/fire-sound.mp3";
+    bool terminalFireSoundStarted = false;
+    Music terminalFireAlarm{};
+    const char* terminalFireAlarmPath = DirectoryExists("music") ?
+        "music/fire-alarm.mp3" :
+        "resources/music/fire-alarm.mp3";
+    bool terminalFireAlarmStarted = false;
     if (!audioDeviceReady)
         TraceLog(LOG_WARNING, "Audio device is unavailable; sound effects are disabled.");
     else
@@ -1759,6 +1769,24 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             rainMusic.looping = true;
             SetMusicVolume(rainMusic, 0.22f);
+        }
+        terminalFireSound = LoadMusicStream(terminalFireSoundPath);
+        if (terminalFireSound.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load fire sound: %s",
+                terminalFireSoundPath);
+        else
+        {
+            terminalFireSound.looping = true;
+            SetMusicVolume(terminalFireSound, 0.45f);
+        }
+        terminalFireAlarm = LoadMusicStream(terminalFireAlarmPath);
+        if (terminalFireAlarm.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load fire alarm: %s",
+                terminalFireAlarmPath);
+        else
+        {
+            terminalFireAlarm.looping = true;
+            SetMusicVolume(terminalFireAlarm, 0.22f);
         }
     }
     rlSetClipPlanes(10.0, 4000.0);
@@ -6512,6 +6540,42 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
         const WeatherState currentWeather = GetWeatherState(
             shiftClockSeconds, weatherSchedule);
+        const bool terminalFireActive = terminalFireIndex >= 0 &&
+            !terminalFireExtinguished && !terminalFireGameOver;
+        if (terminalFireActive)
+        {
+            if (terminalFireSound.frameCount > 0)
+            {
+                if (!terminalFireSoundStarted)
+                {
+                    PlayMusicStream(terminalFireSound);
+                    terminalFireSoundStarted = true;
+                }
+                UpdateMusicStream(terminalFireSound);
+            }
+            if (terminalFireAlarm.frameCount > 0)
+            {
+                if (!terminalFireAlarmStarted)
+                {
+                    PlayMusicStream(terminalFireAlarm);
+                    terminalFireAlarmStarted = true;
+                }
+                UpdateMusicStream(terminalFireAlarm);
+            }
+        }
+        else
+        {
+            if (terminalFireSoundStarted)
+            {
+                StopMusicStream(terminalFireSound);
+                terminalFireSoundStarted = false;
+            }
+            if (terminalFireAlarmStarted)
+            {
+                StopMusicStream(terminalFireAlarm);
+                terminalFireAlarmStarted = false;
+            }
+        }
         const bool rainShouldPlay = !showMainMenu && !shiftComplete &&
             !returnToMainMenuRequested && currentWeather != WeatherState::Clear &&
             rainMusic.frameCount > 0;
@@ -8380,6 +8444,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (rainMusicStarted)
                 StopMusicStream(rainMusic);
             UnloadMusicStream(rainMusic);
+        }
+        if (terminalFireSound.frameCount > 0)
+        {
+            if (terminalFireSoundStarted)
+                StopMusicStream(terminalFireSound);
+            UnloadMusicStream(terminalFireSound);
+        }
+        if (terminalFireAlarm.frameCount > 0)
+        {
+            if (terminalFireAlarmStarted)
+                StopMusicStream(terminalFireAlarm);
+            UnloadMusicStream(terminalFireAlarm);
         }
         if (takeoffSound.frameCount > 0) UnloadSound(takeoffSound);
         if (landingSound.frameCount > 0) UnloadSound(landingSound);
