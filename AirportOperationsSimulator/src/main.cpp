@@ -1698,7 +1698,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         "music/background-music.mp3" :
         "resources/music/background-music.mp3";
     bool backgroundMusicStarted = false;
-    bool backgroundMusicPaused = false;
+    Music menuMusic{};
+    const char* menuMusicPath = DirectoryExists("music") ?
+        "music/menu-music.mp3" :
+        "resources/music/menu-music.mp3";
+    bool menuMusicStarted = false;
     Music rainMusic{};
     const char* rainMusicPath = DirectoryExists("music") ?
         "music/rain.mp3" :
@@ -1739,6 +1743,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             backgroundMusic.looping = true;
             SetMusicVolume(backgroundMusic, 0.18f);
+        }
+        menuMusic = LoadMusicStream(menuMusicPath);
+        if (menuMusic.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load menu music: %s", menuMusicPath);
+        else
+        {
+            menuMusic.looping = true;
+            SetMusicVolume(menuMusic, 0.22f);
         }
         rainMusic = LoadMusicStream(rainMusicPath);
         if (rainMusic.frameCount == 0)
@@ -4226,36 +4238,52 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         const float deltaTime = (shiftComplete || isPaused || showUpgradeMenu) ? 0.0f :
             speedScaledRealDeltaTime * BaseSimulationSpeed;
         if (exitRequested) break;
-        const bool musicShouldPlay = !showMainMenu && !shiftComplete &&
+        const bool isMenuScreen = showMainMenu || isPaused ||
+            showUpgradeMenu || shiftComplete;
+        const bool menuMusicShouldPlay = isMenuScreen &&
+            !returnToMainMenuRequested && menuMusic.frameCount > 0;
+        const bool gameplayMusicShouldPlay = !isMenuScreen &&
             !returnToMainMenuRequested && backgroundMusic.frameCount > 0;
-        if (musicShouldPlay)
+        if (menuMusicShouldPlay)
         {
+            if (backgroundMusicStarted)
+            {
+                StopMusicStream(backgroundMusic);
+                backgroundMusicStarted = false;
+            }
+            if (!menuMusicStarted)
+            {
+                PlayMusicStream(menuMusic);
+                menuMusicStarted = true;
+            }
+            UpdateMusicStream(menuMusic);
+        }
+        else if (gameplayMusicShouldPlay)
+        {
+            if (menuMusicStarted)
+            {
+                StopMusicStream(menuMusic);
+                menuMusicStarted = false;
+            }
             if (!backgroundMusicStarted)
             {
                 PlayMusicStream(backgroundMusic);
                 backgroundMusicStarted = true;
             }
-
-            const bool musicShouldPause = isPaused || showUpgradeMenu;
-            if (musicShouldPause)
-            {
-                if (!backgroundMusicPaused)
-                    PauseMusicStream(backgroundMusic);
-                backgroundMusicPaused = true;
-            }
-            else
-            {
-                if (backgroundMusicPaused)
-                    ResumeMusicStream(backgroundMusic);
-                backgroundMusicPaused = false;
-                UpdateMusicStream(backgroundMusic);
-            }
+            UpdateMusicStream(backgroundMusic);
         }
-        else if (backgroundMusicStarted)
+        else
         {
-            StopMusicStream(backgroundMusic);
-            backgroundMusicStarted = false;
-            backgroundMusicPaused = false;
+            if (menuMusicStarted)
+            {
+                StopMusicStream(menuMusic);
+                menuMusicStarted = false;
+            }
+            if (backgroundMusicStarted)
+            {
+                StopMusicStream(backgroundMusic);
+                backgroundMusicStarted = false;
+            }
         }
         if (audioDeviceReady && !pointSoundQueue.empty() &&
             !(positivePointsSound.frameCount > 0 &&
@@ -8340,6 +8368,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (backgroundMusicStarted)
                 StopMusicStream(backgroundMusic);
             UnloadMusicStream(backgroundMusic);
+        }
+        if (menuMusic.frameCount > 0)
+        {
+            if (menuMusicStarted)
+                StopMusicStream(menuMusic);
+            UnloadMusicStream(menuMusic);
         }
         if (rainMusic.frameCount > 0)
         {
