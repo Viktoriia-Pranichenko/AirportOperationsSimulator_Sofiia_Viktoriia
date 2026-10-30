@@ -2072,6 +2072,7 @@ RunGameResult RunGame(bool startImmediately)
     };
     PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
     std::string pushbackTugPositioningGate;
+    std::string pushbackTugStagedGateId;
     float pushbackTugNoseHeading = 0.0f;
     Vector2 pushbackTugCrewPosition{};
     float pushbackTugCrewHeading = 0.0f;
@@ -2103,7 +2104,10 @@ RunGameResult RunGame(bool startImmediately)
         FlightPlan* plan = findParkedFlightAtGate(gateId);
         return plan != nullptr && plan->departureFlight &&
             plan->pushbackState == FlightPlan::PushbackState::NotStarted &&
-            aircraftServicesComplete(gateId);
+            aircraftServicesComplete(gateId) &&
+            serviceCrewGateId == gateId &&
+            pushbackTugMotion == PushbackTugMotion::Parked &&
+            pushbackTugStagedGateId == gateId;
     };
     Vector2 cateringTruckCrewPosition{};
     Vector2 waterTruckCrewPosition{};
@@ -2369,7 +2373,10 @@ RunGameResult RunGame(bool startImmediately)
     };
     const auto bringServiceCrewToSelectedGate = [&]()
     {
-        if (pushbackTugMotion != PushbackTugMotion::Parked)
+        if (pushbackTugMotion != PushbackTugMotion::Parked &&
+            pushbackTugMotion != PushbackTugMotion::WaitingForAuthorisation &&
+            pushbackTugMotion != PushbackTugMotion::WaitingForAircraftTaxi &&
+            pushbackTugMotion != PushbackTugMotion::DepartureReturnDelay)
         {
             refuellingMessage = "Wait for pushback to finish before moving the crew.";
             refuellingMessageTime = 2.5f;
@@ -2456,6 +2463,22 @@ RunGameResult RunGame(bool startImmediately)
             }
         }
 
+        // A completed pushback no longer needs to hold the tug at the aircraft.
+        // Releasing it here lets the tug move with the crew while the flight's
+        // departure authorization and taxi process continue independently.
+        if (pushbackTugMotion != PushbackTugMotion::Parked)
+        {
+            for (FlightPlan& plan : flights)
+            {
+                if (plan.parkingStandId == pushbackTugPositioningGate &&
+                    plan.departureFlight)
+                    plan.departureAuthorizationRequested = false;
+            }
+            pushbackTugMotion = PushbackTugMotion::Parked;
+            pushbackTugPositioningGate.clear();
+            pushbackTugReturnDelayRemaining = 0.0f;
+        }
+
         // Preserve the existing temporary Gate 4 service layout as offsets from
         // its stand, then rotate those placements to match the selected gate.
         constexpr Vector2 placements[] = {
@@ -2509,6 +2532,7 @@ RunGameResult RunGame(bool startImmediately)
         pushbackTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
         pushbackTugCrewPosition = pushback;
         pushbackTugCrewHeading = vehicleHeadingDegrees;
+        pushbackTugStagedGateId = selectedGateId;
         const Vector2 beltLoader = place(placements[3], WingVehicleSpacingScale);
         baggageBeltLoaders.front().SetPosition(beltLoader.x, beltLoader.y);
         baggageBeltLoaders.back().SetHeadingDegrees(vehicleHeadingDegrees);
@@ -3047,9 +3071,13 @@ RunGameResult RunGame(bool startImmediately)
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (serviceCrewGateId != gateId || pushbackTugs.empty())
+        if (serviceCrewGateId != gateId || pushbackTugs.empty() ||
+            pushbackTugMotion != PushbackTugMotion::Parked ||
+            pushbackTugStagedGateId != gateId)
         {
-            refuellingMessage = "Bring the service crew to this gate first.";
+            refuellingMessage = pushbackTugMotion == PushbackTugMotion::Parked
+                ? "Bring the service crew and pushback tug to this gate first."
+                : "Wait for the current pushback to finish.";
             refuellingMessageTime = 2.5f;
             return;
         }
@@ -4295,15 +4323,17 @@ RunGameResult RunGame(bool startImmediately)
                             selected.departureFlight &&
                             selected.pushbackState == FlightPlan::PushbackState::Complete &&
                             !selected.departureAuthorized &&
-                            !selected.departureAuthorizationRequested &&
-                            pushbackTugMotion == PushbackTugMotion::WaitingForAuthorisation &&
-                            pushbackTugPositioningGate == selected.parkingStandId)
+                            !selected.departureAuthorizationRequested)
                         {
                             selected.departureAuthorizationRequested = true;
                             selected.departureAuthorized = true;
-                            pushbackTugReturnDelayRemaining = 0.0f;
-                            pushbackTugMotion = PushbackTugMotion::WaitingForAircraftTaxi;
-                            refuellingMessage = "Departure authorised. The tug will return after the aircraft moves.";
+                            if (pushbackTugMotion == PushbackTugMotion::WaitingForAuthorisation &&
+                                pushbackTugPositioningGate == selected.parkingStandId)
+                            {
+                                pushbackTugReturnDelayRemaining = 0.0f;
+                                pushbackTugMotion = PushbackTugMotion::WaitingForAircraftTaxi;
+                            }
+                            refuellingMessage = "Departure authorised. The aircraft will continue when its taxi window opens.";
                             refuellingMessageTime = 3.0f;
                         }
                         else if ((selected.airplane.state == AirplaneState::Holding ||
