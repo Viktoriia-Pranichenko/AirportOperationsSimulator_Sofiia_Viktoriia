@@ -14,6 +14,7 @@
 #include "service_building.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -311,6 +312,7 @@ namespace
         Rectangle next;
         Rectangle overview;
         Rectangle bringServiceCrew;
+        Rectangle autoService;
         Rectangle departure;
         Rectangle disembarkPassengers;
         Rectangle maintenanceInspection;
@@ -320,7 +322,42 @@ namespace
         Rectangle boardPassengers;
     };
 
-    GateNavigationButtons GetGateNavigationButtons(bool departureVisible)
+    Rectangle GetUpgradesHudButtonBounds()
+    {
+        return {
+            static_cast<float>(GetScreenWidth()) - 238.0f - 18.0f - 150.0f,
+            16.0f, 138.0f, 32.0f};
+    }
+
+    struct UpgradeMenuLayout
+    {
+        Rectangle panel;
+        Rectangle automaticCard;
+        Rectangle additionalCard;
+        Rectangle backButton;
+    };
+
+    UpgradeMenuLayout GetUpgradeMenuLayout()
+    {
+        const float panelWidth = std::min(860.0f,
+            static_cast<float>(GetScreenWidth()) - 32.0f);
+        const float panelHeight = std::min(428.0f,
+            static_cast<float>(GetScreenHeight()) - 32.0f);
+        const Rectangle panel{
+            (static_cast<float>(GetScreenWidth()) - panelWidth) * 0.5f,
+            (static_cast<float>(GetScreenHeight()) - panelHeight) * 0.5f,
+            panelWidth, panelHeight};
+        const float cardWidth = (panelWidth - 72.0f) * 0.5f;
+        return {
+            panel,
+            {panel.x + 24.0f, panel.y + 118.0f, cardWidth, 216.0f},
+            {panel.x + 48.0f + cardWidth, panel.y + 118.0f, cardWidth, 216.0f},
+            {panel.x + 24.0f, panel.y + panelHeight - 56.0f, 138.0f, 40.0f}
+        };
+    }
+
+    GateNavigationButtons GetGateNavigationButtons(bool departureVisible,
+        bool autoServiceVisible)
     {
         const float buttonY = static_cast<float>(
             GetScreenHeight() - static_cast<int>(GateNavigationButtonHeight) - 16);
@@ -335,19 +372,28 @@ namespace
         Rectangle bringServiceCrew{
             (static_cast<float>(GetScreenWidth()) - ServiceCrewButtonWidth) * 0.5f,
             buttonY - 96.0f, ServiceCrewButtonWidth, GateNavigationButtonHeight};
+        Rectangle autoService{0.0f, 0.0f, 0.0f, 0.0f};
         Rectangle departure{0.0f, 0.0f, 0.0f, 0.0f};
+        constexpr float DepartureButtonWidth = 254.0f;
+        constexpr float ButtonGap = 10.0f;
+        float groupWidth = ServiceCrewButtonWidth;
+        if (departureVisible) groupWidth += ButtonGap + DepartureButtonWidth;
         if (departureVisible)
         {
-            constexpr float DepartureButtonWidth = 254.0f;
-            constexpr float ButtonGap = 10.0f;
-            const float groupWidth = ServiceCrewButtonWidth + ButtonGap +
-                DepartureButtonWidth;
-            const float groupX = (static_cast<float>(GetScreenWidth()) -
-                groupWidth) * 0.5f;
-            bringServiceCrew.x = groupX;
-            departure = {groupX + ServiceCrewButtonWidth + ButtonGap,
-                buttonY - 96.0f, DepartureButtonWidth,
+            float cursorX = (static_cast<float>(GetScreenWidth()) - groupWidth) * 0.5f;
+            bringServiceCrew.x = cursorX;
+            cursorX += ServiceCrewButtonWidth;
+            cursorX += ButtonGap;
+            departure = {cursorX, buttonY - 96.0f, DepartureButtonWidth,
                 GateNavigationButtonHeight};
+        }
+        if (autoServiceVisible)
+        {
+            const float screenWidth = static_cast<float>(GetScreenWidth());
+            const float autoWidth = std::min(420.0f,
+                screenWidth - GateNavigationButtonMargin * 2.0f);
+            autoService = {(screenWidth - autoWidth) * 0.5f,
+                buttonY - actionHeight - 16.0f, autoWidth, actionHeight};
         }
         return {
             {GateNavigationButtonMargin, buttonY,
@@ -358,6 +404,7 @@ namespace
                 GateNavigationButtonWidth, buttonY,
                 GateNavigationButtonWidth, GateNavigationButtonHeight},
             bringServiceCrew,
+            autoService,
             departure,
             {(static_cast<float>(GetScreenWidth()) - actionRowWidth) * 0.5f,
                 buttonY - actionHeight - 16.0f, actionWidth, actionHeight},
@@ -535,6 +582,62 @@ namespace
                 static_cast<int>((bounds.width - 10.0f) *
                     std::clamp(progress, 0.0f, 1.0f)),
                 2, accent);
+    }
+
+    void DrawAutomaticServiceButton(Rectangle bounds, bool enabled)
+    {
+        const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+        const Color accent = enabled ?
+            Color{110, 239, 205, 255} : Color{91, 222, 218, 255};
+        DrawRectangleRounded({bounds.x + 2.0f, bounds.y + 3.0f,
+            bounds.width, bounds.height}, 0.22f, 8, Color{5, 14, 20, 180});
+        DrawRectangleGradientV(static_cast<int>(bounds.x),
+            static_cast<int>(bounds.y), static_cast<int>(bounds.width),
+            static_cast<int>(bounds.height),
+            enabled ? Color{26, 101, 94, 255} :
+                (hovered ? Color{38, 87, 100, 255} : Color{25, 67, 82, 255}),
+            enabled ? Color{13, 57, 57, 255} : Color{12, 36, 49, 255});
+        DrawRectangleRoundedLinesEx(bounds, 0.22f, 8,
+            hovered ? 2.0f : 1.5f, hovered ? Color{235, 250, 247, 255} : accent);
+
+        const Vector2 iconCenter{bounds.x + 24.0f,
+            bounds.y + bounds.height * 0.5f};
+        DrawCircleV(iconCenter, 14.0f, Fade(accent, 0.14f));
+        DrawCircleLines(static_cast<int>(iconCenter.x),
+            static_cast<int>(iconCenter.y), 10.0f, accent);
+        DrawTriangle({iconCenter.x + 8.0f, iconCenter.y - 7.0f},
+            {iconCenter.x + 3.0f, iconCenter.y - 8.0f},
+            {iconCenter.x + 7.0f, iconCenter.y - 3.0f}, accent);
+        DrawTriangle({iconCenter.x - 8.0f, iconCenter.y + 7.0f},
+            {iconCenter.x - 3.0f, iconCenter.y + 8.0f},
+            {iconCenter.x - 7.0f, iconCenter.y + 3.0f}, accent);
+        DrawCircleV(iconCenter, 3.0f, accent);
+
+        const char* title = "AUTO SERVICE";
+        const char* subtitle = enabled ?
+            "TURNAROUND SEQUENCE RUNNING  /  DISPATCH REMAINS MANUAL" :
+            "START TURNAROUND SEQUENCE  /  DISPATCH REMAINS MANUAL";
+        DrawText(title, static_cast<int>(bounds.x + 48.0f),
+            static_cast<int>(bounds.y + 6.0f), 11,
+            Color{244, 249, 248, 255});
+        DrawText(subtitle, static_cast<int>(bounds.x + 48.0f),
+            static_cast<int>(bounds.y + 23.0f), 8,
+            Color{171, 204, 208, 255});
+        const Rectangle stateBadge{bounds.x + bounds.width - 54.0f,
+            bounds.y + 8.0f, 42.0f, bounds.height - 16.0f};
+        DrawRectangleRounded(stateBadge, 0.3f, 6,
+            Fade(accent, enabled ? 0.24f : 0.12f));
+        DrawRectangleRoundedLinesEx(stateBadge, 0.3f, 6, 1.0f,
+            Fade(accent, 0.8f));
+        const char* stateLabel = enabled ? "ON" : "OFF";
+        DrawText(stateLabel,
+            static_cast<int>(stateBadge.x +
+                (stateBadge.width - MeasureText(stateLabel, 9)) * 0.5f),
+            static_cast<int>(stateBadge.y + 5.0f), 9, accent);
+        DrawRectangle(static_cast<int>(bounds.x + 5.0f),
+            static_cast<int>(bounds.y + bounds.height - 3.0f),
+            static_cast<int>(bounds.width - 10.0f), 2,
+            Fade(accent, enabled ? 0.95f : 0.45f));
     }
 
     struct FlightPlan
@@ -1371,7 +1474,8 @@ enum class GameDifficulty
     Hard
 };
 
-RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
+RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
+    bool& automaticServiceUpgrade, bool& additionalServiceCrewsUpgrade)
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(1024, 768, "Airport Operations Simulator");
@@ -1416,6 +1520,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     bool showMainMenu = !startImmediately;
     bool showGameplayGuide = false;
     bool showDifficultySelection = false;
+    bool showUpgradeMenu = false;
     bool isPaused = false;
     bool showRestartConfirmation = false;
     bool showEndShiftConfirmation = false;
@@ -2013,7 +2118,42 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     int selectedFlightIndex = -1;
     int selectedNotificationFlightIndex = -1;
     std::string selectedGateId;
-    std::string serviceCrewGateId;
+    bool thirdServiceCrewFleetAdded = false;
+    std::unordered_set<std::string> automaticServiceGates;
+    struct ServiceCrewAssignment
+    {
+        std::string gateId;
+        std::array<Vector2, 7> vehiclePositions{};
+        std::array<float, 7> vehicleHeadings{};
+        std::array<Vector2, 2> stairPositions{};
+        std::array<float, 2> stairHeadings{};
+    };
+    std::vector<ServiceCrewAssignment> serviceCrews;
+    const auto serviceCrewIndexAtGate = [&](const std::string& gateId)
+    {
+        for (std::size_t index = 0; index < serviceCrews.size(); ++index)
+            if (serviceCrews[index].gateId == gateId)
+                return static_cast<int>(index);
+        return -1;
+    };
+    const auto maximumServiceCrews = [&]()
+    {
+        if (!additionalServiceCrewsUpgrade || savedDifficulty == GameDifficulty::Easy)
+            return 1;
+        return savedDifficulty == GameDifficulty::Hard ? 3 : 2;
+    };
+    const auto addThirdServiceCrewFleet = [&]()
+    {
+        if (thirdServiceCrewFleetAdded || savedDifficulty != GameDifficulty::Hard)
+            return;
+        parkedRefuellingTankers.push_back({200.25f, -112.25f});
+        parkedCateringTrucks.push_back({159.45f, -70.25f});
+        parkedWaterServiceTrucks.push_back({155.45f, -112.25f});
+        parkedMaintenancePickupTrucks.push_back({236.0f, -70.25f});
+        thirdServiceCrewFleetAdded = true;
+    };
+    if (additionalServiceCrewsUpgrade)
+        addThirdServiceCrewFleet();
     std::string refuellingMessage;
     float refuellingMessageTime = 0.0f;
     bool gate1RefuellingStarted = false;
@@ -2028,12 +2168,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     float gate1BaggageLoadingTimeRemaining = 0.0f;
     float eastWingBaggageLoadingTimeRemaining = 0.0f;
     std::string activeBaggageLoadingGate;
+    int activeBaggageCrewIndex = -1;
     enum class CateringWaterState { Idle, Approaching, Working, Returning, Complete };
     CateringWaterState gate1CateringWater = CateringWaterState::Idle;
     CateringWaterState eastWingCateringWater = CateringWaterState::Idle;
     float gate1CateringWaterTimeRemaining = 0.0f;
     float eastWingCateringWaterTimeRemaining = 0.0f;
     std::string activeCateringWaterGate;
+    int activeCateringCrewIndex = -1;
     enum class MaintenanceInspectionState
     {
         Idle, Approaching, Inspecting, TechniciansReturning, Returning, Complete
@@ -2046,6 +2188,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     float eastWingMaintenanceProgress = 0.0f;
     float maintenanceInspectionTimeRemaining = 0.0f;
     std::string activeMaintenanceInspectionGate;
+    int activeMaintenanceCrewIndex = -1;
     Vector2 maintenancePickupCrewPosition{};
     float maintenancePickupCrewHeading = 0.0f;
     Vector2 maintenancePickupApproachPosition{};
@@ -2099,25 +2242,97 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     float gate1DisembarkingTimeRemaining = 0.0f;
     float eastWingDisembarkingTimeRemaining = 0.0f;
     std::string activePassengerServiceGate;
+    int activePassengerCrewIndex = -1;
+    enum class RefuellingTankerMotion
+    {
+        Parked,
+        ApproachingRear,
+        ApproachingAircraft,
+        Refuelling,
+        ReturningBehindAircraft,
+        ReturningToCrewPosition
+    };
     enum class PushbackTugMotion
     {
         Parked, PushingAircraft, WaitingForAuthorisation,
         WaitingForAircraftTaxi, DepartureReturnDelay
     };
+    struct CrewServiceRuntime
+    {
+        RefuellingTankerMotion tankerMotion{RefuellingTankerMotion::Parked};
+        std::string refuellingGate;
+        Vector2 tankerRearStaging{};
+        Vector2 tankerAircraft{};
+        std::string baggageGate;
+        Vector2 baggageBeltStart{};
+        Vector2 baggageBeltEnd{};
+        std::string cateringGate;
+        Vector2 cateringApproach{};
+        Vector2 waterApproach{};
+        Vector2 cateringService{};
+        Vector2 waterService{};
+        bool cateringReachedApproach{false};
+        bool waterReachedApproach{false};
+        bool cateringReachedReturn{false};
+        bool waterReachedReturn{false};
+        std::string maintenanceGate;
+        Vector2 maintenanceInspection{};
+        Vector2 maintenanceApproach{};
+        Vector2 maintenanceTail{};
+        bool maintenanceReachedApproach{false};
+        bool maintenanceReachedTail{false};
+        bool techniciansReachedAircraft{false};
+        float maintenanceInspectionTimeRemaining{0.0f};
+        std::vector<BoardingPassenger> technicians;
+        std::string passengerGate;
+        std::vector<BoardingPassenger> passengers;
+        float passengerSpawnTimer{0.0f};
+        int passengerSpawnWaves{0};
+        std::string passengerCompletionMessage;
+        PushbackTugMotion pushbackMotion{PushbackTugMotion::Parked};
+        std::string pushbackGate;
+        float pushbackNoseHeading{0.0f};
+        Vector2 pushbackReturnPosition{};
+        float pushbackReturnHeading{0.0f};
+        float pushbackReturnDelayRemaining{0.0f};
+    };
+    std::vector<CrewServiceRuntime> crewRuntime;
+    const auto crewIsBusy = [&](int crewIndex)
+    {
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(crewRuntime.size()))
+            return false;
+        const CrewServiceRuntime& runtime = crewRuntime[
+            static_cast<std::size_t>(crewIndex)];
+        return runtime.tankerMotion != RefuellingTankerMotion::Parked ||
+            runtime.pushbackMotion != PushbackTugMotion::Parked ||
+            !runtime.baggageGate.empty() ||
+            !runtime.cateringGate.empty() ||
+            !runtime.maintenanceGate.empty() ||
+            !runtime.passengerGate.empty();
+    };
+    const auto findIdleServiceCrewIndex = [&]()
+    {
+        const std::size_t availableCrewCount = std::min(
+            serviceCrews.size(),
+            static_cast<std::size_t>(maximumServiceCrews()));
+        for (std::size_t index = 0; index < availableCrewCount; ++index)
+        {
+            if (!crewIsBusy(static_cast<int>(index)))
+                return static_cast<int>(index);
+        }
+        return -1;
+    };
     PushbackTugMotion pushbackTugMotion = PushbackTugMotion::Parked;
     std::string pushbackTugPositioningGate;
-    std::string pushbackTugStagedGateId;
+    int activePushbackCrewIndex = -1;
     float pushbackTugNoseHeading = 0.0f;
     Vector2 pushbackTugCrewPosition{};
     float pushbackTugCrewHeading = 0.0f;
     Vector2 pushbackTugReturnPosition{};
     float pushbackTugReturnHeading = 0.0f;
     float pushbackTugReturnDelayRemaining = 0.0f;
-    std::string boardingStairsGateId;
-    Vector2 boardingStairsCrewPositions[2]{};
-    float boardingStairsCrewHeadings[2]{};
-    std::vector<Vector2> boardingStairsReturnPaths[2];
-    std::size_t boardingStairsReturnWaypoints[2]{};
+    std::vector<std::vector<Vector2>> boardingStairsReturnPaths;
+    std::vector<std::size_t> boardingStairsReturnWaypoints;
     std::string passengerServiceCompletionMessage;
     std::vector<BoardingPassenger> boardingPassengers;
     float boardingPassengerSpawnTimer = 0.0f;
@@ -2136,12 +2351,17 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     const auto pushbackAvailableAtGate = [&](const std::string& gateId)
     {
         FlightPlan* plan = findParkedFlightAtGate(gateId);
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
+        const bool crewPushbackParked = crewIndex >= 0 &&
+            crewIndex < static_cast<int>(crewRuntime.size()) &&
+            crewRuntime[static_cast<std::size_t>(crewIndex)].pushbackMotion ==
+                PushbackTugMotion::Parked;
         return plan != nullptr && plan->departureFlight &&
             plan->pushbackState == FlightPlan::PushbackState::NotStarted &&
             aircraftServicesComplete(gateId) &&
-            serviceCrewGateId == gateId &&
-            pushbackTugMotion == PushbackTugMotion::Parked &&
-            pushbackTugStagedGateId == gateId;
+            crewIndex >= 0 &&
+            crewPushbackParked &&
+            crewIndex < static_cast<int>(pushbackTugs.size());
     };
     Vector2 cateringTruckCrewPosition{};
     Vector2 waterTruckCrewPosition{};
@@ -2161,17 +2381,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     Vector2 baggageBeltLoaderCrewPosition{};
     float baggageTugCrewHeading = 0.0f;
     float baggageBeltLoaderCrewHeading = 0.0f;
-    enum class RefuellingTankerMotion
-    {
-        Parked,
-        ApproachingRear,
-        ApproachingAircraft,
-        Refuelling,
-        ReturningBehindAircraft,
-        ReturningToCrewPosition
-    };
     RefuellingTankerMotion refuellingTankerMotion = RefuellingTankerMotion::Parked;
     std::string activeRefuellingGate;
+    int activeRefuellingCrewIndex = -1;
     Vector2 refuellingTankerCrewPosition{};
     Vector2 refuellingTankerRearStagingPosition{};
     Vector2 refuellingTankerAircraftPosition{};
@@ -2407,47 +2619,6 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     };
     const auto bringServiceCrewToSelectedGate = [&]()
     {
-        if (pushbackTugMotion != PushbackTugMotion::Parked &&
-            pushbackTugMotion != PushbackTugMotion::WaitingForAuthorisation &&
-            pushbackTugMotion != PushbackTugMotion::WaitingForAircraftTaxi &&
-            pushbackTugMotion != PushbackTugMotion::DepartureReturnDelay)
-        {
-            refuellingMessage = "Wait for pushback to finish before moving the crew.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
-        if (!activeBaggageLoadingGate.empty())
-        {
-            refuellingMessage = "Wait for baggage loading to finish.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
-        if (!activeCateringWaterGate.empty())
-        {
-            refuellingMessage = "Wait for catering and water service to finish.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
-        if (!activePassengerServiceGate.empty())
-        {
-            refuellingMessage = "Wait for passenger service to finish.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
-        if (!activeMaintenanceInspectionGate.empty())
-        {
-            refuellingMessage = "Wait for the maintenance inspection to finish.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
-        if (refuellingTankerMotion != RefuellingTankerMotion::Parked ||
-            (gate1RefuellingStarted && !gate1RefuellingFinished) ||
-            (eastWingRefuellingStarted && !eastWingRefuellingFinished))
-        {
-            refuellingMessage = "The tanker must stay here until refuelling finishes.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
         if (selectedGateId.empty()) return;
         if (findParkedFlightAtGate(selectedGateId) == nullptr)
         {
@@ -2465,14 +2636,44 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         }
         if (selectedGate == nullptr || referenceGate == nullptr) return;
 
-        if (baggageTugs.empty())
+        int crewIndex = serviceCrewIndexAtGate(selectedGateId);
+        const bool releasingCompletedPushback = crewIndex >= 0 &&
+            crewIndex == activePushbackCrewIndex &&
+            pushbackTugMotion != PushbackTugMotion::Parked &&
+            pushbackTugMotion != PushbackTugMotion::PushingAircraft;
+        if (crewIndex >= 0 && !releasingCompletedPushback)
+        {
+            refuellingMessage = "A service crew is already assigned to this gate.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+        if (crewIndex < 0)
+        {
+            crewIndex = findIdleServiceCrewIndex();
+            if (crewIndex < 0 &&
+                static_cast<int>(serviceCrews.size()) < maximumServiceCrews())
+                crewIndex = static_cast<int>(serviceCrews.size());
+        }
+        if (crewIndex < 0)
+        {
+            refuellingMessage = "All available service crews are busy.";
+            refuellingMessageTime = 2.5f;
+            return;
+        }
+
+        const bool addingCrew = crewIndex == static_cast<int>(serviceCrews.size());
+        if (addingCrew)
         {
             if (parkedBaggageTugs.empty() || parkedRefuellingTankers.empty() ||
                 parkedPushbackTugs.empty() || parkedBaggageBeltLoaders.empty() ||
                 parkedCateringTrucks.empty() || parkedWaterServiceTrucks.empty() ||
                 parkedMaintenancePickupTrucks.empty() ||
                 parkedPassengerBoardingStairs.size() < 2)
+            {
+                refuellingMessage = "A complete service crew is unavailable.";
+                refuellingMessageTime = 2.5f;
                 return;
+            }
 
             baggageTugs.push_back(std::move(parkedBaggageTugs.front()));
             parkedBaggageTugs.erase(parkedBaggageTugs.begin());
@@ -2495,18 +2696,31 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 parkedPassengerBoardingStairs.erase(
                     parkedPassengerBoardingStairs.begin());
             }
+            serviceCrews.emplace_back();
+            crewRuntime.emplace_back();
+            boardingStairsReturnPaths.resize(passengerBoardingStairs.size());
+            boardingStairsReturnWaypoints.resize(passengerBoardingStairs.size(), 0);
         }
 
         // A completed pushback no longer needs to hold the tug at the aircraft.
         // Releasing it here lets the tug move with the crew while the flight's
         // departure authorization and taxi process continue independently.
-        if (pushbackTugMotion != PushbackTugMotion::Parked)
+        if (pushbackTugMotion != PushbackTugMotion::Parked &&
+            crewIndex == activePushbackCrewIndex)
         {
             for (FlightPlan& plan : flights)
             {
                 if (plan.parkingStandId == pushbackTugPositioningGate &&
                     plan.departureFlight)
                     plan.departureAuthorizationRequested = false;
+            }
+            if (activePushbackCrewIndex >= 0 &&
+                activePushbackCrewIndex < static_cast<int>(crewRuntime.size()))
+            {
+                CrewServiceRuntime& runtime = crewRuntime[
+                    static_cast<std::size_t>(activePushbackCrewIndex)];
+                runtime.pushbackMotion = PushbackTugMotion::Parked;
+                runtime.pushbackGate.clear();
             }
             pushbackTugMotion = PushbackTugMotion::Parked;
             pushbackTugPositioningGate.clear();
@@ -2552,52 +2766,56 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             return Vector2{selectedGate->position.x + x,
                 selectedGate->position.z + z};
         };
+        ServiceCrewAssignment& crew = serviceCrews[static_cast<std::size_t>(crewIndex)];
         const Vector2 tug = place(placements[0], WingVehicleSpacingScale);
-        baggageTugs.front().SetPosition(tug.x, tug.y);
-        baggageTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
-        baggageTugCrewPosition = tug;
-        baggageTugCrewHeading = vehicleHeadingDegrees;
+        baggageTugs[static_cast<std::size_t>(crewIndex)].SetPosition(tug.x, tug.y);
+        baggageTugs[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
+        crew.vehiclePositions[0] = tug;
+        crew.vehicleHeadings[0] = vehicleHeadingDegrees;
         const Vector2 tanker = place(placements[1], WingVehicleSpacingScale);
-        refuellingTankers.front().SetPosition(tanker.x, tanker.y);
-        refuellingTankers.back().SetHeadingDegrees(vehicleHeadingDegrees);
-        refuellingTankerCrewPosition = tanker;
+        refuellingTankers[static_cast<std::size_t>(crewIndex)].SetPosition(tanker.x, tanker.y);
+        refuellingTankers[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
+        crew.vehiclePositions[1] = tanker;
+        crew.vehicleHeadings[1] = vehicleHeadingDegrees;
         const Vector2 pushback = place(placements[2], WingVehicleSpacingScale);
-        pushbackTugs.front().SetPosition(pushback.x, pushback.y);
-        pushbackTugs.back().SetHeadingDegrees(vehicleHeadingDegrees);
+        pushbackTugs[static_cast<std::size_t>(crewIndex)].SetPosition(pushback.x, pushback.y);
+        pushbackTugs[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
         pushbackTugCrewPosition = pushback;
         pushbackTugCrewHeading = vehicleHeadingDegrees;
-        pushbackTugStagedGateId = selectedGateId;
+        crew.vehiclePositions[2] = pushback;
+        crew.vehicleHeadings[2] = vehicleHeadingDegrees;
         const Vector2 beltLoader = place(placements[3], WingVehicleSpacingScale);
-        baggageBeltLoaders.front().SetPosition(beltLoader.x, beltLoader.y);
-        baggageBeltLoaders.back().SetHeadingDegrees(vehicleHeadingDegrees);
-        baggageBeltLoaderCrewPosition = beltLoader;
-        baggageBeltLoaderCrewHeading = vehicleHeadingDegrees;
+        baggageBeltLoaders[static_cast<std::size_t>(crewIndex)].SetPosition(beltLoader.x, beltLoader.y);
+        baggageBeltLoaders[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
+        crew.vehiclePositions[3] = beltLoader;
+        crew.vehicleHeadings[3] = vehicleHeadingDegrees;
         const Vector2 catering = place(placements[4], WingVehicleSpacingScale);
-        cateringTrucks.front().SetPosition(catering.x, catering.y);
-        cateringTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
-        cateringTruckCrewPosition = catering;
-        cateringTruckCrewHeading = vehicleHeadingDegrees;
+        cateringTrucks[static_cast<std::size_t>(crewIndex)].SetPosition(catering.x, catering.y);
+        cateringTrucks[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
+        crew.vehiclePositions[4] = catering;
+        crew.vehicleHeadings[4] = vehicleHeadingDegrees;
         const Vector2 water = place(placements[5], WingVehicleSpacingScale);
-        waterServiceTrucks.front().SetPosition(water.x, water.y);
-        waterServiceTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
-        waterTruckCrewPosition = water;
-        waterTruckCrewHeading = vehicleHeadingDegrees;
+        waterServiceTrucks[static_cast<std::size_t>(crewIndex)].SetPosition(water.x, water.y);
+        waterServiceTrucks[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
+        crew.vehiclePositions[5] = water;
+        crew.vehicleHeadings[5] = vehicleHeadingDegrees;
         const Vector2 maintenance = place(placements[6], WingVehicleSpacingScale);
-        maintenancePickupTrucks.front().SetPosition(maintenance.x, maintenance.y);
-        maintenancePickupTrucks.back().SetHeadingDegrees(vehicleHeadingDegrees);
-        maintenancePickupCrewPosition = maintenance;
-        maintenancePickupCrewHeading = vehicleHeadingDegrees;
+        maintenancePickupTrucks[static_cast<std::size_t>(crewIndex)].SetPosition(maintenance.x, maintenance.y);
+        maintenancePickupTrucks[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(vehicleHeadingDegrees);
+        crew.vehiclePositions[6] = maintenance;
+        crew.vehicleHeadings[6] = vehicleHeadingDegrees;
         for (std::size_t i = 7; i < 9; ++i)
         {
             const Vector2 stairs = place(placements[i], WingStairsSpacingScale);
             const std::size_t stairIndex = i - 7;
-            passengerBoardingStairs[stairIndex].SetPosition(stairs.x, stairs.y);
-            passengerBoardingStairs[stairIndex].SetHeadingDegrees(vehicleHeadingDegrees);
-            boardingStairsCrewPositions[stairIndex] = stairs;
-            boardingStairsCrewHeadings[stairIndex] = vehicleHeadingDegrees;
+            const std::size_t assignedStair =
+                static_cast<std::size_t>(crewIndex) * 2 + stairIndex;
+            passengerBoardingStairs[assignedStair].SetPosition(stairs.x, stairs.y);
+            passengerBoardingStairs[assignedStair].SetHeadingDegrees(vehicleHeadingDegrees);
+            crew.stairPositions[stairIndex] = stairs;
+            crew.stairHeadings[stairIndex] = vehicleHeadingDegrees;
         }
-        serviceCrewGateId = selectedGateId;
-        boardingStairsGateId = selectedGateId;
+        crew.gateId = selectedGateId;
     };
     const auto getRefuellingApproachWaypoints = [&](const Airplane& aircraft,
         const AircraftRefuellingTanker& tanker)
@@ -2628,7 +2846,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         bool& refuellingStarted, bool& refuellingFinished,
         float& refuellingTimeRemaining, const Airplane& aircraft)
     {
-        if (serviceCrewGateId != gateId || refuellingTankers.empty())
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(refuellingTankers.size()))
         {
             refuellingMessage = "Bring the fuel tanker to this gate first.";
         }
@@ -2640,11 +2859,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         else
         {
             const auto waypoints = getRefuellingApproachWaypoints(
-                aircraft, refuellingTankers.front());
+                aircraft, refuellingTankers[static_cast<std::size_t>(crewIndex)]);
             refuellingTankerRearStagingPosition = waypoints.first;
             refuellingTankerAircraftPosition = waypoints.second;
             activeRefuellingGate = gateId;
+            activeRefuellingCrewIndex = crewIndex;
             refuellingTankerMotion = RefuellingTankerMotion::ApproachingRear;
+            CrewServiceRuntime& runtime = crewRuntime[
+                static_cast<std::size_t>(crewIndex)];
+            runtime.refuellingGate = gateId;
+            runtime.tankerMotion = RefuellingTankerMotion::ApproachingRear;
+            runtime.tankerRearStaging = waypoints.first;
+            runtime.tankerAircraft = waypoints.second;
             refuellingMessage = "Fuel tanker approaching from behind.";
         }
         refuellingMessageTime = 2.5f;
@@ -2654,6 +2880,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         bool cateringWaterFinished, bool passengersDisembarked,
         BaggageLoadingState& state, float& timeRemaining)
     {
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
         if (!passengersDisembarked)
         {
             refuellingMessage = "Disembark passengers before starting aircraft services.";
@@ -2673,9 +2900,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             return;
         }
         std::string missing;
-        if (serviceCrewGateId != gateId || baggageTugs.empty())
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(baggageTugs.size()))
             missing = "Baggage Tug";
-        if (serviceCrewGateId != gateId || baggageBeltLoaders.empty())
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(baggageBeltLoaders.size()))
             missing += missing.empty() ? "Belt Loader" : " and Belt Loader";
         if (!missing.empty())
         {
@@ -2718,10 +2945,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         const Vector2 loaderPosition = aircraftLocalToWorld(side * 7.0f, 7.0f);
         const Vector2 tugPosition = aircraftLocalToWorld(side * 13.0f, 18.0f);
         const float loaderHeading = std::atan2(side * cosine, side * sine) / DEG2RAD;
-        baggageBeltLoaders.front().SetPosition(loaderPosition.x, loaderPosition.y);
-        baggageBeltLoaders.front().SetHeadingDegrees(loaderHeading);
-        baggageTugs.front().SetPosition(tugPosition.x, tugPosition.y);
-        baggageTugs.front().SetHeadingDegrees(loaderHeading);
+        baggageBeltLoaders[static_cast<std::size_t>(crewIndex)].SetPosition(loaderPosition.x, loaderPosition.y);
+        baggageBeltLoaders[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(loaderHeading);
+        baggageTugs[static_cast<std::size_t>(crewIndex)].SetPosition(tugPosition.x, tugPosition.y);
+        baggageTugs[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(loaderHeading);
 
         // The loader's conveyor runs from local z=-0.65 up to z=-4.05.
         const float vehicleRadians = loaderHeading * DEG2RAD;
@@ -2736,12 +2963,19 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         state = BaggageLoadingState::Loading;
         timeRemaining = 8.0f;
         activeBaggageLoadingGate = gateId;
+        activeBaggageCrewIndex = crewIndex;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].baggageGate = gateId;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].baggageBeltStart =
+            baggageBeltAnimationStart;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].baggageBeltEnd =
+            baggageBeltAnimationEnd;
     };
     const auto startCateringAndWater = [&](const std::string& gateId,
         const Airplane& aircraft, bool passengersDisembarked,
         bool refuellingFinished,
         CateringWaterState& state)
     {
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
         if (!passengersDisembarked)
         {
             refuellingMessage = "Disembark passengers before starting aircraft services.";
@@ -2755,9 +2989,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             return;
         }
         std::string missing;
-        if (serviceCrewGateId != gateId || cateringTrucks.empty())
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(cateringTrucks.size()))
             missing = "Catering Truck";
-        if (serviceCrewGateId != gateId || waterServiceTrucks.empty())
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(waterServiceTrucks.size()))
             missing += missing.empty() ? "Water-Service Truck" :
                 " and Water-Service Truck";
         if (!missing.empty())
@@ -2802,10 +3036,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             return Vector2{dx * cosine + dz * sine,
                 -dx * sine + dz * cosine};
         };
+        const ServiceCrewAssignment& crew = serviceCrews[
+            static_cast<std::size_t>(crewIndex)];
         const Vector2 cateringCrewLocal = worldToAircraftLocal(
-            cateringTruckCrewPosition);
+            crew.vehiclePositions[4]);
         const Vector2 waterCrewLocal = worldToAircraftLocal(
-            waterTruckCrewPosition);
+            crew.vehiclePositions[5]);
         const float safeSideDistance = 44.0f * aircraft.renderScale + 5.0f;
         const float safeLongitudinalDistance =
             38.0f * aircraft.renderScale + 3.0f;
@@ -2825,9 +3061,22 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         cateringTruckReachedReturnLane = false;
         waterTruckReachedReturnLane = false;
         activeCateringWaterGate = gateId;
+        activeCateringCrewIndex = crewIndex;
+        CrewServiceRuntime& runtime = crewRuntime[
+            static_cast<std::size_t>(crewIndex)];
+        runtime.cateringGate = gateId;
+        runtime.cateringApproach = cateringTruckApproachPosition;
+        runtime.waterApproach = waterTruckApproachPosition;
+        runtime.cateringService = cateringTruckServicePosition;
+        runtime.waterService = waterTruckServicePosition;
+        runtime.cateringReachedApproach = false;
+        runtime.waterReachedApproach = false;
+        runtime.cateringReachedReturn = false;
+        runtime.waterReachedReturn = false;
         state = CateringWaterState::Approaching;
     };
-    const auto positionBoardingStairsAtAircraft = [&](const Airplane& aircraft)
+    const auto positionBoardingStairsAtAircraft = [&](const Airplane& aircraft,
+        int crewIndex)
     {
         const float radians = aircraft.headingDegrees * DEG2RAD;
         const float cosine = std::cos(radians);
@@ -2847,12 +3096,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             frontDoorZ);
         const Vector2 rearPosition = aircraftLocalToWorld(side * sideOffset,
             rearDoorZ);
-        passengerBoardingStairs[0].SetPosition(frontPosition.x, frontPosition.y);
-        passengerBoardingStairs[0].SetHeadingDegrees(stairHeading);
-        passengerBoardingStairs[1].SetPosition(rearPosition.x, rearPosition.y);
-        passengerBoardingStairs[1].SetHeadingDegrees(stairHeading);
+        const std::size_t stairBase = static_cast<std::size_t>(crewIndex) * 2;
+        passengerBoardingStairs[stairBase].SetPosition(frontPosition.x, frontPosition.y);
+        passengerBoardingStairs[stairBase].SetHeadingDegrees(stairHeading);
+        passengerBoardingStairs[stairBase + 1].SetPosition(rearPosition.x, rearPosition.y);
+        passengerBoardingStairs[stairBase + 1].SetHeadingDegrees(stairHeading);
     };
-    const auto startBoardingStairsReturn = [&](const Airplane& aircraft)
+    const auto startBoardingStairsReturn = [&](const Airplane& aircraft,
+        int crewIndex)
     {
         const float radians = aircraft.headingDegrees * DEG2RAD;
         const float cosine = std::cos(radians);
@@ -2863,10 +3114,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 aircraft.position.x + localX * cosine - localZ * sine,
                 aircraft.position.y + localX * sine + localZ * cosine};
         };
-        for (std::size_t stair = 0; stair < 2 &&
-            stair < passengerBoardingStairs.size(); ++stair)
+        const std::size_t stairBase = static_cast<std::size_t>(crewIndex) * 2;
+        for (std::size_t stair = 0; stair < 2; ++stair)
         {
-            const Vector2 staging = boardingStairsCrewPositions[stair];
+            const std::size_t assignedStair = stairBase + stair;
+            const Vector2 staging = serviceCrews[
+                static_cast<std::size_t>(crewIndex)].stairPositions[stair];
             const float dx = staging.x - aircraft.position.x;
             const float dz = staging.y - aircraft.position.y;
             const float targetLocalX = dx * cosine + dz * sine;
@@ -2876,13 +3129,13 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             const float targetSide = targetLocalX >= 0.0f ? 1.0f : -1.0f;
             constexpr float clearSideDistance = 22.0f;
             const float noseClearZ = -48.0f * aircraft.renderScale;
-            boardingStairsReturnPaths[stair] = {
+            boardingStairsReturnPaths[assignedStair] = {
                 toWorld(clearSideDistance, doorZ),
                 toWorld(clearSideDistance, noseClearZ),
                 toWorld(targetSide * clearSideDistance, noseClearZ),
                 toWorld(targetSide * clearSideDistance, targetLocalZ),
                 staging};
-            boardingStairsReturnWaypoints[stair] = 0;
+            boardingStairsReturnWaypoints[assignedStair] = 0;
         }
     };
     const auto spawnBoardingPassenger = [&](const std::string& gateId,
@@ -2963,6 +3216,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         bool cateringWaterFinished, BaggageLoadingState baggageState,
         BoardingState& state, float& timeRemaining)
     {
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
         if (!passengersDisembarked)
         {
             refuellingMessage = "Disembark passengers before starting aircraft services.";
@@ -2976,19 +3230,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (serviceCrewGateId != gateId)
+        if (crewIndex < 0)
         {
             refuellingMessage = "Bring the service crew with both Passenger Boarding Stairs to this gate first.";
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (boardingStairsGateId != gateId)
-        {
-            refuellingMessage = "Bring the service crew and both Passenger Boarding Stairs to this gate first.";
-            refuellingMessageTime = 2.5f;
-            return;
-        }
-        if (passengerBoardingStairs.size() < 2)
+        if (passengerBoardingStairs.size() <
+            static_cast<std::size_t>(crewIndex + 1) * 2)
         {
             refuellingMessage = "Passenger Boarding Stairs are unavailable at this gate.";
             refuellingMessageTime = 2.5f;
@@ -3009,13 +3258,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             refuellingMessageTime = 2.5f;
             return;
         }
-        positionBoardingStairsAtAircraft(aircraft);
+        positionBoardingStairsAtAircraft(aircraft, crewIndex);
         boardingPassengers.clear();
         boardingPassengerSpawnTimer = 0.0f;
         boardingPassengerSpawnWaves = 0;
         state = BoardingState::Boarding;
         timeRemaining = 10.0f;
         activePassengerServiceGate = gateId;
+        activePassengerCrewIndex = crewIndex;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengerGate = gateId;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengers.clear();
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengerSpawnTimer = 0.0f;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengerSpawnWaves = 0;
         refuellingMessage = "Passenger boarding started.";
         refuellingMessageTime = 2.5f;
     };
@@ -3023,6 +3277,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         const Airplane& aircraft, DisembarkingState& state,
         float& timeRemaining)
     {
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
         if (state == DisembarkingState::Complete)
         {
             refuellingMessage = "Passenger disembarking is already complete.";
@@ -3056,26 +3311,32 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (serviceCrewGateId != gateId || boardingStairsGateId != gateId)
+        if (crewIndex < 0)
         {
             refuellingMessage = "Bring both Passenger Boarding Stairs to this gate first.";
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (passengerBoardingStairs.size() < 2)
+        if (passengerBoardingStairs.size() <
+            static_cast<std::size_t>(crewIndex + 1) * 2)
         {
             refuellingMessage = "Passenger Boarding Stairs are unavailable at this gate.";
             refuellingMessageTime = 2.5f;
             return;
         }
 
-        positionBoardingStairsAtAircraft(aircraft);
+        positionBoardingStairsAtAircraft(aircraft, crewIndex);
         boardingPassengers.clear();
         boardingPassengerSpawnTimer = 0.0f;
         boardingPassengerSpawnWaves = 0;
         state = DisembarkingState::Disembarking;
         timeRemaining = 10.0f;
         activePassengerServiceGate = gateId;
+        activePassengerCrewIndex = crewIndex;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengerGate = gateId;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengers.clear();
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengerSpawnTimer = 0.0f;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].passengerSpawnWaves = 0;
         refuellingMessage = "Passenger disembarking started.";
         refuellingMessageTime = 2.5f;
     };
@@ -3099,15 +3360,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     const auto startPushback = [&](const std::string& gateId, FlightPlan& plan)
     {
         Airplane& aircraft = plan.airplane;
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
         if (!aircraftServicesComplete(gateId))
         {
             refuellingMessage = "Complete all services and boarding before departure.";
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (serviceCrewGateId != gateId || pushbackTugs.empty() ||
-            pushbackTugMotion != PushbackTugMotion::Parked ||
-            pushbackTugStagedGateId != gateId)
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(pushbackTugs.size()) ||
+            pushbackTugMotion != PushbackTugMotion::Parked)
         {
             refuellingMessage = pushbackTugMotion == PushbackTugMotion::Parked
                 ? "Bring the service crew and pushback tug to this gate first."
@@ -3125,8 +3386,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
 
         // Capture the tug's actual staged pose before pointing it at the aircraft.
         // This avoids relying on a separately calculated heading when restoring it.
-        pushbackTugReturnPosition = pushbackTugs.front().GetPosition();
-        pushbackTugReturnHeading = pushbackTugs.front().GetHeadingDegrees();
+        pushbackTugReturnPosition = pushbackTugs[
+            static_cast<std::size_t>(crewIndex)].GetPosition();
+        pushbackTugReturnHeading = pushbackTugs[
+            static_cast<std::size_t>(crewIndex)].GetHeadingDegrees();
 
         const float radians = aircraft.headingDegrees * DEG2RAD;
         const float cosine = std::cos(radians);
@@ -3145,10 +3408,16 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         const Vector2 nosePosition = localToWorld(0.0f, noseClearZ);
         plan.pushbackStartPosition = aircraft.position;
         plan.pushbackTargetPosition = localToWorld(0.0f, 16.0f);
-        pushbackTugs.front().SetPosition(nosePosition.x, nosePosition.y);
-        pushbackTugs.front().SetHeadingDegrees(pushbackTugNoseHeading);
+        pushbackTugs[static_cast<std::size_t>(crewIndex)].SetPosition(
+            nosePosition.x, nosePosition.y);
+        pushbackTugs[static_cast<std::size_t>(crewIndex)].SetHeadingDegrees(
+            pushbackTugNoseHeading);
         pushbackTugPositioningGate = gateId;
+        activePushbackCrewIndex = crewIndex;
         pushbackTugMotion = PushbackTugMotion::PushingAircraft;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].pushbackMotion =
+            PushbackTugMotion::PushingAircraft;
+        crewRuntime[static_cast<std::size_t>(crewIndex)].pushbackGate = gateId;
         plan.pushbackState = FlightPlan::PushbackState::MovingAircraft;
         refuellingMessage = "Pushback in progress.";
         refuellingMessageTime = 2.5f;
@@ -3166,7 +3435,10 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 break;
             }
         }
-        if (plan == nullptr || pushbackTugs.empty()) return;
+        if (plan == nullptr || activePushbackCrewIndex < 0 ||
+            activePushbackCrewIndex >= static_cast<int>(pushbackTugs.size())) return;
+        AircraftPushbackTug& activeTug = pushbackTugs[
+            static_cast<std::size_t>(activePushbackCrewIndex)];
         if (pushbackTugMotion == PushbackTugMotion::WaitingForAircraftTaxi &&
             plan->airplane.state == AirplaneState::TaxiingToRunway &&
             (plan->airplane.position.x - plan->pushbackTargetPosition.x) *
@@ -3188,12 +3460,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 // A multi-turn reverse route looked unnatural and risked
                 // crossing the aircraft's taxi path. Return to the assigned
                 // crew bay only after taxi movement and the full delay.
-                pushbackTugs.front().SetPosition(
+                activeTug.SetPosition(
                     pushbackTugReturnPosition.x, pushbackTugReturnPosition.y);
-                pushbackTugs.front().SetHeadingDegrees(pushbackTugReturnHeading);
+                activeTug.SetHeadingDegrees(pushbackTugReturnHeading);
+                crewRuntime[static_cast<std::size_t>(
+                    activePushbackCrewIndex)].pushbackMotion =
+                        PushbackTugMotion::Parked;
+                crewRuntime[static_cast<std::size_t>(
+                    activePushbackCrewIndex)].pushbackGate.clear();
                 pushbackTugMotion = PushbackTugMotion::Parked;
                 plan->departureAuthorizationRequested = false;
                 pushbackTugPositioningGate.clear();
+                activePushbackCrewIndex = -1;
                 refuellingMessage = "Pushback tug returned to its parking position.";
                 refuellingMessageTime = 4.0f;
             }
@@ -3220,7 +3498,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     (-42.0f * plan->airplane.renderScale - 3.5f) * std::sin(radians),
                 position.y + 0.0f * std::sin(radians) +
                     (-42.0f * plan->airplane.renderScale - 3.5f) * std::cos(radians)};
-            pushbackTugs.front().SetPosition(tugPosition.x, tugPosition.y);
+            activeTug.SetPosition(tugPosition.x, tugPosition.y);
             if (distance <= step || distance <= 0.05f)
             {
                 pushbackTugMotion = PushbackTugMotion::WaitingForAuthorisation;
@@ -3239,13 +3517,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         const Airplane& aircraft, bool passengersDisembarked,
         MaintenanceInspectionState& state, float& progress)
     {
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
         if (!passengersDisembarked)
         {
             refuellingMessage = "Disembark passengers before maintenance inspection.";
             refuellingMessageTime = 2.5f;
             return;
         }
-        if (serviceCrewGateId != gateId || maintenancePickupTrucks.empty())
+        if (crewIndex < 0 || crewIndex >= static_cast<int>(maintenancePickupTrucks.size()))
         {
             refuellingMessage = "Bring the Maintenance Pickup to this gate first.";
             refuellingMessageTime = 2.5f;
@@ -3287,7 +3566,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         maintenancePickupInspectionPosition = aircraftLocalToWorld(0.0f,
             tailClearanceZ);
         maintenancePickupApproachPosition = {
-            maintenancePickupCrewPosition.x,
+            serviceCrews[static_cast<std::size_t>(crewIndex)].vehiclePositions[6].x,
             maintenancePickupInspectionPosition.y};
         maintenancePickupTailClearPosition = maintenancePickupInspectionPosition;
         maintenancePickupReachedApproach = false;
@@ -3295,8 +3574,20 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         maintenanceTechniciansReachedAircraft = false;
         maintenanceTechnicians.clear();
         maintenanceInspectionTimeRemaining = 0.0f;
+        activeMaintenanceCrewIndex = crewIndex;
         progress = 0.0f;
         activeMaintenanceInspectionGate = gateId;
+        CrewServiceRuntime& runtime = crewRuntime[
+            static_cast<std::size_t>(crewIndex)];
+        runtime.maintenanceGate = gateId;
+        runtime.maintenanceInspection = maintenancePickupInspectionPosition;
+        runtime.maintenanceApproach = maintenancePickupApproachPosition;
+        runtime.maintenanceTail = maintenancePickupTailClearPosition;
+        runtime.maintenanceReachedApproach = false;
+        runtime.maintenanceReachedTail = false;
+        runtime.techniciansReachedAircraft = false;
+        runtime.maintenanceInspectionTimeRemaining = 0.0f;
+        runtime.technicians.clear();
         state = MaintenanceInspectionState::Approaching;
         refuellingMessage = "Maintenance team dispatched to inspect the aircraft.";
         refuellingMessageTime = 2.5f;
@@ -3315,19 +3606,23 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
     };
     const auto moveTankerToward = [&](Vector2 target, float deltaTime)
     {
-        if (refuellingTankers.empty()) return false;
+        if (activeRefuellingCrewIndex < 0 ||
+            activeRefuellingCrewIndex >= static_cast<int>(refuellingTankers.size()))
+            return false;
         constexpr float TankerApproachSpeed = 9.0f;
-        const Vector2 position = refuellingTankers.front().GetPosition();
+        AircraftRefuellingTanker& tanker = refuellingTankers[
+            static_cast<std::size_t>(activeRefuellingCrewIndex)];
+        const Vector2 position = tanker.GetPosition();
         const float dx = target.x - position.x;
         const float dz = target.y - position.y;
         const float distance = std::sqrt(dx * dx + dz * dz);
         const float step = TankerApproachSpeed * deltaTime;
         if (distance <= step || distance <= 0.05f)
         {
-            refuellingTankers.front().SetPosition(target.x, target.y);
+            tanker.SetPosition(target.x, target.y);
             return true;
         }
-        refuellingTankers.front().SetPosition(
+        tanker.SetPosition(
             position.x + dx / distance * step,
             position.y + dz / distance * step);
         return false;
@@ -3369,16 +3664,68 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 refuellingTankerMotion = RefuellingTankerMotion::ReturningToCrewPosition;
             break;
         case RefuellingTankerMotion::ReturningToCrewPosition:
-            if (moveTankerToward(refuellingTankerCrewPosition, deltaTime))
+            if (activeRefuellingCrewIndex >= 0 &&
+                moveTankerToward(serviceCrews[
+                    static_cast<std::size_t>(activeRefuellingCrewIndex)].vehiclePositions[1],
+                    deltaTime))
             {
+                CrewServiceRuntime& runtime = crewRuntime[
+                    static_cast<std::size_t>(activeRefuellingCrewIndex)];
                 refuellingTankerMotion = RefuellingTankerMotion::Parked;
+                runtime.tankerMotion = RefuellingTankerMotion::Parked;
+                runtime.refuellingGate.clear();
                 activeRefuellingGate.clear();
+                activeRefuellingCrewIndex = -1;
             }
             break;
         case RefuellingTankerMotion::Parked:
         case RefuellingTankerMotion::Refuelling:
             break;
         }
+    };
+    const auto advanceAutomaticService = [&](const std::string& gateId)
+    {
+        if (!automaticServiceUpgrade ||
+            automaticServiceGates.count(gateId) == 0)
+            return;
+        const int crewIndex = serviceCrewIndexAtGate(gateId);
+        if (crewIndex < 0 || crewIsBusy(crewIndex)) return;
+        FlightPlan* plan = findParkedFlightAtGate(gateId);
+        if (plan == nullptr) return;
+        AircraftServiceProgress& progress =
+            serviceProgressByFlight[plan->airplane.flightId];
+
+        if (progress.disembarking == DisembarkingState::Idle)
+            startPassengerDisembarking(gateId, plan->airplane,
+                progress.disembarking, progress.disembarkingTimeRemaining);
+        else if (progress.disembarking == DisembarkingState::Complete &&
+            progress.maintenance == MaintenanceInspectionState::Idle)
+            startMaintenanceInspection(gateId, plan->airplane, true,
+                progress.maintenance, progress.maintenanceProgress);
+        else if (progress.maintenance == MaintenanceInspectionState::Complete &&
+            !progress.refuellingStarted && !progress.refuellingFinished)
+            handleRefuellingClick(gateId, progress.refuellingStarted,
+                progress.refuellingFinished, progress.refuellingTimeRemaining,
+                plan->airplane);
+        else if (progress.refuellingFinished &&
+            progress.cateringWater == CateringWaterState::Idle)
+            startCateringAndWater(gateId, plan->airplane,
+                progress.disembarking == DisembarkingState::Complete,
+                progress.refuellingFinished, progress.cateringWater);
+        else if (progress.cateringWater == CateringWaterState::Complete &&
+            progress.baggage == BaggageLoadingState::Idle)
+            startBaggageLoading(gateId, plan->airplane,
+                progress.refuellingFinished, true,
+                progress.disembarking == DisembarkingState::Complete,
+                progress.baggage, progress.baggageTimeRemaining);
+        else if (progress.baggage == BaggageLoadingState::Complete &&
+            progress.boarding == BoardingState::Idle)
+            startPassengerBoarding(gateId, plan->airplane,
+                progress.disembarking == DisembarkingState::Complete,
+                progress.refuellingFinished,
+                progress.cateringWater == CateringWaterState::Complete,
+                progress.baggage, progress.boarding,
+                progress.boardingTimeRemaining);
     };
 
     while (!WindowShouldClose())
@@ -3394,7 +3741,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         const float realDeltaTime = GetFrameTime();
         if (!showMainMenu && IsKeyPressed(KEY_ESCAPE))
         {
-            if (isPaused && (showRestartConfirmation || showEndShiftConfirmation))
+            if (showUpgradeMenu)
+                showUpgradeMenu = false;
+            else if (isPaused && (showRestartConfirmation || showEndShiftConfirmation))
             {
                 showRestartConfirmation = false;
                 showEndShiftConfirmation = false;
@@ -3410,7 +3759,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         }
         const float speedScaledRealDeltaTime = realDeltaTime *
             static_cast<float>(simulationSpeedMultiplier);
-        const float deltaTime = (shiftComplete || isPaused) ? 0.0f :
+        const float deltaTime = (shiftComplete || isPaused || showUpgradeMenu) ? 0.0f :
             speedScaledRealDeltaTime * BaseSimulationSpeed;
         if (exitRequested) break;
         if (showMainMenu)
@@ -3515,21 +3864,26 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 if (timeRemaining <= 0.0f)
                 {
                     state = BaggageLoadingState::Complete;
-                    if (!baggageTugs.empty())
+                    if (activeBaggageCrewIndex >= 0 &&
+                        activeBaggageCrewIndex < static_cast<int>(baggageTugs.size()))
                     {
-                        baggageTugs.front().SetPosition(
-                            baggageTugCrewPosition.x, baggageTugCrewPosition.y);
-                        baggageTugs.front().SetHeadingDegrees(baggageTugCrewHeading);
+                        const std::size_t crewIndex = static_cast<std::size_t>(
+                            activeBaggageCrewIndex);
+                        const ServiceCrewAssignment& crew = serviceCrews[crewIndex];
+                        baggageTugs[crewIndex].SetPosition(
+                            crew.vehiclePositions[0].x, crew.vehiclePositions[0].y);
+                        baggageTugs[crewIndex].SetHeadingDegrees(crew.vehicleHeadings[0]);
+                        baggageBeltLoaders[crewIndex].SetPosition(
+                            crew.vehiclePositions[3].x, crew.vehiclePositions[3].y);
+                        baggageBeltLoaders[crewIndex].SetHeadingDegrees(
+                            crew.vehicleHeadings[3]);
                     }
-                    if (!baggageBeltLoaders.empty())
-                    {
-                        baggageBeltLoaders.front().SetPosition(
-                            baggageBeltLoaderCrewPosition.x,
-                            baggageBeltLoaderCrewPosition.y);
-                        baggageBeltLoaders.front().SetHeadingDegrees(
-                            baggageBeltLoaderCrewHeading);
-                    }
+                    if (activeBaggageCrewIndex >= 0 &&
+                        activeBaggageCrewIndex < static_cast<int>(crewRuntime.size()))
+                        crewRuntime[static_cast<std::size_t>(
+                            activeBaggageCrewIndex)].baggageGate.clear();
                     activeBaggageLoadingGate.clear();
+                    activeBaggageCrewIndex = -1;
                     refuellingMessage = std::string(aircraftName) +
                         " baggage loading complete.";
                     refuellingMessageTime = 3.0f;
@@ -3552,10 +3906,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             {
                 if (state == CateringWaterState::Approaching)
                 {
-                    if (cateringTrucks.empty() || waterServiceTrucks.empty())
+                    if (activeCateringCrewIndex < 0 ||
+                        activeCateringCrewIndex >= static_cast<int>(cateringTrucks.size()) ||
+                        activeCateringCrewIndex >= static_cast<int>(waterServiceTrucks.size()))
                         return;
-                    Vector2 cateringPosition = cateringTrucks.front().GetPosition();
-                    Vector2 waterPosition = waterServiceTrucks.front().GetPosition();
+                    const std::size_t crewIndex = static_cast<std::size_t>(
+                        activeCateringCrewIndex);
+                    Vector2 cateringPosition = cateringTrucks[crewIndex].GetPosition();
+                    Vector2 waterPosition = waterServiceTrucks[crewIndex].GetPosition();
                     if (!cateringTruckReachedApproach)
                         cateringTruckReachedApproach = moveServiceTruckToward(
                             cateringPosition, cateringTruckApproachPosition, deltaTime);
@@ -3568,12 +3926,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     else
                         moveServiceTruckToward(waterPosition,
                             waterTruckServicePosition, deltaTime);
-                    cateringTrucks.front().SetPosition(cateringPosition.x,
+                    cateringTrucks[crewIndex].SetPosition(cateringPosition.x,
                         cateringPosition.y);
-                    waterServiceTrucks.front().SetPosition(waterPosition.x,
+                    waterServiceTrucks[crewIndex].SetPosition(waterPosition.x,
                         waterPosition.y);
-                    cateringTrucks.front().SetHeadingDegrees(cateringTruckCrewHeading);
-                    waterServiceTrucks.front().SetHeadingDegrees(waterTruckCrewHeading);
+                    cateringTrucks[crewIndex].SetHeadingDegrees(
+                        serviceCrews[crewIndex].vehicleHeadings[4]);
+                    waterServiceTrucks[crewIndex].SetHeadingDegrees(
+                        serviceCrews[crewIndex].vehicleHeadings[5]);
                     const Vector2 cateringToService{
                         cateringTruckServicePosition.x - cateringPosition.x,
                         cateringTruckServicePosition.y - cateringPosition.y};
@@ -3599,32 +3959,39 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 }
                 else if (state == CateringWaterState::Returning)
                 {
-                    if (cateringTrucks.empty() || waterServiceTrucks.empty())
+                    if (activeCateringCrewIndex < 0 ||
+                        activeCateringCrewIndex >= static_cast<int>(cateringTrucks.size()) ||
+                        activeCateringCrewIndex >= static_cast<int>(waterServiceTrucks.size()))
                         return;
-                    Vector2 cateringPosition = cateringTrucks.front().GetPosition();
-                    Vector2 waterPosition = waterServiceTrucks.front().GetPosition();
+                    const std::size_t crewIndex = static_cast<std::size_t>(
+                        activeCateringCrewIndex);
+                    const ServiceCrewAssignment& crew = serviceCrews[crewIndex];
+                    const Vector2 cateringCrewPosition = crew.vehiclePositions[4];
+                    const Vector2 waterCrewPosition = crew.vehiclePositions[5];
+                    Vector2 cateringPosition = cateringTrucks[crewIndex].GetPosition();
+                    Vector2 waterPosition = waterServiceTrucks[crewIndex].GetPosition();
                     if (!cateringTruckReachedReturnLane)
                         cateringTruckReachedReturnLane = moveServiceTruckToward(
                             cateringPosition, cateringTruckApproachPosition, deltaTime);
                     else
                         moveServiceTruckToward(cateringPosition,
-                            cateringTruckCrewPosition, deltaTime);
+                            cateringCrewPosition, deltaTime);
                     if (!waterTruckReachedReturnLane)
                         waterTruckReachedReturnLane = moveServiceTruckToward(
                             waterPosition, waterTruckApproachPosition, deltaTime);
                     else
                         moveServiceTruckToward(waterPosition,
-                            waterTruckCrewPosition, deltaTime);
-                    cateringTrucks.front().SetPosition(cateringPosition.x,
+                            waterCrewPosition, deltaTime);
+                    cateringTrucks[crewIndex].SetPosition(cateringPosition.x,
                         cateringPosition.y);
-                    waterServiceTrucks.front().SetPosition(waterPosition.x,
+                    waterServiceTrucks[crewIndex].SetPosition(waterPosition.x,
                         waterPosition.y);
                     const Vector2 cateringToCrew{
-                        cateringTruckCrewPosition.x - cateringPosition.x,
-                        cateringTruckCrewPosition.y - cateringPosition.y};
+                        cateringCrewPosition.x - cateringPosition.x,
+                        cateringCrewPosition.y - cateringPosition.y};
                     const Vector2 waterToCrew{
-                        waterTruckCrewPosition.x - waterPosition.x,
-                        waterTruckCrewPosition.y - waterPosition.y};
+                        waterCrewPosition.x - waterPosition.x,
+                        waterCrewPosition.y - waterPosition.y};
                     if (cateringTruckReachedReturnLane &&
                         waterTruckReachedReturnLane &&
                         cateringToCrew.x * cateringToCrew.x +
@@ -3632,12 +3999,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                         waterToCrew.x * waterToCrew.x +
                             waterToCrew.y * waterToCrew.y <= 0.05f * 0.05f)
                     {
-                        cateringTrucks.front().SetHeadingDegrees(
-                            cateringTruckCrewHeading);
-                        waterServiceTrucks.front().SetHeadingDegrees(
-                            waterTruckCrewHeading);
+                        cateringTrucks[crewIndex].SetHeadingDegrees(
+                            crew.vehicleHeadings[4]);
+                        waterServiceTrucks[crewIndex].SetHeadingDegrees(
+                            crew.vehicleHeadings[5]);
+                        crewRuntime[crewIndex].cateringGate.clear();
                         state = CateringWaterState::Complete;
                         activeCateringWaterGate.clear();
+                        activeCateringCrewIndex = -1;
                         refuellingMessage = std::string(aircraftName) +
                             " catering and water service complete.";
                         refuellingMessageTime = 3.0f;
@@ -3661,22 +4030,27 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 const Airplane& aircraft, const char* aircraftName)
             {
                 if (activeMaintenanceInspectionGate != gateId ||
-                    maintenancePickupTrucks.empty())
+                    activeMaintenanceCrewIndex < 0 ||
+                    activeMaintenanceCrewIndex >=
+                        static_cast<int>(maintenancePickupTrucks.size()))
                     return;
+                MaintenancePickupTruck& pickup = maintenancePickupTrucks[
+                    static_cast<std::size_t>(activeMaintenanceCrewIndex)];
+                const ServiceCrewAssignment& crew = serviceCrews[
+                    static_cast<std::size_t>(activeMaintenanceCrewIndex)];
 
                 progress = std::min(0.98f, progress + deltaTime / 48.0f);
                 const auto movePickup = [&](Vector2 target)
                 {
-                    Vector2 position = maintenancePickupTrucks.front().GetPosition();
+                    Vector2 position = pickup.GetPosition();
                     const float dx = target.x - position.x;
                     const float dz = target.y - position.y;
                     if (dx * dx + dz * dz > 0.05f * 0.05f)
-                        maintenancePickupTrucks.front().SetHeadingDegrees(
+                        pickup.SetHeadingDegrees(
                             std::atan2(-dx, -dz) / DEG2RAD);
                     const bool arrived = moveServiceTruckToward(
                         position, target, deltaTime);
-                    maintenancePickupTrucks.front().SetPosition(
-                        position.x, position.y);
+                    pickup.SetPosition(position.x, position.y);
                     return arrived;
                 };
                 if (state == MaintenanceInspectionState::Approaching)
@@ -3844,13 +4218,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     else if (!maintenancePickupReachedApproach)
                         maintenancePickupReachedApproach = movePickup(
                             maintenancePickupApproachPosition);
-                    else if (movePickup(maintenancePickupCrewPosition))
+                    else if (movePickup(crew.vehiclePositions[6]))
                     {
-                        maintenancePickupTrucks.front().SetHeadingDegrees(
-                            maintenancePickupCrewHeading);
+                        pickup.SetHeadingDegrees(crew.vehicleHeadings[6]);
                         state = MaintenanceInspectionState::Complete;
                         progress = 1.0f;
+                        crewRuntime[static_cast<std::size_t>(
+                            activeMaintenanceCrewIndex)].maintenanceGate.clear();
                         activeMaintenanceInspectionGate.clear();
+                        activeMaintenanceCrewIndex = -1;
                         refuellingMessage = std::string(aircraftName) +
                             " maintenance inspection complete.";
                         refuellingMessageTime = 3.0f;
@@ -3931,7 +4307,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 AircraftServiceProgress* progress =
                     serviceProgressForGate(activePassengerServiceGate);
                 if (plan == nullptr || progress == nullptr) return;
-                startBoardingStairsReturn(plan->airplane);
+                startBoardingStairsReturn(plan->airplane,
+                    activePassengerCrewIndex);
                 if (serviceName[0] == 'b')
                     progress->boarding = BoardingState::ReturningStairs;
                 else
@@ -4003,27 +4380,36 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             }
             const auto updateBoardingStairsReturn = [&](float frameTime)
             {
-                bool allReturned = passengerBoardingStairs.size() >= 2;
-                for (std::size_t stair = 0; stair < 2 &&
-                    stair < passengerBoardingStairs.size(); ++stair)
+                if (activePassengerCrewIndex < 0) return;
+                const std::size_t stairBase = static_cast<std::size_t>(
+                    activePassengerCrewIndex) * 2;
+                if (passengerBoardingStairs.size() < stairBase + 2) return;
+                bool allReturned = true;
+                for (std::size_t stair = 0; stair < 2; ++stair)
                 {
-                    std::vector<Vector2>& path = boardingStairsReturnPaths[stair];
-                    std::size_t& waypoint = boardingStairsReturnWaypoints[stair];
+                    const std::size_t assignedStair = stairBase + stair;
+                    std::vector<Vector2>& path =
+                        boardingStairsReturnPaths[assignedStair];
+                    std::size_t& waypoint =
+                        boardingStairsReturnWaypoints[assignedStair];
                     if (waypoint < path.size())
                     {
-                        Vector2 current = passengerBoardingStairs[stair].GetPosition();
+                        Vector2 current = passengerBoardingStairs[
+                            assignedStair].GetPosition();
                         const Vector2 target = path[waypoint];
                         const float dx = target.x - current.x;
                         const float dz = target.y - current.y;
-                        passengerBoardingStairs[stair].SetHeadingDegrees(
+                        passengerBoardingStairs[assignedStair].SetHeadingDegrees(
                             std::atan2(-dx, -dz) / DEG2RAD);
                         if (moveServiceTruckToward(current, target, frameTime))
                             ++waypoint;
-                        passengerBoardingStairs[stair].SetPosition(current.x, current.y);
+                        passengerBoardingStairs[assignedStair].SetPosition(
+                            current.x, current.y);
                     }
                     if (waypoint < path.size()) allReturned = false;
-                    else passengerBoardingStairs[stair].SetHeadingDegrees(
-                        boardingStairsCrewHeadings[stair]);
+                    else passengerBoardingStairs[assignedStair].SetHeadingDegrees(
+                        serviceCrews[static_cast<std::size_t>(
+                            activePassengerCrewIndex)].stairHeadings[stair]);
                 }
                 if (!allReturned) return;
 
@@ -4035,7 +4421,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     if (progress->disembarking == DisembarkingState::ReturningStairs)
                         progress->disembarking = DisembarkingState::Complete;
                 }
+                if (activePassengerCrewIndex >= 0 &&
+                    activePassengerCrewIndex < static_cast<int>(crewRuntime.size()))
+                    crewRuntime[static_cast<std::size_t>(
+                        activePassengerCrewIndex)].passengerGate.clear();
                 activePassengerServiceGate.clear();
+                activePassengerCrewIndex = -1;
                 refuellingMessage = passengerServiceCompletionMessage;
                 refuellingMessageTime = 3.0f;
             };
@@ -4072,9 +4463,27 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                  (activeRefuellingGate == "EAST_1" && eastWingRefuellingFinished)))
                 refuellingTankerMotion = RefuellingTankerMotion::ReturningBehindAircraft;
             updateTankerMotion(deltaTime);
+            if (!isPaused && !showUpgradeMenu)
+                for (const std::string& gateId : automaticServiceGates)
+                    advanceAutomaticService(gateId);
             cameraController.Update(realDeltaTime);
         }
-        if (showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        if (!showMainMenu && showUpgradeMenu &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            const Vector2 mouse = GetMousePosition();
+            const UpgradeMenuLayout layout = GetUpgradeMenuLayout();
+            if (CheckCollisionPointRec(mouse, layout.automaticCard))
+                automaticServiceUpgrade = true;
+            else if (CheckCollisionPointRec(mouse, layout.additionalCard))
+            {
+                additionalServiceCrewsUpgrade = true;
+                addThirdServiceCrewFleet();
+            }
+            else if (CheckCollisionPointRec(mouse, layout.backButton))
+                showUpgradeMenu = false;
+        }
+        else if (showMainMenu && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
             if (showGameplayGuide)
@@ -4102,6 +4511,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                     {
                         savedDifficulty = static_cast<GameDifficulty>(i);
                         applyDifficultySchedule();
+                        if (additionalServiceCrewsUpgrade)
+                            addThirdServiceCrewFleet();
                         showDifficultySelection = false;
                         showMainMenu = false;
                         started = true;
@@ -4134,6 +4545,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
         else if (showMainMenu && showDifficultySelection && IsKeyPressed(KEY_ENTER))
         {
             applyDifficultySchedule();
+            if (additionalServiceCrewsUpgrade)
+                addThirdServiceCrewFleet();
             showDifficultySelection = false;
             showMainMenu = false;
         }
@@ -4143,6 +4556,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             savedDifficulty = IsKeyPressed(KEY_ONE) ? GameDifficulty::Easy :
                 (IsKeyPressed(KEY_TWO) ? GameDifficulty::Medium : GameDifficulty::Hard);
             applyDifficultySchedule();
+            if (additionalServiceCrewsUpgrade)
+                addThirdServiceCrewFleet();
             showDifficultySelection = false;
             showMainMenu = false;
         }
@@ -4247,17 +4662,22 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             const Vector2 mouse = GetMousePosition();
-            if (!selectSimulationSpeedAtPosition(mouse))
+            if (CheckCollisionPointRec(mouse, GetUpgradesHudButtonBounds()))
+                showUpgradeMenu = true;
+            else if (!selectSimulationSpeedAtPosition(mouse))
             {
                 const bool departureAvailable =
                     pushbackAvailableAtGate(selectedGateId);
                 const GateNavigationButtons buttons =
-                    GetGateNavigationButtons(departureAvailable);
+                    GetGateNavigationButtons(departureAvailable,
+                        automaticServiceUpgrade);
                 const bool gateViewActive = cameraController.IsGateViewActive();
                 const bool clickedGateNavigation = gateViewActive &&
                     (CheckCollisionPointRec(mouse, buttons.previous) ||
                      CheckCollisionPointRec(mouse, buttons.next) ||
                      CheckCollisionPointRec(mouse, buttons.bringServiceCrew) ||
+                     (automaticServiceUpgrade &&
+                        CheckCollisionPointRec(mouse, buttons.autoService)) ||
                      (departureAvailable &&
                         CheckCollisionPointRec(mouse, buttons.departure)));
                 if (clickedGateNavigation)
@@ -4268,6 +4688,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                         selectAdjacentGate(1);
                     else if (CheckCollisionPointRec(mouse, buttons.bringServiceCrew))
                         bringServiceCrewToSelectedGate();
+                    else if (automaticServiceUpgrade &&
+                        CheckCollisionPointRec(mouse, buttons.autoService))
+                    {
+                        if (automaticServiceGates.erase(selectedGateId) == 0)
+                            automaticServiceGates.insert(selectedGateId);
+                    }
                     else if (departureAvailable &&
                         CheckCollisionPointRec(mouse, buttons.departure))
                     {
@@ -4281,7 +4707,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                         }
                     }
                 }
-                else if (gateViewActive &&
+                else if (gateViewActive && !automaticServiceUpgrade &&
                     (CheckCollisionPointRec(mouse, buttons.disembarkPassengers) ||
                     CheckCollisionPointRec(mouse, buttons.maintenanceInspection) ||
                     CheckCollisionPointRec(mouse, buttons.refuelAircraft) ||
@@ -5387,14 +5813,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             const bool departureAvailable =
                 pushbackAvailableAtGate(selectedGateId);
             const GateNavigationButtons buttons =
-                GetGateNavigationButtons(departureAvailable);
+                GetGateNavigationButtons(departureAvailable,
+                    automaticServiceUpgrade);
             DrawGateNavigationButton(buttons.previous, "PREV GATE");
             DrawGateNavigationButton(buttons.next, "NEXT GATE");
             DrawGateNavigationButton(buttons.overview, "BACK TO OVERVIEW");
             DrawGateNavigationButton(buttons.bringServiceCrew, "Bring Service Crew");
             if (departureAvailable)
                 DrawDepartureButton(buttons.departure);
-            if (findParkedFlightAtGate(selectedGateId) != nullptr)
+            if (automaticServiceUpgrade)
+                DrawAutomaticServiceButton(buttons.autoService,
+                    automaticServiceGates.count(selectedGateId) != 0);
+            else if (findParkedFlightAtGate(selectedGateId) != nullptr)
             {
                 const AircraftServiceProgress& progress =
                     serviceProgressByFlight[findParkedFlightAtGate(
@@ -5736,6 +6166,20 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
                 static_cast<int>(button.x + (button.width -
                     static_cast<float>(MeasureText(speedLabel, 10))) * 0.5f),
                 static_cast<int>(button.y + 4.0f), 10, RAYWHITE);
+        }
+        if (!showMainMenu && !shiftComplete)
+        {
+            const Rectangle upgradesButton = GetUpgradesHudButtonBounds();
+            const bool hovered = CheckCollisionPointRec(GetMousePosition(),
+                upgradesButton);
+            DrawRectangleRounded(upgradesButton, 0.18f, 6,
+                hovered ? Color{36, 91, 101, 255} : Color{15, 44, 57, 245});
+            DrawRectangleRoundedLinesEx(upgradesButton, 0.18f, 6,
+                hovered ? 2.0f : 1.0f, Color{85, 205, 202, 255});
+            DrawText("UPGRADES",
+                static_cast<int>(upgradesButton.x + 27.0f),
+                static_cast<int>(upgradesButton.y + 10.0f), 11,
+                Color{203, 236, 232, 255});
         }
 
         const int scenarioStage = shiftClockSeconds < MorningStageEndSeconds ? 0 :
@@ -6568,6 +7012,88 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty)
             }
         }
 
+        if (showUpgradeMenu)
+        {
+            const UpgradeMenuLayout layout = GetUpgradeMenuLayout();
+            const Vector2 mouse = GetMousePosition();
+            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                Fade(Color{3, 13, 21, 255}, 0.72f));
+            DrawRectangleRounded(layout.panel, 0.035f, 12,
+                Color{10, 29, 40, 255});
+            DrawRectangleRoundedLinesEx(layout.panel, 0.035f, 12, 2.0f,
+                Color{76, 224, 211, 255});
+            DrawRectangle(static_cast<int>(layout.panel.x + 1.0f),
+                static_cast<int>(layout.panel.y + 1.0f),
+                static_cast<int>(layout.panel.width - 2.0f), 4,
+                Color{91, 222, 218, 255});
+            DrawText("AIRFIELD UPGRADES",
+                static_cast<int>(layout.panel.x + 26.0f),
+                static_cast<int>(layout.panel.y + 24.0f), 24, RAYWHITE);
+            DrawText("Both upgrades are free. No currency or prices are used.",
+                static_cast<int>(layout.panel.x + 28.0f),
+                static_cast<int>(layout.panel.y + 62.0f), 11,
+                Color{164, 196, 203, 255});
+
+            const auto drawUpgradeCard = [&](Rectangle card, const char* title,
+                const char* descriptionLineOne, const char* descriptionLineTwo,
+                const char* status, bool enabled)
+            {
+                const bool hovered = CheckCollisionPointRec(mouse, card);
+                const Color border = hovered ? Color{102, 228, 216, 255} :
+                    Color{64, 126, 140, 255};
+                DrawRectangleRounded(card, 0.04f, 8,
+                    hovered ? Color{22, 65, 77, 255} :
+                        Color{14, 43, 56, 255});
+                DrawRectangleRoundedLinesEx(card, 0.04f, 8,
+                    hovered ? 2.0f : 1.0f, border);
+                DrawText(title, static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + 18.0f), 17, RAYWHITE);
+                DrawText(enabled ? "UNLOCKED" : "FREE UPGRADE",
+                    static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + 52.0f), 10,
+                    enabled ? Color{117, 235, 183, 255} :
+                        Color{180, 193, 196, 255});
+                DrawText(descriptionLineOne, static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + 82.0f), 9,
+                    Color{183, 206, 210, 255});
+                DrawText(descriptionLineTwo, static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + 98.0f), 9,
+                    Color{183, 206, 210, 255});
+                DrawText(status, static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + card.height - 30.0f), 10,
+                    Color{118, 211, 207, 255});
+                DrawText(enabled ? "ALREADY UNLOCKED" : "CLICK TO UNLOCK",
+                    static_cast<int>(card.x + 18.0f),
+                    static_cast<int>(card.y + card.height - 15.0f), 8,
+                    Color{137, 166, 173, 255});
+            };
+            drawUpgradeCard(layout.automaticCard, "AUTOMATIC SERVICE",
+                "After dispatch, servicing runs in order from",
+                "disembarking through inspection, fuel, and boarding.",
+                "Crew dispatch and departure clearance remain manual.",
+                automaticServiceUpgrade);
+            drawUpgradeCard(layout.additionalCard, "ADDITIONAL CREWS",
+                "Unlocks another complete crew, if the shift",
+                "difficulty permits: Easy 1, Medium 2, Hard 3.",
+                "Crews must still be sent to a gate by the player.",
+                additionalServiceCrewsUpgrade);
+
+            const bool backHovered = CheckCollisionPointRec(mouse,
+                layout.backButton);
+            DrawRectangleRounded(layout.backButton, 0.08f, 8,
+                backHovered ? Color{31, 69, 82, 250} :
+                    Color{14, 38, 51, 234});
+            DrawRectangleRoundedLinesEx(layout.backButton, 0.08f, 8,
+                backHovered ? 2.0f : 1.0f,
+                Color{65, 115, 128, 230});
+            DrawText("BACK", static_cast<int>(layout.backButton.x + 48.0f),
+                static_cast<int>(layout.backButton.y + 13.0f), 11, RAYWHITE);
+            DrawText("ESC TO CLOSE",
+                static_cast<int>(layout.panel.x + layout.panel.width - 112.0f),
+                static_cast<int>(layout.panel.y + layout.panel.height - 20.0f),
+                9, Color{114, 158, 170, 255});
+        }
+
         EndDrawing();
     }
 
@@ -6582,9 +7108,12 @@ int main()
 {
     bool startImmediately = false;
     GameDifficulty savedDifficulty = GameDifficulty::Medium;
+    bool automaticServiceUpgrade = false;
+    bool additionalServiceCrewsUpgrade = false;
     while (true)
     {
-        const RunGameResult result = RunGame(startImmediately, savedDifficulty);
+        const RunGameResult result = RunGame(startImmediately, savedDifficulty,
+            automaticServiceUpgrade, additionalServiceCrewsUpgrade);
         if (result == RunGameResult::Exit) break;
         startImmediately = result == RunGameResult::RestartShift;
     }
