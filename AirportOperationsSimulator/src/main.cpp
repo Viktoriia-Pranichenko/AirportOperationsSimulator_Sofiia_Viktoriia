@@ -584,11 +584,13 @@ namespace
                 2, accent);
     }
 
-    void DrawAutomaticServiceButton(Rectangle bounds, bool enabled)
+    void DrawAutomaticServiceButton(Rectangle bounds, bool enabled,
+        bool crewAvailable)
     {
-        const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
-        const Color accent = enabled ?
-            Color{110, 239, 205, 255} : Color{91, 222, 218, 255};
+        const bool hovered = crewAvailable &&
+            CheckCollisionPointRec(GetMousePosition(), bounds);
+        const Color accent = !crewAvailable ? Color{100, 118, 124, 255} :
+            enabled ? Color{110, 239, 205, 255} : Color{91, 222, 218, 255};
         DrawRectangleRounded({bounds.x + 2.0f, bounds.y + 3.0f,
             bounds.width, bounds.height}, 0.22f, 8, Color{5, 14, 20, 180});
         DrawRectangleGradientV(static_cast<int>(bounds.x),
@@ -614,9 +616,10 @@ namespace
         DrawCircleV(iconCenter, 3.0f, accent);
 
         const char* title = "AUTO SERVICE";
-        const char* subtitle = enabled ?
-            "TURNAROUND SEQUENCE RUNNING  /  DISPATCH REMAINS MANUAL" :
-            "START TURNAROUND SEQUENCE  /  DISPATCH REMAINS MANUAL";
+        const char* subtitle = !crewAvailable ?
+            "BRING A SERVICE CREW TO THIS GATE FIRST" :
+            enabled ? "TURNAROUND SEQUENCE RUNNING" :
+            "START TURNAROUND SEQUENCE";
         DrawText(title, static_cast<int>(bounds.x + 48.0f),
             static_cast<int>(bounds.y + 6.0f), 11,
             Color{244, 249, 248, 255});
@@ -629,7 +632,7 @@ namespace
             Fade(accent, enabled ? 0.24f : 0.12f));
         DrawRectangleRoundedLinesEx(stateBadge, 0.3f, 6, 1.0f,
             Fade(accent, 0.8f));
-        const char* stateLabel = enabled ? "ON" : "OFF";
+        const char* stateLabel = !crewAvailable ? "N/A" : enabled ? "ON" : "OFF";
         DrawText(stateLabel,
             static_cast<int>(stateBadge.x +
                 (stateBadge.width - MeasureText(stateLabel, 9)) * 0.5f),
@@ -2304,7 +2307,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         const CrewServiceRuntime& runtime = crewRuntime[
             static_cast<std::size_t>(crewIndex)];
         return runtime.tankerMotion != RefuellingTankerMotion::Parked ||
-            runtime.pushbackMotion != PushbackTugMotion::Parked ||
+            runtime.pushbackMotion == PushbackTugMotion::PushingAircraft ||
             !runtime.baggageGate.empty() ||
             !runtime.cateringGate.empty() ||
             !runtime.maintenanceGate.empty() ||
@@ -2725,6 +2728,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             pushbackTugMotion = PushbackTugMotion::Parked;
             pushbackTugPositioningGate.clear();
             pushbackTugReturnDelayRemaining = 0.0f;
+            activePushbackCrewIndex = -1;
         }
 
         // Preserve the existing temporary Gate 4 service layout as offsets from
@@ -3502,6 +3506,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (distance <= step || distance <= 0.05f)
             {
                 pushbackTugMotion = PushbackTugMotion::WaitingForAuthorisation;
+                crewRuntime[static_cast<std::size_t>(
+                    activePushbackCrewIndex)].pushbackMotion =
+                        PushbackTugMotion::WaitingForAuthorisation;
                 plan->pushbackState = FlightPlan::PushbackState::Complete;
                 refuellingMessage = "Pushback complete. Authorise departure at the gate.";
                 refuellingMessageTime = 4.0f;
@@ -4691,7 +4698,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     else if (automaticServiceUpgrade &&
                         CheckCollisionPointRec(mouse, buttons.autoService))
                     {
-                        if (automaticServiceGates.erase(selectedGateId) == 0)
+                        if (serviceCrewIndexAtGate(selectedGateId) < 0)
+                        {
+                            refuellingMessage = "Bring a service crew to this gate before starting auto service.";
+                            refuellingMessageTime = 2.5f;
+                        }
+                        else if (automaticServiceGates.erase(selectedGateId) == 0)
                             automaticServiceGates.insert(selectedGateId);
                     }
                     else if (departureAvailable &&
@@ -5823,7 +5835,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 DrawDepartureButton(buttons.departure);
             if (automaticServiceUpgrade)
                 DrawAutomaticServiceButton(buttons.autoService,
-                    automaticServiceGates.count(selectedGateId) != 0);
+                    automaticServiceGates.count(selectedGateId) != 0,
+                    serviceCrewIndexAtGate(selectedGateId) >= 0);
             else if (findParkedFlightAtGate(selectedGateId) != nullptr)
             {
                 const AircraftServiceProgress& progress =
