@@ -2354,7 +2354,19 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             return left.startsAtSeconds < right.startsAtSeconds;
         });
     float weatherAnimationTime = 0.0f;
+    struct ScorePopup
+    {
+        int points;
+        std::string reason;
+        float age;
+        float delay;
+    };
     int shiftScore = 0;
+    float displayedShiftScore = 0.0f;
+    float scorePulseTime = 0.0f;
+    int scorePulseDirection = 0;
+    float scorePopupStartDelay = 0.0f;
+    std::deque<ScorePopup> scorePopups;
     int followMeBonusPoints = 0;
     int credits = 0;
     std::string creditNotification;
@@ -2370,6 +2382,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     int priorityFlightsOnTime = 0;
     int priorityTasksHandledOnTime = 0;
     int priorityTasksHandledLate = 0;
+    const auto recordScoreChange = [&](int points, const char* reason)
+    {
+        if (points == 0) return;
+        shiftScore += points;
+        scorePopups.push_back({points, reason, 0.0f, scorePopupStartDelay});
+        scorePopupStartDelay += 0.38f;
+        scorePulseTime = 0.52f;
+        scorePulseDirection = points > 0 ? 1 : -1;
+    };
     std::string priorityNotification;
     float priorityNotificationTime = 0.0f;
     int selectedFlightIndex = -1;
@@ -5564,12 +5585,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     ++completedWaitTasks;
                     if (airplane.isPriority && responseTime <= PriorityTaskResponseSeconds)
                     {
-                        shiftScore += 20;
+                        recordScoreChange(20, "Priority response on time");
                         ++priorityTasksHandledOnTime;
                     }
                     else if (airplane.isPriority)
                     {
-                        shiftScore -= 10;
+                        recordScoreChange(-10, "Priority response penalty");
                         ++priorityTasksHandledLate;
                         priorityNotification = "PRIORITY " + airplane.flightId +
                             " - HANDLING TARGET MISSED";
@@ -5655,26 +5676,34 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         ++priorityFlightsCompleted;
                         if (departureLateness <= PriorityFlightOnTimeSeconds)
                         {
-                            shiftScore += 200;
+                            recordScoreChange(200, "Priority flight on time");
                             ++priorityFlightsOnTime;
                         }
                         else if (departureLateness <= PriorityFlightLateCreditSeconds)
-                            shiftScore += 125;
+                            recordScoreChange(125, "Priority flight completed");
                         else
-                            shiftScore += 50;
+                            recordScoreChange(50, "Priority flight late");
                         priorityNotification = "PRIORITY " + airplane.flightId +
                             (departureLateness <= PriorityFlightOnTimeSeconds ?
                                 " - ON-TIME DEPARTURE BONUS" : " - DEPARTED LATE");
                         priorityNotificationTime = 4.0f;
                     }
-                    else shiftScore += departureLateness <= StandardFlightOnTimeSeconds ?
-                        100 : 50;
+                    else
+                    {
+                        const bool onTime = departureLateness <=
+                            StandardFlightOnTimeSeconds;
+                        recordScoreChange(onTime ? 100 : 50,
+                            onTime ? "Flight completed on time" :
+                                "Flight completed late");
+                    }
                     if (plan.followMeEscortCompleted &&
                         !plan.followMeBonusRecorded)
                     {
                         const int escortBonus = 10 +
                             (airplane.isPriority ? 5 : 0);
-                        shiftScore += escortBonus;
+                        recordScoreChange(escortBonus,
+                            airplane.isPriority ? "Priority escort bonus" :
+                                "Follow-Me escort bonus");
                         followMeBonusPoints += escortBonus;
                         plan.followMeBonusRecorded = true;
                     }
@@ -6238,6 +6267,32 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 }
             }
         }
+
+        const float scoreAnimationBlend = 1.0f -
+            std::exp(-9.0f * realDeltaTime);
+        displayedShiftScore +=
+            (static_cast<float>(shiftScore) - displayedShiftScore) *
+                scoreAnimationBlend;
+        if (std::abs(static_cast<float>(shiftScore) - displayedShiftScore) < 0.1f)
+            displayedShiftScore = static_cast<float>(shiftScore);
+        scorePulseTime = std::max(0.0f, scorePulseTime - realDeltaTime);
+        scorePopupStartDelay = std::max(
+            0.0f, scorePopupStartDelay - realDeltaTime);
+        for (ScorePopup& popup : scorePopups)
+        {
+            if (popup.delay > 0.0f)
+                popup.delay = std::max(0.0f, popup.delay - realDeltaTime);
+            else
+                popup.age += realDeltaTime;
+        }
+        for (auto popup = scorePopups.begin(); popup != scorePopups.end();)
+        {
+            if (popup->delay <= 0.0f && popup->age >= 2.8f)
+                popup = scorePopups.erase(popup);
+            else
+                ++popup;
+        }
+        if (scorePopups.empty()) scorePopupStartDelay = 0.0f;
 
         const WeatherState currentWeather = GetWeatherState(
             shiftClockSeconds, weatherSchedule);
@@ -6829,12 +6884,103 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             timePanelY + 24, 24, RAYWHITE);
         const int priorityFlightTotal = static_cast<int>(std::count_if(flights.begin(), flights.end(),
             [](const FlightPlan& plan) { return plan.airplane.isPriority; }));
-        DrawText(TextFormat("%s %d F%d/%d P%d/%d O%d T%d/%d",
-            shiftComplete ? "FINAL" : "SHIFT", shiftScore, completedFlights,
+        DrawText(TextFormat("%s F%d/%d P%d/%d O%d T%d/%d",
+            shiftComplete ? "FINAL" : "SHIFT", completedFlights,
             static_cast<int>(flights.size()), priorityFlightsCompleted,
             priorityFlightTotal, priorityFlightsOnTime,
             priorityTasksHandledOnTime, priorityTasksHandledLate),
             timePanelX + 12, timePanelY + 47, 9, Color{231, 199, 119, 255});
+        const int displayedPoints = static_cast<int>(
+            std::lround(displayedShiftScore));
+        const char* scoreText = TextFormat("%d", displayedPoints);
+        const Color scoreAccent = scorePulseDirection < 0 ?
+            Color{255, 104, 115, 255} :
+            scorePulseDirection > 0 ? Color{102, 235, 164, 255} :
+                Color{124, 204, 207, 255};
+        const float pulseProgress = 1.0f - scorePulseTime / 0.52f;
+        const float scoreScale = scorePulseTime > 0.0f ?
+            1.0f + 0.1f * std::sin(pulseProgress * 3.14159265f) : 1.0f;
+        const Rectangle upgradesHudBounds = GetUpgradesHudButtonBounds();
+        const Rectangle scoreBadge{
+            upgradesHudBounds.x,
+            upgradesHudBounds.y + upgradesHudBounds.height + 6.0f,
+            upgradesHudBounds.width, 46.0f};
+        DrawRectangleRounded({scoreBadge.x - 3.0f, scoreBadge.y - 2.0f,
+            scoreBadge.width + 6.0f, scoreBadge.height + 4.0f},
+            0.2f, 6, Fade(scoreAccent, 0.12f * scorePulseTime / 0.52f));
+        DrawRectangleRounded(scoreBadge, 0.2f, 6,
+            Color{14, 39, 49, 255});
+        DrawRectangleRoundedLinesEx(scoreBadge, 0.2f, 6, 1.0f,
+            Fade(scoreAccent, 0.72f));
+        DrawRectangleRounded({scoreBadge.x + 4.0f, scoreBadge.y + 5.0f,
+            3.0f, scoreBadge.height - 10.0f}, 0.5f, 4,
+            Fade(scoreAccent, 0.9f));
+        DrawText("TOTAL SCORE", static_cast<int>(scoreBadge.x + 10.0f),
+            static_cast<int>(scoreBadge.y + 4.0f), 10,
+            Fade(scoreAccent, 0.95f));
+        const int scoreTextX = static_cast<int>(scoreBadge.x +
+            (scoreBadge.width - MeasureText(scoreText, 24)) * 0.5f);
+        const int scoreTextY = static_cast<int>(scoreBadge.y + 17.0f);
+        rlPushMatrix();
+        rlTranslatef(static_cast<float>(scoreTextX) +
+            MeasureText(scoreText, 24) * 0.5f,
+            static_cast<float>(scoreTextY + 12), 0.0f);
+        rlScalef(scoreScale, scoreScale, 1.0f);
+        rlTranslatef(-(static_cast<float>(scoreTextX) +
+            MeasureText(scoreText, 24) * 0.5f),
+            -static_cast<float>(scoreTextY + 12), 0.0f);
+        DrawText(scoreText, scoreTextX + 1, scoreTextY + 1, 24,
+            Fade(scoreAccent, 0.42f * scorePulseTime / 0.52f));
+        DrawText(scoreText, scoreTextX, scoreTextY, 24, RAYWHITE);
+        rlPopMatrix();
+
+        constexpr float ScorePopupDuration = 2.8f;
+        constexpr float ScorePopupWidth = 210.0f;
+        constexpr float ScorePopupHeight = 29.0f;
+        const float scorePopupX = std::max(8.0f,
+            scoreBadge.x - ScorePopupWidth - 8.0f);
+        int visibleScorePopup = 0;
+        for (const ScorePopup& popup : scorePopups)
+        {
+            if (popup.delay > 0.0f) continue;
+            const float fadeIn = std::min(1.0f, popup.age / 0.16f);
+            const float fadeOut = std::min(1.0f,
+                (ScorePopupDuration - popup.age) / 0.55f);
+            const float alpha = fadeIn * fadeOut;
+            const float rise = 12.0f * (1.0f - std::exp(-popup.age * 3.0f));
+            const float scale = 1.0f + 0.1f * std::exp(-popup.age * 11.0f);
+            const Color accent = popup.points > 0 ?
+                Color{82, 231, 153, 255} : Color{255, 98, 111, 255};
+            const Rectangle popupBounds{
+                scorePopupX,
+                scoreBadge.y +
+                    visibleScorePopup * (ScorePopupHeight + 4.0f) - rise,
+                ScorePopupWidth, ScorePopupHeight};
+            const float centerX = popupBounds.x + popupBounds.width * 0.5f;
+            const float centerY = popupBounds.y + popupBounds.height * 0.5f;
+            rlPushMatrix();
+            rlTranslatef(centerX, centerY, 0.0f);
+            rlScalef(scale, scale, 1.0f);
+            rlTranslatef(-centerX, -centerY, 0.0f);
+            DrawRectangleRounded({popupBounds.x - 3.0f,
+                popupBounds.y - 2.0f, popupBounds.width + 6.0f,
+                popupBounds.height + 4.0f}, 0.22f, 6,
+                Fade(accent, alpha * 0.12f));
+            DrawRectangleRounded(popupBounds, 0.2f, 6,
+                Fade(Color{12, 27, 35, 255}, alpha * 0.96f));
+            DrawRectangleRoundedLinesEx(popupBounds, 0.2f, 6, 1.0f,
+                Fade(accent, alpha * 0.9f));
+            DrawText(TextFormat("%+d", popup.points),
+                static_cast<int>(popupBounds.x + 10.0f),
+                static_cast<int>(popupBounds.y + 7.0f), 14,
+                Fade(accent, alpha));
+            DrawText(popup.reason.c_str(),
+                static_cast<int>(popupBounds.x + 62.0f),
+                static_cast<int>(popupBounds.y + 10.0f), 8,
+                Fade(Color{231, 241, 238, 255}, alpha));
+            rlPopMatrix();
+            ++visibleScorePopup;
+        }
         for (int speed = 1; speed <= 3; ++speed)
         {
             const Rectangle button = simulationSpeedButtonBounds(speed);
