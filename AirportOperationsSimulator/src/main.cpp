@@ -1685,6 +1685,14 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     const char* landingSoundPath = DirectoryExists("music") ?
         "music/aircraft-landing.mp3" :
         "resources/music/aircraft-landing.mp3";
+    Sound positivePointsSound{};
+    const char* positivePointsSoundPath = DirectoryExists("music") ?
+        "music/positive-points.mp3" :
+        "resources/music/positive-points.mp3";
+    Sound negativePointsSound{};
+    const char* negativePointsSoundPath = DirectoryExists("music") ?
+        "music/negative-points.mp3" :
+        "resources/music/negative-points.mp3";
     Music backgroundMusic{};
     const char* backgroundMusicPath = DirectoryExists("music") ?
         "music/background-music.mp3" :
@@ -1692,7 +1700,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     bool backgroundMusicStarted = false;
     bool backgroundMusicPaused = false;
     if (!audioDeviceReady)
-        TraceLog(LOG_WARNING, "Audio device is unavailable; aircraft sounds are disabled.");
+        TraceLog(LOG_WARNING, "Audio device is unavailable; sound effects are disabled.");
     else
     {
         takeoffSound = LoadSound(takeoffSoundPath);
@@ -1705,6 +1713,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 landingSoundPath);
         else
             SetSoundPitch(landingSound, 1.25f);
+        positivePointsSound = LoadSound(positivePointsSoundPath);
+        if (positivePointsSound.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load positive points sound: %s",
+                positivePointsSoundPath);
+        else
+            SetSoundVolume(positivePointsSound, 0.4f);
+        negativePointsSound = LoadSound(negativePointsSoundPath);
+        if (negativePointsSound.frameCount == 0)
+            TraceLog(LOG_WARNING, "Could not load negative points sound: %s",
+                negativePointsSoundPath);
+        else
+            SetSoundVolume(negativePointsSound, 0.4f);
         backgroundMusic = LoadMusicStream(backgroundMusicPath);
         if (backgroundMusic.frameCount == 0)
             TraceLog(LOG_WARNING, "Could not load background music: %s",
@@ -2413,12 +2433,18 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         float age;
         float delay;
     };
+    enum class PointSoundType
+    {
+        Positive,
+        Negative
+    };
     int shiftScore = 0;
     float displayedShiftScore = 0.0f;
     float scorePulseTime = 0.0f;
     int scorePulseDirection = 0;
     float scorePopupStartDelay = 0.0f;
     std::deque<ScorePopup> scorePopups;
+    std::deque<PointSoundType> pointSoundQueue;
     int followMeBonusPoints = 0;
     int credits = 0;
     std::string creditNotification;
@@ -2442,6 +2468,11 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         scorePopupStartDelay += 0.38f;
         scorePulseTime = 0.52f;
         scorePulseDirection = points > 0 ? 1 : -1;
+        if (audioDeviceReady &&
+            ((points > 0 && positivePointsSound.frameCount > 0) ||
+                (points < 0 && negativePointsSound.frameCount > 0)))
+            pointSoundQueue.push_back(points > 0 ?
+                PointSoundType::Positive : PointSoundType::Negative);
     };
     std::string priorityNotification;
     float priorityNotificationTime = 0.0f;
@@ -4201,6 +4232,17 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             StopMusicStream(backgroundMusic);
             backgroundMusicStarted = false;
             backgroundMusicPaused = false;
+        }
+        if (audioDeviceReady && !pointSoundQueue.empty() &&
+            !(positivePointsSound.frameCount > 0 &&
+                IsSoundPlaying(positivePointsSound)) &&
+            !(negativePointsSound.frameCount > 0 &&
+                IsSoundPlaying(negativePointsSound)))
+        {
+            const PointSoundType nextPointSound = pointSoundQueue.front();
+            pointSoundQueue.pop_front();
+            PlaySound(nextPointSound == PointSoundType::Positive ?
+                positivePointsSound : negativePointsSound);
         }
         if (showMainMenu)
             menuAnimationTime += realDeltaTime;
@@ -8134,6 +8176,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         }
         if (takeoffSound.frameCount > 0) UnloadSound(takeoffSound);
         if (landingSound.frameCount > 0) UnloadSound(landingSound);
+        if (positivePointsSound.frameCount > 0) UnloadSound(positivePointsSound);
+        if (negativePointsSound.frameCount > 0) UnloadSound(negativePointsSound);
         CloseAudioDevice();
     }
     CloseWindow();
