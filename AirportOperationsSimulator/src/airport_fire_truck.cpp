@@ -1,6 +1,7 @@
 #include "airport_fire_truck.h"
 
 #include "raylib.h"
+#include "rlgl.h"
 
 #include <initializer_list>
 
@@ -34,15 +35,22 @@ namespace
     }
 }
 
-AirportFireTruck::AirportFireTruck(float positionX, float positionZ)
-    : positionX(positionX), positionZ(positionZ)
+AirportFireTruck::AirportFireTruck(float positionX, float positionZ, float yawDegrees)
+    : positionX(positionX), positionZ(positionZ), yawDegrees(yawDegrees)
 {
 }
 
 void AirportFireTruck::Draw() const
 {
-    const float x = positionX;
-    const float z = positionZ;
+    const bool rotated = yawDegrees != 0.0f;
+    if (rotated)
+    {
+        rlPushMatrix();
+        rlTranslatef(positionX, 0.0f, positionZ);
+        rlRotatef(yawDegrees, 0.0f, 1.0f, 0.0f);
+    }
+    const float x = rotated ? 0.0f : positionX;
+    const float z = rotated ? 0.0f : positionZ;
 
     DrawCubeV({x, 0.98f, z}, {2.72f, 0.92f, 9.35f}, FireRedShade);
     DrawCubeV({x, 1.32f, z - 1.1f}, {2.7f, 1.1f, 5.6f}, FireRed);
@@ -96,4 +104,7 @@ void AirportFireTruck::Draw() const
                 Chrome);
         }
     }
+
+    if (rotated)
+        rlPopMatrix();
 }

@@ -1866,6 +1866,20 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     constexpr float TerminalFireCountdownSeconds = 60.0f;
     bool terminalFireExtinguished = false;
     bool terminalFireGameOver = false;
+    constexpr float TerminalFireExtinguishSeconds = 8.0f;
+    bool terminalFireDispatched = false;
+    float terminalFireExtinguishProgress = 0.0f;
+    // Trucks stand on the apron in front of the terminal (the roof fire is behind
+    // the facade at z = -2), mirrored per fire side, well apart and angled differently.
+    // Index matches TerminalFirePositions: 0 = west (x -75), 1 = east (x +75).
+    const Vector3 TerminalFireTruckPositions[2][2] = {
+        {{-91.0f, 0.0f, -12.0f}, {-78.0f, 0.0f, -26.0f}},
+        {{91.0f, 0.0f, -12.0f}, {78.0f, 0.0f, -26.0f}}
+    };
+    constexpr float TerminalFireTruckYawDegrees[2][2] = {
+        {80.0f, 105.0f},
+        {-80.0f, -105.0f}
+    };
     constexpr Vector2 RefuellingTankerParkingPositions[] = {
         {190.05f, -112.25f},
         {195.15f, -112.25f}
@@ -4342,12 +4356,25 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             if (terminalFireIndex >= 0 && !terminalFireExtinguished &&
                 !terminalFireGameOver && !shiftComplete && !showUpgradeMenu)
             {
-                terminalFireAge = std::min(terminalFireAge + speedScaledRealDeltaTime,
-                    TerminalFireCountdownSeconds);
-                if (terminalFireAge >= TerminalFireCountdownSeconds)
+                if (terminalFireDispatched)
                 {
-                    terminalFireGameOver = true;
-                    shiftEndedEarly = true;
+                    // Countdown and growth are paused while firefighting.
+                    terminalFireExtinguishProgress = std::min(
+                        terminalFireExtinguishProgress +
+                            speedScaledRealDeltaTime / TerminalFireExtinguishSeconds,
+                        1.0f);
+                    if (terminalFireExtinguishProgress >= 1.0f)
+                        terminalFireExtinguished = true;
+                }
+                else
+                {
+                    terminalFireAge = std::min(terminalFireAge + speedScaledRealDeltaTime,
+                        TerminalFireCountdownSeconds);
+                    if (terminalFireAge >= TerminalFireCountdownSeconds)
+                    {
+                        terminalFireGameOver = true;
+                        shiftEndedEarly = true;
+                    }
                 }
             }
             if (!shiftComplete)
@@ -6630,8 +6657,23 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             baggageTug.Draw();
         for (const PassengerShuttle& shuttle : passengerShuttles)
             shuttle.Draw();
-        for (const AirportFireTruck& fireTruck : airportFireTrucks)
-            fireTruck.Draw();
+        const bool fireTrucksAtFire = terminalFireIndex >= 0 && terminalFireDispatched &&
+            !terminalFireExtinguished;
+        if (fireTrucksAtFire)
+        {
+            for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
+            {
+                const Vector3 truckPosition =
+                    TerminalFireTruckPositions[terminalFireIndex][truckIndex];
+                AirportFireTruck(truckPosition.x, truckPosition.z,
+                    TerminalFireTruckYawDegrees[terminalFireIndex][truckIndex]).Draw();
+            }
+        }
+        else
+        {
+            for (const AirportFireTruck& fireTruck : airportFireTrucks)
+                fireTruck.Draw();
+        }
         for (const AircraftRefuellingTanker& refuellingTanker : parkedRefuellingTankers)
             refuellingTanker.Draw();
         for (const AircraftPushbackTug& pushbackTug : parkedPushbackTugs)
@@ -6675,13 +6717,15 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             DrawBoardingPassenger(passenger, gameplayAnimationTime);
         for (const BoardingPassenger& technician : maintenanceTechnicians)
             DrawBoardingPassenger(technician, gameplayAnimationTime);
-        if (terminalFireIndex >= 0)
+        if (terminalFireIndex >= 0 && !terminalFireExtinguished)
         {
             const Vector3 base = TerminalFirePositions[terminalFireIndex];
             const float t = gameplayAnimationTime;
-            // Fire grows steadily across the whole countdown.
+            // Fire grows steadily across the whole countdown and shrinks while
+            // being extinguished.
             const float growth = terminalFireAge / TerminalFireCountdownSeconds;
-            const float fireScale = 0.45f + 1.6f * growth;
+            const float fireScale = std::max(0.02f, (0.45f + 1.6f * growth) *
+                (1.0f - terminalFireExtinguishProgress));
             const int flameCount = 6 + static_cast<int>(growth * 12.0f);
             for (int flame = 0; flame < flameCount; ++flame)
             {
@@ -6714,6 +6758,33 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                         base.z + std::cos(rise * 0.5f + puff) * fireScale},
                     (1.6f + rise * 0.18f) * fireScale,
                     Fade(Color{70, 70, 74, 255}, 0.4f * (1.0f - rise / 18.0f)));
+            }
+            if (terminalFireDispatched)
+            {
+                // Water arcs from each truck's nozzle to the flames.
+                for (int truckIndex = 0; truckIndex < 2; ++truckIndex)
+                {
+                    const Vector3 truck = TerminalFireTruckPositions[terminalFireIndex][truckIndex];
+                    const Vector3 from{truck.x, 3.2f, truck.z};
+                    const Vector3 to{base.x, base.y + 1.5f * fireScale, base.z};
+                    // Wide spray: many droplets with individual spread and speed.
+                    constexpr int DropCount = 70;
+                    for (int drop = 0; drop < DropCount; ++drop)
+                    {
+                        const float seed = static_cast<float>(drop);
+                        const float u = std::fmod(seed * 0.137f + t * (1.3f +
+                            0.5f * std::fmod(seed * 0.61f, 1.0f)), 1.0f);
+                        const float spreadX = std::sin(seed * 12.9898f) * 3.5f * u;
+                        const float spreadZ = std::sin(seed * 78.233f) * 3.5f * u;
+                        const float spreadY = std::sin(seed * 39.346f) * 1.8f * u;
+                        DrawSphere({from.x + (to.x - from.x) * u + spreadX,
+                                from.y + (to.y - from.y) * u +
+                                    std::sin(u * PI) * 9.0f + spreadY,
+                                from.z + (to.z - from.z) * u + spreadZ},
+                            0.3f + 0.35f * u,
+                            Fade(Color{150, 210, 255, 255}, 0.75f - 0.35f * u));
+                    }
+                }
             }
         }
         if (!shiftComplete)
@@ -7922,8 +7993,35 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                 Fade(urgent ? Color{255, 110, 90, 255} : Color{255, 214, 120, 255},
                     0.7f + 0.3f * alertPulse));
 
+            if (!terminalFireDispatched)
+            {
+                // Glowing clickable dispatch alert above the parked fire trucks.
+                const Vector2 parked = GetWorldToScreen(
+                    {(FireTruckParkingPositions[0].x + FireTruckParkingPositions[1].x) * 0.5f,
+                        7.0f, FireTruckParkingPositions[0].y}, sceneCamera);
+                const Rectangle dispatchButton{parked.x - 78.0f, parked.y - 17.0f,
+                    156.0f, 34.0f};
+                const bool dispatchHovered = CheckCollisionPointRec(
+                    GetMousePosition(), dispatchButton);
+                DrawRectangleRounded({dispatchButton.x - 6.0f, dispatchButton.y - 6.0f,
+                    dispatchButton.width + 12.0f, dispatchButton.height + 12.0f},
+                    0.4f, 8, Fade(Color{255, 90, 50, 255}, 0.15f + 0.25f * alertPulse));
+                DrawRectangleRounded(dispatchButton, 0.3f, 8,
+                    dispatchHovered ? Color{235, 70, 40, 255} : Color{176, 38, 28, 245});
+                DrawRectangleRoundedLinesEx(dispatchButton, 0.3f, 8, 2.0f,
+                    Color{255, 214, 120, 255});
+                const char* dispatchText = "DISPATCH TRUCKS";
+                DrawText(dispatchText,
+                    static_cast<int>(dispatchButton.x + (dispatchButton.width -
+                        MeasureText(dispatchText, 14)) * 0.5f),
+                    static_cast<int>(dispatchButton.y + 10.0f), 14, RAYWHITE);
+                if (dispatchHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+                    !isPaused && !showUpgradeMenu && !shiftComplete)
+                    terminalFireDispatched = true;
+            }
+
             const float secondsLeft = TerminalFireCountdownSeconds - terminalFireAge;
-            if (secondsLeft <= 10.0f)
+            if (secondsLeft <= 10.0f && !terminalFireDispatched)
             {
                 // Urgency rises from 0 to 1 over the final 10 seconds; pulse
                 // frequency and strength both scale with it.
