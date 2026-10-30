@@ -1823,7 +1823,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     };
     int terminalFireIndex = -1;
     float terminalFireAge = 0.0f;
-    constexpr float TerminalFireCountdownSeconds = 180.0f;
+    constexpr float TerminalFireCountdownSeconds = 60.0f;
     bool terminalFireExtinguished = false;
     bool terminalFireGameOver = false;
     constexpr Vector2 RefuellingTankerParkingPositions[] = {
@@ -6587,9 +6587,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             const Vector3 base = TerminalFirePositions[terminalFireIndex];
             const float t = gameplayAnimationTime;
-            // Fire grows slowly across the whole 3-minute countdown.
+            // Fire grows steadily across the whole countdown.
             const float growth = terminalFireAge / TerminalFireCountdownSeconds;
-            const float fireScale = 0.45f + 1.35f * growth;
+            const float fireScale = 0.45f + 1.6f * growth;
             const int flameCount = 6 + static_cast<int>(growth * 12.0f);
             for (int flame = 0; flame < flameCount; ++flame)
             {
@@ -7811,16 +7811,47 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         {
             const int remaining = static_cast<int>(std::ceil(
                 TerminalFireCountdownSeconds - terminalFireAge));
-            const char* fireText = TextFormat("TERMINAL FIRE  %d:%02d",
+            const char* fireText = TextFormat("FIRE ALERT - TERMINAL %s ROOF  %d:%02d",
+                terminalFireIndex == 0 ? "WEST" : "EAST",
                 remaining / 60, remaining % 60);
             const bool urgent = remaining <= 30;
+            // Persistent alert: pulses for as long as the fire is active.
+            const float alertPulse = 0.5f + 0.5f * std::sin(
+                static_cast<float>(GetTime()) * (urgent ? 9.0f : 5.0f));
             const int fireWidth = MeasureText(fireText, 20) + 32;
             const int fireX = (GetScreenWidth() - fireWidth) / 2;
-            DrawRectangle(fireX, 146, fireWidth, 36, Fade(Color{70, 12, 10, 255}, 0.94f));
-            DrawRectangleLines(fireX, 146, fireWidth, 36,
+            DrawRectangle(fireX, 146, fireWidth, 36,
+                Fade(Color{static_cast<unsigned char>(70 + alertPulse * 90.0f), 12, 10, 255},
+                    0.94f));
+            DrawRectangleLinesEx({static_cast<float>(fireX), 146.0f,
+                static_cast<float>(fireWidth), 36.0f}, 1.0f + alertPulse * 2.0f,
                 urgent ? Color{255, 90, 70, 255} : Color{255, 160, 60, 255});
             DrawText(fireText, fireX + 16, 154, 20,
-                urgent ? Color{255, 110, 90, 255} : Color{255, 214, 120, 255});
+                Fade(urgent ? Color{255, 110, 90, 255} : Color{255, 214, 120, 255},
+                    0.7f + 0.3f * alertPulse));
+
+            const float secondsLeft = TerminalFireCountdownSeconds - terminalFireAge;
+            if (secondsLeft <= 10.0f)
+            {
+                // Urgency rises from 0 to 1 over the final 10 seconds; pulse
+                // frequency and strength both scale with it.
+                const float urgency = 1.0f - std::max(secondsLeft, 0.0f) / 10.0f;
+                const float pulseHz = 1.0f + urgency * 3.0f;
+                const float pulse = 0.5f + 0.5f * std::sin(
+                    terminalFireAge * pulseHz * 2.0f * PI);
+                const float strength = (0.18f + 0.42f * urgency) * (0.35f + 0.65f * pulse);
+                const unsigned char edgeAlpha = static_cast<unsigned char>(strength * 255.0f);
+                const Color edge{220, 20, 20, edgeAlpha};
+                const Color clear{220, 20, 20, 0};
+                const int sw = GetScreenWidth();
+                const int sh = GetScreenHeight();
+                // Only the screen edges are tinted so the centre stays readable.
+                const int band = std::max(sw, sh) / 6;
+                DrawRectangleGradientV(0, 0, sw, band, edge, clear);
+                DrawRectangleGradientV(0, sh - band, sw, band, clear, edge);
+                DrawRectangleGradientH(0, 0, band, sh, edge, clear);
+                DrawRectangleGradientH(sw - band, 0, band, sh, clear, edge);
+            }
         }
 
         if (priorityNotificationTime > 0.0f)
