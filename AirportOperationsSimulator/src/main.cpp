@@ -3520,6 +3520,27 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
     {
         return taxiwayClosureActive ? TaxiRoutePurpose::SharedTaxiway : normalPurpose;
     };
+    const auto taxiwaySectionIsOpen = [&airportGround](
+        const std::string& firstNodeId, const std::string& secondNodeId)
+    {
+        const auto& edges = airportGround.GetTaxiwayEdges();
+        const auto edge = std::find_if(edges.begin(), edges.end(),
+            [&firstNodeId, &secondNodeId](const TaxiwayEdge& candidate)
+            {
+                return (candidate.fromNodeId == firstNodeId &&
+                        candidate.toNodeId == secondNodeId) ||
+                    (candidate.fromNodeId == secondNodeId &&
+                        candidate.toNodeId == firstNodeId);
+            });
+        return edge != edges.end() && edge->open;
+    };
+    const auto routeUsesClosedSection = [&taxiwaySectionIsOpen](
+        const std::vector<std::string>& route)
+    {
+        for (std::size_t index = 1; index < route.size(); ++index)
+            if (!taxiwaySectionIsOpen(route[index - 1], route[index])) return true;
+        return false;
+    };
 
     const auto tryRerouteForClosure = [&](FlightPlan& plan)
     {
@@ -3548,15 +3569,17 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             std::size_t closedEdgeIndex = plan.activeRouteNodeIds.size();
             for (std::size_t index = 0; index + 1 < plan.activeRouteNodeIds.size(); ++index)
             {
-                const bool matchesForward = plan.activeRouteNodeIds[index] == closureFromNode &&
-                    plan.activeRouteNodeIds[index + 1] == closureToNode;
-                const bool matchesReverse = plan.activeRouteNodeIds[index] == closureToNode &&
-                    plan.activeRouteNodeIds[index + 1] == closureFromNode;
-                if (matchesForward || matchesReverse)
+                if (!taxiwaySectionIsOpen(plan.activeRouteNodeIds[index],
+                    plan.activeRouteNodeIds[index + 1]))
                 {
                     closedEdgeIndex = index;
                     break;
                 }
+            }
+            if (closedEdgeIndex == plan.activeRouteNodeIds.size())
+            {
+                plan.closureReroutePending = false;
+                return true;
             }
             bool taxiwayOnlyRoute = true;
             std::size_t firstRunwayNodeIndex = plan.activeRouteNodeIds.size();
@@ -3600,7 +3623,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             startNodeId, destinationNodeId,
             routePurposeForTraffic(plan.airplane.state == AirplaneState::TaxiingToStand ?
                 TaxiRoutePurpose::Arrival : TaxiRoutePurpose::Departure));
-        if (newRoute.empty() || !routeCanBeReserved(newRoute, plan.airplane.flightId))
+        if (newRoute.empty() || routeUsesClosedSection(newRoute) ||
+            !routeCanBeReserved(newRoute, plan.airplane.flightId))
         {
             plan.closureReroutePending = true;
             plan.airplane.SetWaypointRoute({plan.airplane.position}, 0.0f,
@@ -4993,7 +5017,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             for (FlightPlan& plan : flights)
             {
                 if (plan.spawned && (plan.closureReroutePending ||
-                    (taxiwayClosureActive && plan.routeStarted)))
+                    (plan.routeStarted &&
+                        routeUsesClosedSection(plan.activeRouteNodeIds))))
                     tryRerouteForClosure(plan);
             }
             refuellingMessageTime = std::max(0.0f,
@@ -6846,6 +6871,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     candidateNeedsContinuation = reservablePrefix.size() < candidateRoute.size();
                     candidateRoute = reservablePrefix;
                 }
+                if (candidateRoute.empty() || routeUsesClosedSection(candidateRoute))
+                    continue;
                 foundSafeRequest = true;
                 serveArrival = landingRequest;
                 serveTaxiToStand = taxiRequest;
