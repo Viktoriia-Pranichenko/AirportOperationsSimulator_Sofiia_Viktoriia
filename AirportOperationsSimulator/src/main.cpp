@@ -214,56 +214,61 @@ namespace
             0.065f, 0.05f, 6, passenger.shirtColor);
     }
 
-    void DrawAnimatedRouteArrows(const std::vector<std::string>& routeIds,
-        const AirportGround& ground, const Camera3D& camera, float time)
+    void DrawAnimatedRouteArrows(const std::vector<Vector2>& routePoints,
+        const Camera3D& camera, float time)
     {
         struct RouteSegment
         {
-            Vector3 start;
+            Vector2 start;
             float directionX;
             float directionZ;
             float length;
             float startDistance;
         };
 
-        static std::vector<std::string> cachedRouteIds;
-        static std::vector<RouteSegment> segments;
+        std::vector<RouteSegment> segments;
         float routeLength = 0.0f;
-        if (routeIds != cachedRouteIds)
+        segments.reserve(routePoints.size() > 0 ? routePoints.size() - 1 : 0);
+        for (std::size_t index = 1; index < routePoints.size(); ++index)
         {
-            cachedRouteIds = routeIds;
-            segments.clear();
-            const TaxiwayNode* previous = nullptr;
-            for (const std::string& nodeId : routeIds)
+            const Vector2& previous = routePoints[index - 1];
+            const Vector2& node = routePoints[index];
+            const float deltaX = node.x - previous.x;
+            const float deltaZ = node.y - previous.y;
+            const float segmentLength =
+                std::sqrt(deltaX * deltaX + deltaZ * deltaZ);
+            if (segmentLength >= 1.0f)
             {
-                const TaxiwayNode* node = ground.FindNode(nodeId);
-                if (node == nullptr) continue;
-                if (previous != nullptr)
-                {
-                    const float deltaX = node->position.x - previous->position.x;
-                    const float deltaZ = node->position.z - previous->position.z;
-                    const float segmentLength =
-                        std::sqrt(deltaX * deltaX + deltaZ * deltaZ);
-                    if (segmentLength >= 1.0f)
-                    {
-                        segments.push_back({previous->position,
-                            deltaX / segmentLength, deltaZ / segmentLength,
-                            segmentLength, routeLength});
-                        routeLength += segmentLength;
-                    }
-                }
-                previous = node;
+                segments.push_back({previous,
+                    deltaX / segmentLength, deltaZ / segmentLength,
+                    segmentLength, routeLength});
+                routeLength += segmentLength;
             }
         }
-        else if (!segments.empty())
-            routeLength = segments.back().startDistance + segments.back().length;
         if (segments.empty()) return;
 
         constexpr float ArrowSpacing = 11.5f;
         constexpr float ArrowSpeed = 13.0f;
-        constexpr float ArrowHeightOffset = 0.65f;
+        constexpr float RouteLineHeight = 0.2f;
         const float animationOffset = std::fmod(time * ArrowSpeed, ArrowSpacing);
+        const int screenHeight = std::max(GetScreenHeight(), 1);
+        const Vector3 cameraForward{
+            camera.target.x - camera.position.x,
+            camera.target.y - camera.position.y,
+            camera.target.z - camera.position.z
+        };
+        const float cameraForwardLength = std::sqrt(
+            cameraForward.x * cameraForward.x +
+            cameraForward.y * cameraForward.y +
+            cameraForward.z * cameraForward.z);
+        if (cameraForwardLength <= 0.001f) return;
+        const Vector3 normalizedCameraForward{
+            cameraForward.x / cameraForwardLength,
+            cameraForward.y / cameraForwardLength,
+            cameraForward.z / cameraForwardLength
+        };
         std::size_t segmentIndex = 0;
+        BeginMode3D(camera);
         for (float distance = animationOffset; distance <= routeLength;
             distance += ArrowSpacing)
         {
@@ -276,9 +281,23 @@ namespace
                 (distance - segment.startDistance) / segment.length, 0.0f, 1.0f);
             const Vector3 center{
                 segment.start.x + segment.directionX * segment.length * progress,
-                segment.start.y + ArrowHeightOffset,
-                segment.start.z + segment.directionZ * segment.length * progress
+                RouteLineHeight,
+                segment.start.y + segment.directionZ * segment.length * progress
             };
+            const Vector3 cameraOffset{
+                center.x - camera.position.x,
+                center.y - camera.position.y,
+                center.z - camera.position.z
+            };
+            const float cameraDepth = std::max(
+                cameraOffset.x * normalizedCameraForward.x +
+                    cameraOffset.y * normalizedCameraForward.y +
+                    cameraOffset.z * normalizedCameraForward.z,
+                0.1f);
+            const float worldPerPixel = camera.projection == CAMERA_ORTHOGRAPHIC ?
+                camera.fovy / static_cast<float>(screenHeight) :
+                2.0f * cameraDepth * std::tan(camera.fovy * DEG2RAD * 0.5f) /
+                    static_cast<float>(screenHeight);
             const float normalX = -segment.directionZ;
             const float normalZ = segment.directionX;
             const Vector3 tip{center.x + segment.directionX * 1.8f,
@@ -291,20 +310,52 @@ namespace
                 rear.y, rear.z - normalZ * 1.65f};
             const float pulse = 0.5f + 0.5f *
                 std::sin(time * 3.0f - distance * 0.025f);
+            const Color halo{34, 176, 174,
+                static_cast<unsigned char>(22.0f + pulse * 16.0f)};
             const Color glow{34, 176, 174,
-                static_cast<unsigned char>(24.0f + pulse * 16.0f)};
+                static_cast<unsigned char>(48.0f + pulse * 24.0f)};
             const Color midGlow{74, 238, 216,
-                static_cast<unsigned char>(90.0f + pulse * 35.0f)};
-            const auto drawStroke = [&](Vector2 from, Vector2 to)
+                static_cast<unsigned char>(125.0f + pulse * 40.0f)};
+            const auto drawStroke = [&](Vector3 from, Vector3 to,
+                float widthPixels, float height, Color color)
             {
-                DrawLineEx(from, to, 10.5f, glow);
-                DrawLineEx(from, to, 5.5f, midGlow);
-                DrawLineEx(from, to, 2.5f, Color{190, 255, 244, 245});
+                const float dx = to.x - from.x;
+                const float dz = to.z - from.z;
+                const float length = std::sqrt(dx * dx + dz * dz);
+                if (length <= 0.001f) return;
+                const float halfWidth = worldPerPixel * widthPixels * 0.5f;
+                const float perpendicularX = -dz / length * halfWidth;
+                const float perpendicularZ = dx / length * halfWidth;
+                const Vector3 first{
+                    from.x + perpendicularX, height, from.z + perpendicularZ};
+                const Vector3 second{
+                    to.x + perpendicularX, height, to.z + perpendicularZ};
+                const Vector3 third{
+                    to.x - perpendicularX, height, to.z - perpendicularZ};
+                const Vector3 fourth{
+                    from.x - perpendicularX, height, from.z - perpendicularZ};
+                DrawTriangle3D(first, second, third, color);
+                DrawTriangle3D(first, third, fourth, color);
             };
-            const Vector2 screenTip = GetWorldToScreen(tip, camera);
-            drawStroke(GetWorldToScreen(upperRear, camera), screenTip);
-            drawStroke(screenTip, GetWorldToScreen(lowerRear, camera));
+            drawStroke(upperRear, tip, 20.0f, RouteLineHeight,
+                halo);
+            drawStroke(tip, lowerRear, 20.0f, RouteLineHeight,
+                halo);
+            drawStroke(upperRear, tip, 14.0f, RouteLineHeight + 0.005f,
+                glow);
+            drawStroke(tip, lowerRear, 14.0f, RouteLineHeight + 0.005f,
+                glow);
+            drawStroke(upperRear, tip, 7.5f, RouteLineHeight + 0.01f,
+                midGlow);
+            drawStroke(tip, lowerRear, 7.5f, RouteLineHeight + 0.01f,
+                midGlow);
+            const Color core{190, 255, 244, 245};
+            drawStroke(upperRear, tip, 3.5f, RouteLineHeight + 0.015f,
+                core);
+            drawStroke(tip, lowerRear, 3.5f, RouteLineHeight + 0.015f,
+                core);
         }
+        EndMode3D();
     }
 
     constexpr float GateNavigationButtonWidth = 144.0f;
@@ -7799,7 +7850,27 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     routeIds = &cachedPlannedRouteIds;
                 }
             }
-            DrawAnimatedRouteArrows(*routeIds, airportGround, activeCamera,
+            std::vector<Vector2> routePoints;
+            const std::vector<Vector2>& aircraftWaypoints =
+                selected.airplane.GetWaypointRoute();
+            const bool taxiing = selected.airplane.state ==
+                    AirplaneState::TaxiingToStand ||
+                selected.airplane.state == AirplaneState::TaxiingToRunway;
+            if (taxiing && !aircraftWaypoints.empty())
+            {
+                const std::size_t nextWaypoint = std::min(
+                    selected.airplane.GetNextWaypointIndex(),
+                    aircraftWaypoints.size());
+                const std::size_t firstWaypoint = nextWaypoint > 0 ?
+                    nextWaypoint - 1 : 0;
+                routePoints.reserve(aircraftWaypoints.size() - firstWaypoint);
+                for (std::size_t waypointIndex = firstWaypoint;
+                    waypointIndex < aircraftWaypoints.size(); ++waypointIndex)
+                    routePoints.push_back(aircraftWaypoints[waypointIndex]);
+            }
+            else
+                routePoints = MakeWorldRoute(airportGround, *routeIds);
+            DrawAnimatedRouteArrows(routePoints, activeCamera,
                 gameplayAnimationTime);
             const Vector2 aircraftScreen = ProjectAirportPoint(
                 selected.airplane.position, activeCamera);
