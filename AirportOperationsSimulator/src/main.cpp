@@ -3523,6 +3523,12 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
     const auto tryRerouteForClosure = [&](FlightPlan& plan)
     {
+        // Take-off clearance already committed this aircraft to the runway;
+        // replacing its roll with a taxi route would strand it there.
+        if (plan.takeoffRollStarted &&
+            plan.airplane.state == AirplaneState::TaxiingToRunway &&
+            !plan.activeRouteNodeIds.empty() && !plan.closureReroutePending)
+            return true;
         if (plan.landingRouteActive)
         {
             plan.closureReroutePending = false;
@@ -6342,7 +6348,9 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
             }
             if (!plan.spawned) continue;
             const AirplaneState stateBeforeUpdate = airplane.state;
-            if (followMeAssignedFlightIndex != static_cast<int>(flightIndex) ||
+            // The escort never holds an aircraft that already has take-off clearance.
+            if (plan.takeoffRollStarted ||
+                followMeAssignedFlightIndex != static_cast<int>(flightIndex) ||
                 followMeStatus != FollowMeStatus::MovingToAircraft)
                 airplane.Update(deltaTime);
             if (airplane.ConsumeLandingSoundCue() &&
@@ -6615,6 +6623,30 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     }
                 }
             }
+        }
+
+        // A runway is held only by an aircraft that is landing or rolling for
+        // take-off. Drop any claim whose holder has left that phase.
+        for (auto owner = runwayOwners.begin(); owner != runwayOwners.end();)
+        {
+            bool stillUsing = false;
+            for (FlightPlan& holder : flights)
+            {
+                if (holder.airplane.flightId != owner->second) continue;
+                const AirplaneState holderState = holder.airplane.state;
+                stillUsing = holder.spawned && holder.runwayReserved &&
+                    holder.runwayId == owner->first &&
+                    (holder.landingRouteActive ||
+                        holderState == AirplaneState::Arriving ||
+                        holderState == AirplaneState::Landing ||
+                        holderState == AirplaneState::TakingOff ||
+                        (holder.takeoffRollStarted && holder.airplane.hasTarget &&
+                            holderState == AirplaneState::TaxiingToRunway));
+                if (!stillUsing) holder.runwayReserved = false;
+                break;
+            }
+            if (stillUsing) ++owner;
+            else owner = runwayOwners.erase(owner);
         }
 
         // Serve the oldest ready requests. Active routes retain reservations
@@ -6965,7 +6997,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     escorted.departureFlight &&
                     escorted.airplane.state ==
                         AirplaneState::AwaitingTakeoffAuthorization;
-                const bool takingOff =
+                const bool takingOff = escorted.takeoffRollStarted ||
                     escorted.airplane.state == AirplaneState::TakingOff ||
                     escorted.airplane.state == AirplaneState::Departed;
                 const bool waitingAtGate = escorted.spawned &&
@@ -8457,7 +8489,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                     hovered ? Color{137, 244, 229, 255} :
                         Color{152, 195, 201, 255});
             };
-            drawMenuButton(startButton, "START GAME", "OPEN AIRFIELD CONTROL",
+            drawMenuButton(startButton, "START", "OPEN AIRFIELD CONTROL",
                 hoverStart, true, pulse);
             drawMenuButton(settingsButton, "SETTINGS", "GAMEPLAY GUIDE",
                 hoverSettings, false, pulse);
