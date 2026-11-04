@@ -6157,9 +6157,7 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                                 { return item.id == selected.runwayId; });
                             const auto route = airportGround.FindRouteNodeIds(
                                 selected.departureHoldNodeId, selected.departureRunwayStart,
-                                // Take-off clearance must enter the runway even
-                                // while a taxiway closure diverts surface traffic.
-                                TaxiRoutePurpose::Departure);
+                                routePurposeForTraffic(TaxiRoutePurpose::Departure));
                             // Aircraft still holding in the air only claim approach
                             // nodes; they must not block a take-off clearance, which
                             // otherwise stays refused for as long as rain backed up.
@@ -6171,7 +6169,8 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
                                             other.airplane.state == AirplaneState::Holding;
                                 return false;
                             };
-                            bool takeoffRouteFree = !route.empty();
+                            bool takeoffRouteFree = !route.empty() &&
+                                !routeUsesClosedSection(route);
                             for (std::size_t i = 0; takeoffRouteFree && i < route.size(); ++i)
                             {
                                 const auto nodeOwner = occupiedNodes.find(route[i]);
