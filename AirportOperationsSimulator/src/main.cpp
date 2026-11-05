@@ -3544,6 +3544,13 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
     const auto tryRerouteForClosure = [&](FlightPlan& plan)
     {
+        // Take-off clearance already committed this aircraft to the runway;
+        // replacing its roll with a taxi route would strand it there.
+        if (plan.takeoffRollStarted &&
+            plan.airplane.state == AirplaneState::TaxiingToRunway &&
+            !plan.activeRouteNodeIds.empty() && !plan.closureReroutePending)
+            return true;
+
         if (plan.landingRouteActive)
         {
             plan.closureReroutePending = false;
