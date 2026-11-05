@@ -3544,12 +3544,6 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
 
     const auto tryRerouteForClosure = [&](FlightPlan& plan)
     {
-        // Take-off clearance already committed this aircraft to the runway;
-        // replacing its roll with a taxi route would strand it there.
-        if (plan.takeoffRollStarted &&
-            plan.airplane.state == AirplaneState::TaxiingToRunway &&
-            !plan.activeRouteNodeIds.empty() && !plan.closureReroutePending)
-            return true;
         if (plan.landingRouteActive)
         {
             plan.closureReroutePending = false;
@@ -3641,10 +3635,30 @@ RunGameResult RunGame(bool startImmediately, GameDifficulty& savedDifficulty,
         std::vector<Vector2> route{plan.airplane.position};
         const std::vector<Vector2> worldRoute = MakeWorldRoute(airportGround, newRoute);
         route.insert(route.end(), worldRoute.begin(), worldRoute.end());
-        plan.airplane.SetWaypointRoute(route,
-            plan.airplane.state == AirplaneState::TaxiingToStand ? 9.0f : 11.0f,
-            plan.airplane.state == AirplaneState::TaxiingToStand ?
-                AirplaneState::Parked : AirplaneState::AwaitingTakeoffAuthorization);
+        if (plan.takeoffRollStarted &&
+            plan.airplane.state == AirplaneState::TaxiingToRunway)
+        {
+            const auto roll = MakeTakeoffRoute(airportGround, plan.runwayId,
+                plan.departureRunwayStart, route.back());
+            if (roll.size() <= 1)
+            {
+                plan.closureReroutePending = true;
+                plan.airplane.SetWaypointRoute({plan.airplane.position}, 0.0f,
+                    plan.airplane.state);
+                return false;
+            }
+            const int takeoffTransitionIndex = static_cast<int>(route.size() - 1);
+            route.insert(route.end(), roll.begin() + 1, roll.end());
+            plan.airplane.SetWaypointRoute(route, 72.0f, AirplaneState::Departed,
+                takeoffTransitionIndex, AirplaneState::TakingOff);
+        }
+        else
+        {
+            plan.airplane.SetWaypointRoute(route,
+                plan.airplane.state == AirplaneState::TaxiingToStand ? 9.0f : 11.0f,
+                plan.airplane.state == AirplaneState::TaxiingToStand ?
+                    AirplaneState::Parked : AirplaneState::AwaitingTakeoffAuthorization);
+        }
         return true;
     };
     const auto selectGate = [&](const AirportParkingStand& gate)
